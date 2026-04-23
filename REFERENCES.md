@@ -574,6 +574,170 @@ A lightweight publish/subscribe event bus for decoupled cross-component communic
 
 ---
 
+## UlidTools Library (C#)
+
+**Location:** `F:\LocalSource\ClassLibrary\UlidTools`
+
+A ULID (Universally Unique Lexicographically Sortable Identifier) implementation. ULID is a 128-bit identifier combining **48-bit millisecond timestamp** + **80-bit cryptographic randomness**, encoded as a 26-character Crockford Base32 string.
+
+### Why ULID matters
+
+**ULID vs GUID:**
+- ✅ Time-ordered / sortable (GUIDs are random)
+- ✅ Extract creation timestamp (GUIDs can't)
+- ✅ Better DB index performance (monotonic, not random)
+- ✅ Shorter string representation (26 chars vs 36 for GUID)
+
+**Used by DatabaseTools' sync system (§DatabaseTools SYNC.md):**
+- Change IDs in `_sync_changelog` table use ULIDs
+- Globally unique, no clock sync needed
+- Time-sortable for change ordering
+- Embedded timestamp for conflict resolution (LastWriteWins uses ULID timestamp)
+
+### Relevance to tosumu
+
+#### **Potential use for LSN (Log Sequence Number)**
+**Current design (§5.3, §7):** LSN is `u64` (8 bytes), just a counter.
+
+**ULID alternative:**
+- **128-bit LSN** = 48-bit timestamp + 80-bit entropy
+- Extract WAL entry timestamp without separate field
+- Still monotonic (timestamp increases)
+- Useful for distributed tosumu (Stage 7+): globally-ordered LSN without coordination
+
+**Trade-off:**
+- Pros: Embedded timestamp, globally unique, sortable
+- Cons: Larger (16 bytes vs 8 bytes), overkill for single-process (current tosumu)
+
+**Verdict:** Not needed for Stages 1–6 (single-process). Revisit for Stage 7+ if tosumu grows distributed/replicated features.
+
+---
+
+#### **Potential use for change tracking (Stage 7+ sync)**
+If tosumu implements multi-device sync (like DatabaseTools' SyncEngine), ULID would be ideal for change IDs:
+- `_sync_changelog(change_id ULID, table_name, operation, row_key, data, ...)`
+- ULID timestamp enables LastWriteWins conflict resolution
+- No need for separate `timestamp` column
+
+**When to reference:** Stage 7+ if tosumu grows sync/replication capabilities.
+
+---
+
+#### **Potential use for transaction IDs**
+Currently tosumu doesn't expose transaction IDs (Stage 3 just has an implicit transaction per `commit`).
+
+**ULID TxnID benefits:**
+- Timestamp embedded → know when transaction started
+- Unique across database restarts (unlike counter reset)
+- Useful for audit logs, debugging ("show me transactions from 9 AM to noon")
+
+**Verdict:** Nice-to-have for Stage 3+, not critical.
+
+---
+
+### Implementation quality
+
+**UlidTools code characteristics:**
+- Zero dependencies (pure .NET 8)
+- `readonly struct Ulid` with explicit layout (`[StructLayout(LayoutKind.Explicit)]`)
+- Big-endian byte order for natural string sort = chronological sort
+- Crockford Base32 encoding (excludes ambiguous chars: I, L, O, U)
+- Range query helpers: `MinValueForTimestamp`, `MaxValueForTimestamp`
+- `IUlidProvider` abstraction for DI and testing (deterministic provider for tests)
+
+**Key lesson:** When you need time-sortable IDs, ULID is a proven pattern. Don't invent your own format.
+
+**Usage:**
+```bash
+# Review if tosumu grows distributed features or needs time-sortable IDs
+code F:\LocalSource\ClassLibrary\UlidTools\Ulid.cs
+code F:\LocalSource\ClassLibrary\UlidTools\README.md
+```
+
+---
+
+## Other ClassLibrary projects
+
+**Location:** `F:\LocalSource\ClassLibrary` (241 projects total)
+
+The ClassLibrary is a massive enterprise toolkit with ~75 infrastructure libraries. Most are not relevant to tosumu (document processing, XSLT, FOP, PDF, AI tools, web tools, etc.).
+
+**Already documented:**
+- DataStructures (65+ structures)
+- DatabaseTools (migrations, sync, schema)
+- MemoryStore (in-memory virtual file system)
+- SecurityTools (crypto primitives)
+- VaultServices (envelope encryption)
+- SignalHubTools (pub/sub events)
+- UlidTools (time-sortable IDs)
+
+**Potentially interesting but lower priority:**
+
+### AuditLog — Structured logging
+**Path:** `F:\LocalSource\ClassLibrary\AuditLog`
+
+**What it offers:**
+- Structured audit logging with EventId system (Windows Event Viewer style)
+- Event categories: UserEvents, SystemEvents, APIEvents, AdminEvents, ServiceEvents, SecurityEvents
+- EF Core integration, correlation IDs, task tracking
+
+**Tosumu use case:**
+- If tosumu needs structured logging (Stage 6+ observability)
+- EventIds for database events: `2001 - ApplicationStarted`, `1102 - DataModification`, `2101 - SystemError`
+- Probably overkill for a learning project — Rust `tracing` crate is simpler
+
+---
+
+### CronTools — Scheduling
+**Path:** `F:\LocalSource\ClassLibrary\CronTools`
+
+**What it offers:**
+- Cron expression parser and scheduler
+- Job tracking and execution
+
+**Tosumu use case:**
+- Stage 6 `VACUUM` — schedule automatic space reclamation
+- Checkpoint scheduling (run WAL checkpoint every N minutes)
+
+**Verdict:** Nice-to-have for Stage 6+, not urgent.
+
+---
+
+### IndexServices — In-memory inverted index
+**Path:** `F:\LocalSource\ClassLibrary\IndexServices`
+
+**What it offers:**
+- Simple in-memory inverted index for text search
+- Tokenization, scoring, metadata
+
+**Tosumu use case:**
+- Related to §17 (advanced indexing), but tosumu already ruled out full-text search
+- If someone wants lightweight keyword search, this is simpler than Tantivy
+
+**Verdict:** Out of scope per §17.2.2. Mentioned in DESIGN.md already.
+
+---
+
+## Summary: What to use from ClassLibrary
+
+**Critical for tosumu:**
+- **VaultServices** — Stage 4 (envelope encryption, protectors)
+- **SecurityTools** — Stage 4 (AES-GCM, HKDF, Argon2 patterns)
+- **DataStructures** — Stage 1 (LRU cache), Stage 2 (B+ tree), Stage 3 (ring buffer), Stage 6+ (Bloom filter)
+- **DatabaseTools** — Stage 1+ (migrations), Stage 5+ (DDL), Stage 7+ (sync)
+
+**Useful for extensions:**
+- **UlidTools** — Stage 7+ (time-sortable LSN, sync change IDs)
+- **MemoryStore** — Stage 1+ (in-memory mode for testing)
+- **SignalHubTools** — Stage 6+ (internal event hooks)
+- **AuditLog** — Stage 6+ (structured logging, observability)
+- **CronTools** — Stage 6+ (VACUUM scheduling, checkpoint scheduling)
+
+**Out of scope:**
+- Everything else (document processing, XSLT, FOP, AI, web tools, etc.) — not storage engine concerns.
+
+---
+
 ## Other references
 
 ### SQLite source code
