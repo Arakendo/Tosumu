@@ -153,6 +153,162 @@ The following structures in the DataStructures library are well-implemented but 
 
 ---
 
+## DatabaseTools Library (C#)
+
+**Location:** `F:\LocalSource\ClassLibrary\DatabaseTools`
+
+A comprehensive database tooling library with migration runner, schema builder, sync engine, and backup/export/import utilities. Built for SQLite but has design patterns applicable to any embedded database.
+
+### Migration system
+
+#### **ICodeMigration** + **SqliteMigrationRunner** — Directly relevant to DESIGN.md §12
+**Path:** `ICodeMigration.cs`, `SqliteMigrationRunner.cs`, `MIGRATIONS.md`
+
+**What to reference:**
+- **Version-based migration ordering** — each migration has a `long Version` (uses timestamps like `202602190900`).
+- **Up/Down pattern** — forward migration + explicit rollback. Tosumu's §12.6 `FormatMigration` trait mirrors this.
+- **Migration history table** — `__MigrationHistory` tracks applied migrations. Tosumu should store this in page 0 header or a system page.
+- **Transaction wrapping** — migrations run inside transactions by default, with opt-out for long-running ops.
+- **Discovery + sorting** — runner auto-discovers migrations, sorts by version, applies pending ones.
+
+**Adaptation notes:**
+- C# version uses `SqliteConnection` + ADO.NET. Tosumu's version works on raw pages.
+- Core pattern is identical: versioned changes, recorded history, safe rollback.
+- Tosumu's migration categories (§12.2) are more granular (metadata-only vs. page-local vs. destructive).
+
+**Key lesson:** The **migration history table** pattern is crucial. Tosumu should store `(version, name, applied_at, rolled_back_at)` tuples, not just `format_version` in the header.
+
+**Usage:**
+```bash
+# Review before implementing tosumu's migration system
+code F:\LocalSource\ClassLibrary\DatabaseTools\MIGRATIONS.md
+code F:\LocalSource\ClassLibrary\DatabaseTools\ICodeMigration.cs
+code F:\LocalSource\ClassLibrary\DatabaseTools\SqliteMigrationRunner.cs
+```
+
+---
+
+#### **SqliteSchemaBuilder** — Fluent DDL pattern
+**Path:** `SqliteSchemaBuilder.cs`
+
+**What to reference:**
+- Fluent API for DDL (`CreateTable`, `AddColumn`, `CreateIndex`, etc.).
+- Table-level constraints (primary key, foreign key, unique).
+- Accumulates statements, then executes as a batch.
+
+**Tosumu use case:**
+- If tosumu's Stage 5 SQL layer grows DDL support (`CREATE TABLE`, `CREATE INDEX`), this is a reference for the builder pattern.
+- Not urgent for Stage 1–4 (hand-written page layouts), but useful for Stage 5+.
+
+---
+
+### Sync engine
+
+#### **SyncEngine** + **ISyncChangeLog** — Ideas for future multi-device sync
+**Path:** `SyncEngine.cs`, `SqliteSyncChangeLog.cs`, `SYNC.md`
+
+**What it does:**
+- **Change tracking** — captures INSERT/UPDATE/DELETE via application-level triggers.
+- **ULID-based change IDs** — globally unique, time-sortable, no clock sync required.
+- **Bidirectional sync** — push local changes to server, pull remote changes, apply both.
+- **Conflict resolution** — LastWriteWins (ULID timestamp), ServerWins, ClientWins, Manual.
+- **Watermarks** — track sync progress per remote node, only exchange new changes.
+- **Offline-first** — all changes captured locally, sync when connectivity available.
+
+**Tosumu integration idea (Stage 7+, hypothetical):**
+- Store change log in a system table: `_sync_changelog(id ULID, table_name, operation, row_key, data, timestamp)`.
+- Use tosumu's LSN (log sequence number) instead of ULID for ordering.
+- Conflict resolution for distributed tosumu instances (not single-process anymore).
+- Would require rearchitecting tosumu from single-writer to multi-writer with coordination.
+
+**Why this is deferred:**
+- Tosumu is explicitly single-process (DESIGN.md §1.2).
+- Sync is a Stage 7+ extension, not core design.
+- But: the **ULID-based change ID** pattern is excellent for globally-ordered events in distributed systems.
+
+**When to reference:** If tosumu ever needs distributed sync, cloud backup, or multi-device replication.
+
+---
+
+### Other useful patterns
+
+- **DatabaseExporter/Importer** — full-DB export to JSON/SQLite/CSV. Useful for tosumu's backup/restore (Stage 4b "backup before migration").
+- **SchemaComparer** — detects differences between two databases. Tosumu could use this for migration validation tests.
+- **Content packages** — self-contained SQLite files with metadata. Similar to tosumu's fixture files (§10.9).
+
+---
+
+## MemoryStore Library (C#)
+
+**Location:** `F:\LocalSource\ClassLibrary\MemoryStore`
+
+An in-memory virtual file system with URI-based resource management. Thread-safe, no disk I/O, comprehensive text/binary/JSON/XML operations.
+
+### Interesting patterns for tosumu
+
+#### **ConcurrentDictionary with case-insensitive URI keys** — Portable resource lookup
+**Path:** `InMemoryResourceStore.cs`
+
+**What to reference:**
+- Custom `IEqualityComparer<Uri>` for case-insensitive lookups (cross-platform Windows/Linux compatibility).
+- `ConcurrentDictionary<Uri, byte[]>` for thread-safe storage.
+- Separate timestamp tracking (`ConcurrentDictionary<Uri, DateTime>`) for metadata.
+
+**Tosumu use case:**
+- If tosumu ever needs an in-memory mode (no disk writes, useful for testing), this is the pattern.
+- Could be a `Database::open_memory()` constructor that uses a memory-backed pager instead of file I/O.
+- Testing: fast, deterministic, no temp file cleanup.
+
+**When to reference:** If Stage 1 testing becomes slow due to disk I/O, or if someone requests an in-memory mode.
+
+---
+
+#### **Content-type inference** — Metadata from file extensions
+**Path:** `FEATURE_SUMMARY.md`, `GetContentType` method
+
+**What it does:**
+- Maps file extensions to MIME types (`.json` → `application/json`, `.xml` → `text/xml`, etc.).
+- Used for serving resources via HTTP or generating metadata.
+
+**Tosumu use case:**
+- Not directly relevant (tosumu stores opaque key/value pairs, not files).
+- But: if tosumu's Stage 5 SQL layer grows blob storage with content-type metadata, this is a reference.
+
+**Deferred to Stage 5+ or never.**
+
+---
+
+#### **Hashing and comparison** — Integrity checks
+**Path:** `GetMD5Hash`, `GetSHA256Hash`, `AreEqual` methods
+
+**What it does:**
+- Compute cryptographic hashes (MD5, SHA256) over stored resources.
+- Byte-by-byte equality comparison.
+
+**Tosumu use case:**
+- Tosumu already has HMAC-SHA256 for header MAC (§8.4) and AEAD tags for pages (§8.2).
+- This pattern is useful for **migration validation tests**: compute hash of pre-migration file, run migration, verify hash of specific pages or metadata hasn't changed when it shouldn't.
+- Could also be used for **backup integrity** — hash backup files, verify on restore.
+
+**When to reference:** Stage 3+ (WAL checksums), Stage 4 (migration validation), Stage 6 (backup integrity).
+
+---
+
+### Why MemoryStore is less critical for tosumu
+
+MemoryStore is designed for **document processing pipelines** (XML transformations, XSLT, FOP rendering). Tosumu is a **page-based storage engine**. The overlap is smaller than with DataStructures or DatabaseTools.
+
+**What's useful:**
+- In-memory mode pattern (testing, fast iteration).
+- Thread-safe resource management (if tosumu grows concurrent readers in Stage 6).
+- Metadata tracking pattern (timestamps, content types).
+
+**What's not useful:**
+- XML/XSLT integration (tosumu stores opaque blobs, not documents).
+- URI-based resource resolution (tosumu uses page numbers, not URIs).
+
+---
+
 ## Other references
 
 ### SQLite source code
