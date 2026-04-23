@@ -78,3 +78,4 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 
 - [`DESIGN.md`](DESIGN.md) — the design doc. Read this first.
 - [`SECURITY.md`](SECURITY.md) — threat model summary and reporting.
+- [`REFERENCES.md`](REFERENCES.md) — reference implementations and resources that inform tosumu's design.
