@@ -13,6 +13,12 @@ path = "fuzz_targets/fuzz_page_decode.rs"
 test = false
 doc = false
 
+[[bin]]
+name = "fuzz_btree_operations"
+path = "fuzz_targets/fuzz_btree_operations.rs"
+test = false
+doc = false
+
 [dependencies]
 libfuzzer-sys = "0.4"
 tosumu-core = { path = "../crates/tosumu-core" }

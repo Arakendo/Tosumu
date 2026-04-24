@@ -7,6 +7,7 @@ pub mod error;
 pub mod format;
 pub mod crypto;
 pub mod pager;
+pub mod btree;
 pub mod page_store;
 pub mod log_store;
 pub mod inspect;

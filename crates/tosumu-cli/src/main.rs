@@ -111,6 +111,7 @@ fn run(cli: Cli) -> Result<(), tosumu_core::error::TosumError> {
             let s = store.stat();
             println!("page_count:  {}", s.page_count);
             println!("data_pages:  {}", s.data_pages);
+            println!("tree_height: {}", s.tree_height);
         }
         Command::Dump { path, page } => cmd_dump(&path, page)?,
         Command::Hex  { path, page } => cmd_hex(&path, page)?,

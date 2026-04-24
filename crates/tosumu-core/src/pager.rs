@@ -24,6 +24,8 @@ pub struct Pager {
     // Cached from the file header. Written back on allocate / flush_header.
     page_count: u64,
     freelist_head: u64,
+    /// B+ tree root page number (0 = not yet set). Persisted at OFF_ROOT_PAGE.
+    root_page: u64,
 }
 
 impl Pager {
@@ -55,6 +57,7 @@ impl Pager {
             page_key,
             page_count: 1,
             freelist_head: 0,
+            root_page: 0,
         })
     }
 
@@ -103,8 +106,9 @@ impl Pager {
 
         let page_count = read_u64(&page0, OFF_PAGE_COUNT);
         let freelist_head = read_u64(&page0, OFF_FREELIST_HEAD);
+        let root_page = read_u64(&page0, OFF_ROOT_PAGE);
 
-        Ok(Pager { file, page_key, page_count, freelist_head })
+        Ok(Pager { file, page_key, page_count, freelist_head, root_page })
     }
 
     // ── Page access ──────────────────────────────────────────────────────────
@@ -179,6 +183,17 @@ impl Pager {
         self.page_count
     }
 
+    /// Return the B+ tree root page number (0 if not yet set).
+    pub fn root_page(&self) -> u64 {
+        self.root_page
+    }
+
+    /// Persist a new B+ tree root page number.
+    pub fn set_root_page(&mut self, pgno: u64) -> Result<()> {
+        self.root_page = pgno;
+        self.flush_header()
+    }
+
     // ── Header flush ─────────────────────────────────────────────────────────
 
     /// Write updated page_count and freelist_head back to page 0.
@@ -193,7 +208,7 @@ impl Pager {
 
         write_u64(&mut page0, OFF_PAGE_COUNT, self.page_count);
         write_u64(&mut page0, OFF_FREELIST_HEAD, self.freelist_head);
-
+        write_u64(&mut page0, OFF_ROOT_PAGE, self.root_page);
         self.file.seek(SeekFrom::Start(0))?;
         self.file.write_all(&page0)?;
         self.file.sync_data()?;
