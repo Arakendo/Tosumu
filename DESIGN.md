@@ -2775,3 +2775,140 @@ Tosumu is **local-first**. Network paths are supported through explicit, conserv
 Most embedded database corruption on network paths is not a bug in the database. It is a mismatch between assumptions and environment — and the database was silent about it. Tosumu is not silent about it.
 
 ---
+
+## 22. Server mode and multi-client access (Stage 7+)
+
+The §21 network story resolves to the correct answer: don't pretend a network filesystem is a local disk. The *actually correct* answer for multi-client network access is a thin server wrapper around `tosumu-core`.
+
+This section documents that architecture so it stays consistent with the rest of the design if/when it gets built. It is explicitly Stage 7+ — it should not be designed in detail before Stage 1 exists.
+
+### 22.1 Crate structure
+
+```
+tosumu-core    → storage engine (local, embedded, single-process)
+tosumu-cli     → tooling (inspect, verify, migrate, dump, debug)
+tosumu-server  → network wrapper (multi-client access to one database)
+tosumu-client  → optional client SDK (talks to tosumu-server over HTTP/gRPC)
+```
+
+These do not mix. `tosumu-core` has no network code. `tosumu-server` has no storage code beyond calling `tosumu-core`. The boundary is enforced by the crate boundary.
+
+### 22.2 Architecture
+
+```
+clients (many)
+     ↓
+network transport (HTTP or gRPC)
+     ↓
+tosumu-server
+  ├── reader pool  → snapshot reads (parallel)
+  └── writer queue → serialized writes (one at a time)
+     ↓
+tosumu-core
+     ↓
+file
+```
+
+The concurrency model is identical to the embedded model: many readers, single writer. The server extends that model across the network — it does not replace or complicate it. The writer queue in `tosumu-server` maps directly to the writer gate in `tosumu-core` (§7.5).
+
+### 22.3 API design
+
+Start stateless and boring:
+
+```
+GET    /kv/{key}          → point read (snapshot)
+PUT    /kv/{key}          → single write
+DELETE /kv/{key}          → single delete
+POST   /tx                → batched transaction
+GET    /scan?start=&end=  → range scan (snapshot)
+GET    /status            → server health + connection_info
+```
+
+Batched transaction body:
+
+```json
+POST /tx
+{
+  "ops": [
+    { "put":    { "key": "customer:123", "value": "..." } },
+    { "delete": { "key": "customer:old" } }
+  ]
+}
+```
+
+The server enqueues the batch as a single `WriteTransaction` and returns the result atomically. Clients do not manage transaction boundaries directly — they submit a batch, get a result. This is the right default for a network API: stateless request → atomic result.
+
+### 22.4 Transport choice
+
+Pick HTTP/1.1 + JSON first. It works everywhere, is debuggable with `curl`, and requires no code generation. gRPC is faster and typed but adds complexity and tooling dependencies. Upgrade to gRPC only if profiling shows HTTP overhead is a real bottleneck — it almost certainly will not be for an embedded key/value store.
+
+### 22.5 Authentication
+
+Even a minimal deployment needs authentication. Start with static API keys in the request header:
+
+```
+Authorization: Bearer <api-key>
+```
+
+Keys are stored in the server config, not in the database. Do not skip this. Unauthenticated database endpoints are an incident waiting to happen.
+
+Token-based auth (JWT, short-lived tokens) is a Stage 8+ concern. Static API keys are adequate for controlled deployments and substantially simpler.
+
+### 22.6 Observability
+
+`GET /status` returns the same `connection_info` fields as `Database::connection_info()` (§7.7), plus server-layer additions:
+
+```json
+{
+  "active_clients":     3,
+  "writer_queue_depth": 0,
+  "current_lsn":        1204,
+  "oldest_reader_lsn":  1199,
+  "wal_frame_count":    42,
+  "last_checkpoint_lsn": 1100,
+  "checkpoint_blocked_by": null,
+  "slow_queries_last_60s": 0,
+  "uptime_seconds":     3612
+}
+```
+
+The server is talkative by default. Silence is how you end up with a giant WAL and no idea why.
+
+### 22.7 `LocalStore` / `RemoteStore` abstraction (optional)
+
+Once `tosumu-client` exists, the same interface can be presented for local and remote access:
+
+```rust
+trait Store {
+    fn get(&self, key: &[u8]) -> Result<Option<Value>>;
+    fn put(&self, key: &[u8], value: &[u8]) -> Result<()>;
+    fn delete(&self, key: &[u8]) -> Result<()>;
+}
+
+struct LocalStore  { db: Database }   // calls tosumu-core directly
+struct RemoteStore { url: Url }       // calls tosumu-server over HTTP
+```
+
+This is **API-level transparency**, not storage-level lies. The caller chooses which `Store` to construct — there is no auto-detection, no magic proxying, no silent fallback. `LocalStore` and `RemoteStore` are different types with the same interface.
+
+This enables:
+
+```
+local dev   → LocalStore  → tosumu-core
+production  → RemoteStore → tosumu-server → tosumu-core
+offline     → LocalStore  (no server needed)
+```
+
+Same data model. Same semantics. Different deployment. No surprise behavior when the network is absent.
+
+### 22.8 What this is not
+
+- **Not a distributed database.** One server, one database file, one writer loop. No consensus, no sharding, no replication.
+- **Not an automatically scaled service.** If you need horizontal scaling, use a database that was designed for it. Tosumu-server is for "many clients, one database," not "many databases, many writers."
+- **Not a hidden network layer.** There is no auto-detection that silently switches from local to remote. You construct `LocalStore` or `RemoteStore` explicitly.
+
+### 22.9 Design principle
+
+The correct pattern for multi-client network database access is **embedded core + explicit server wrapper**, not "make the filesystem work harder." Tosumu-server is that wrapper — minimal, explicit, and built directly on the same concurrency model as the embedded engine rather than layered on top of different assumptions.
+
+---
