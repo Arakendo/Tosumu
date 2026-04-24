@@ -3196,26 +3196,46 @@ The WAL is internal storage infrastructure. The audit log is externally verifiab
 ### 23.2 Audit event types
 
 ```
+-- Lifecycle
 DatabaseOpened
 DatabaseClosed
 TransactionStarted
 TransactionCommitted
 TransactionRolledBack
+
+-- Storage
 PageWritten
 CheckpointStarted
 CheckpointCompleted
 VerificationRun
-AuthFailureDetected
-RollbackSuspected
+
+-- Security
+AuthFailureDetected       -- AEAD tag verification failed
+RollbackSuspected         -- LSN went backward
+ProtectorUsed             -- which keyslot kind unlocked the DB (not the key)
+ProtectorAdded
+ProtectorRemoved
+KekRotated
+DekRotated
+UnauthorizedOpenAttempted -- wrong key / failed unlock
+
+-- Access fingerprints (§26)
+ReadFingerprint           -- sampled read: key prefix, session_id, lsn, timestamp
+WriteFingerprint          -- every write: key prefix, byte size, session_id, lsn
+ScanFingerprint           -- range scan: start/end prefix, row_count, session_id, lsn
+BulkReadAnomaly           -- heuristic: session read >N distinct key prefixes in window
+HighWriteVelocity         -- heuristic: session wrote >N pages in window
+UnusualAccessPattern      -- heuristic: access outside normal session profile
+
+-- Network / deployment
 NetworkModeWarning
-ProtectorUsed
 MigrationApplied
 ObserverConnected
 ObserverDisconnected
 WitnessReceiptIssued
 ```
 
-Events are append-only. There is no delete.
+Events are append-only. There is no delete. Read and scan fingerprints are **sampled by default** (1-in-N, configurable); write fingerprints are always recorded.
 
 ### 23.3 Hash-chained event structure
 
@@ -3638,5 +3658,136 @@ The correct deployment posture is: Tosumu detects immediately (§25.1), witnesse
 > Ransomware cannot produce a valid Tosumu database. It can only produce a broken one. The question is how quickly the operator knows.
 
 Tosumu's answer: immediately, on the next open, with a typed error that distinguishes AEAD failure (ransomware / tampering) from a legitimate corruption event.
+
+---
+
+## 26. Fingerprinting and behavioral telemetry (Stage 7+)
+
+AEAD proves a page is authentic. The audit chain proves the event sequence is unmodified. Neither alone tells you *who did what, in what pattern, and whether that pattern is normal*. Fingerprinting is the third layer.
+
+The threat model here is two distinct adversaries:
+
+- **External attacker:** gained access to the database process (compromised credentials, exploited vulnerability). Behavior: unusual key access, bulk reads of data they don't normally touch, rapid writes, attempted key rotation.
+- **Insider threat:** legitimate user doing something outside their normal scope. Behavior: reading key ranges they don't normally read, bulk exports, probing with key patterns, accessing the database at unusual times.
+
+Fingerprinting does not prevent either. It produces a record that makes the behavior visible, auditable, and detectable by witnesses and observers.
+
+### 26.1 What gets fingerprinted
+
+**Every write** is fingerprinted. Writes are already recorded in the WAL; the fingerprint adds session identity and key prefix to the audit event stream.
+
+**Reads are sampled.** Recording every read for a high-throughput database is expensive. Default: 1-in-100 reads emit a `ReadFingerprint` event. The sampling rate is configurable. In high-security deployments, set it to 1-in-1 (record everything).
+
+**Scans are always recorded.** A range scan touching many keys in one operation is a higher-signal event than an individual read. `ScanFingerprint` includes the start/end key prefix and the number of rows returned.
+
+**Unlock events are always recorded.** `ProtectorUsed` records which keyslot kind was used (e.g. `Passphrase`, `Sentinel`, `RecoveryKey`) but not the key itself. Repeated unlock attempts with different protectors → `UnauthorizedOpenAttempted`.
+
+### 26.2 Session identity fields
+
+Every fingerprint event carries:
+
+```
+session_id      u64      from §7.7; unique per Database::open() call
+process_id      u32      OS PID
+process_name    [u8;32]  first 32 bytes of the process name (not a trust anchor; informational)
+host_id         [u8; 8]  first 8 bytes of hostname hash
+user_identity   [u8;32]  OS user name hash (not a trust anchor; informational)
+timestamp       i64      Unix nanoseconds
+lsn             u64      current LSN at time of event
+key_prefix      [u8; 8]  first 8 bytes of the key (prefix, not full key; avoids leaking data)
+```
+
+`process_name` and `user_identity` are informational only. A compromised process can lie about them. Their value is not authentication; it is that a legitimate process doesn't bother lying, so discrepancies between expected and observed values are themselves a signal.
+
+### 26.3 Heuristic anomaly events
+
+Three lightweight heuristics run inside the engine and emit events when they fire. These are not ML models — they are simple counters with thresholds, configurable at open time.
+
+#### BulkReadAnomaly
+
+```rust
+BulkReadConfig {
+    window_seconds:       60,    // rolling window
+    distinct_prefix_threshold: 500,  // distinct key prefixes in window
+    sample_rate:          1,     // 1-in-1 (record all reads for this session)
+}
+```
+
+A session that reads more than 500 distinct key prefixes within 60 seconds fires `BulkReadAnomaly`. This is the exfiltration signal.
+
+#### HighWriteVelocity
+
+```rust
+HighWriteConfig {
+    window_seconds: 10,
+    page_threshold: 100,  // pages written in window
+}
+```
+
+A session that writes more than 100 pages in 10 seconds fires `HighWriteVelocity`. This is the ransomware / bulk overwrite signal (relevant before AEAD detection fires).
+
+#### UnusualAccessPattern
+
+A session that accesses key prefixes it has never accessed before in any prior session (tracked via a compact Bloom filter of `(session_id, key_prefix)` tuples). Signal fires once per session on first new-prefix access outside a configurable whitelist. This is the lateral-movement / privilege-escalation signal.
+
+All three thresholds default to conservative (high threshold, low false-positive rate). Operators can tighten them. Setting them to zero disables the heuristic.
+
+### 26.4 Fingerprint trails in the witness and observer model
+
+Fingerprint events are part of the AEAD-protected audit chain (§23.3). Witnesses receive them as part of witness receipts. Observers track them locally.
+
+This means:
+
+- A bulk read by an insider that happens while witnesses are running will produce `ReadFingerprint` + possibly `BulkReadAnomaly` events that are signed into the audit chain and broadcast to witnesses.
+- After the fact, even if the attacker deletes the local audit log, witness receipts still contain the `audit_head` from before the deletion, and the chain can be shown to have been truncated.
+- Observers can be configured to fire an immediate alert on `BulkReadAnomaly` or `HighWriteVelocity` without waiting for a reconciliation check.
+
+### 26.5 What fingerprinting does not do
+
+- **It does not prevent access.** Any process that can open the database can read from it. Fingerprinting records the access; it does not block it.
+- **It is not a firewall.** Access control at the application layer (who is allowed to open the database, with which protector) is outside Tosumu's scope.
+- **It is not tamper-proof in isolation.** The fingerprint record is only trustworthy if the audit chain and witnesses are intact. An attacker who compromises both the database and all witnesses can suppress the record. This is the same limitation as §23.3 — the chain is as strong as the independence of its observers.
+- **The heuristics produce false positives.** A legitimate batch migration will fire `HighWriteVelocity`. A legitimate analytics query will fire `BulkReadAnomaly`. The events are signals for investigation, not verdicts.
+
+### 26.6 Diagnostic queries on the fingerprint trail
+
+`tosumu-cli` provides audit trail queries as first-class operations:
+
+```
+tosumu audit tail --n 100
+    → last 100 events in the chain, decrypted, pretty-printed
+
+tosumu audit session <session_id>
+    → all events for a given session_id
+
+tosumu audit anomalies [--since <lsn>]
+    → only BulkReadAnomaly, HighWriteVelocity, UnusualAccessPattern, AuthFailureDetected
+
+tosumu audit diff --witness-a tosumu.witness --witness-b local
+    → compare local audit_head against a witness receipt; highlight divergence
+
+tosumu audit export --format jsonl [--since <lsn>]
+    → export decrypted events as JSON lines for SIEM ingestion
+```
+
+The `export` command enables feeding fingerprint data into external security tooling (Splunk, Elastic, etc.) without requiring those tools to understand Tosumu's on-disk format.
+
+### 26.7 Backup as the best ransomware defense
+
+Routine backups remain the most reliable single defense. The fingerprint trail and witness model tell you *what happened and when*; backups give you the restorable copy. Neither substitutes for the other.
+
+**Backup properties that matter for Tosumu:**
+
+- **Frequency.** The maximum data loss is bounded by the backup interval. For databases where data loss is costly, backup frequency should be set accordingly.
+- **Integrity verification.** A backup that cannot be opened with the correct protector is not a backup. `tosumu verify <path>` should be run against every backup before it is considered valid.
+- **Offsite / separate credential.** A backup stored in the same directory as the database, accessible with the same credentials, provides no protection against ransomware or an insider threat. The backup credential (or the backup copy of the sentinel key / recovery key) must be stored separately.
+- **Write-once / object-lock semantics.** Cloud storage with object-lock enabled prevents ransomware (running with the backup-agent credentials) from overwriting or deleting existing backup objects. This is the property that makes offsite backups ransomware-resistant rather than merely ransomware-delayed.
+- **Retention window.** Keep enough history to recover from a ransomware attack that isn't detected immediately. If the detection window is "next open," a daily backup with 30-day retention is likely sufficient. If the detection window could be weeks (e.g. cold standby), retain accordingly.
+
+**Integration with witness receipts:** after each successful backup, record the current `lsn` and `manifest_hash` (from `tosumu verify`) in the backup metadata. On restore, the witness receipts tell you whether the backup LSN is consistent with what the witnesses observed — i.e., whether you're restoring to the right point.
+
+### 26.8 Design principle
+
+> Fingerprinting makes the invisible visible. It does not make the system impenetrable. The goal is to ensure that any access — legitimate or not — leaves a trail that cannot be quietly erased.
 
 ---
