@@ -2072,3 +2072,225 @@ Argon2id { m: 64_000, t: 4, p: 2 }
 
 ---
 
+## 20. Differentiation opportunities
+
+The interesting database ideas are not "faster index." They are: **make systems understandable, safe, and repairable.** Performance problems get optimized. Understanding problems haunt you forever.
+
+This section documents the design bets where tosumu can go beyond being another learning-exercise toy database. Not all of them will ship. The honest answer for a solo learning project is: pick 2–3 that align with your actual pain, build them well, and leave the rest as named ideas rather than half-implemented messes.
+
+**The ideas are documented regardless of shipping status.** Naming them explicitly is useful: it tells future contributors what's intentional vs. simply missing, and it keeps scope decisions from being accidental.
+
+### 20.1 Differentiation bets (ranked by pain alignment)
+
+#### 🥇 20.1.1 Explainability and data provenance (highest priority)
+
+Most databases treat result provenance as "trust me, bro." Even `EXPLAIN` gives you a cryptic execution plan written by a compiler having a bad day.
+
+**The opportunity:** Make every operation explainable.
+
+```
+WHY does this record exist?
+WHAT wrote it?
+WHEN was it last modified?
+WHICH operation produced this value?
+```
+
+**What this looks like in practice:**
+
+```
+tosumu get customer:123
+→ value: { status: "active" }
+→ provenance:
+    created:  2026-01-10  by: import-job/v12
+    modified: 2026-03-10  by: patch-operation/2026-03-10
+    field "status": set by rule-engine/rule-X at 2026-03-01
+```
+
+**Implementation path:**
+
+This is a natural extension of the WAL. Every WAL record already has an LSN. Adding an optional `source` field to write operations (a short opaque string — "import-job:v12", "api:PUT /customer/123") costs almost nothing at the write site. At query time, the pager can annotate the response with the LSN + source of the last write that touched each record.
+
+Stage-level targeting:
+- Stage 3+ (WAL exists): store `source` in WAL records as an optional tagged field.
+- Stage 5+ (query layer): surface as `GET ... EXPLAIN` or `provenance(key)` query verb.
+- Stage 6+ (MVCC): full "who wrote this version" history.
+
+**Why it matters for this codebase specifically:** Customer support and debugging workflows. "What produced this document" is a question asked daily in production systems. Almost no embedded database has a good answer.
+
+**Explicitly not scope-creep:** This is not a full audit log system. It is one tagged field on write operations. The heavy version is opt-in.
+
+---
+
+#### 🥈 20.1.2 Derived data correctness (staleness tracking)
+
+Most systems treat derived data as: "store it somewhere and hope it stays fresh."
+
+**The opportunity:** Formalize the relationship between source data and materialized output.
+
+```
+source key(s)
+     ↓
+declared derivation (a named transform, a version)
+     ↓
+materialized output (stored alongside or separate)
+     ↓
+version + dependency tracking
+```
+
+**What this looks like:**
+
+```
+derive rendered_html:customer:123
+    from source:customer:123
+    by transform:html-render/v7
+
+tosumu get rendered_html:customer:123
+→ value: "<html>..."
+→ freshness: STALE (source modified at LSN 1042, derived from LSN 990)
+→ advice: re-run transform html-render/v7 against source:customer:123
+```
+
+**Implementation path:**
+
+A "derivation record" is just a special value stored alongside the derived key:
+```
+{
+  source_keys: ["customer:123"],
+  transform_id: "html-render/v7",
+  derived_at_lsn: 990,
+}
+```
+
+When any `source_key` is modified (LSN > `derived_at_lsn`), the derived record is automatically flagged stale on read. No background process needed. Staleness is a query-time annotation.
+
+Stage-level targeting:
+- Stage 3+ (LSN exists): derivation records + staleness check on read.
+- Stage 5+ (query layer): `DERIVE key FROM source BY transform` as a query verb.
+- Stage 6+ (MVCC): time-travel lets you "see what the derived value looked like at LSN X."
+
+**Why it matters for this codebase specifically:** The "stale HTML nightmare" — rendered output that silently diverges from source because there's no formal relationship tracked between them.
+
+---
+
+#### 🥉 20.1.3 Repairability (verification → diagnosis → repair)
+
+Most databases assume things work. You should assume things break.
+
+**The opportunity:** A full repair stack, not just `PRAGMA integrity_check` that returns a wall of text and wishes you luck.
+
+```
+verify()  → structured error list
+diagnose()→ "here is what is wrong and where"
+repair()  → "here is what was fixed, what was unrecoverable"
+rebuild() → reconstruct indexes from raw page data
+```
+
+**This is already partially in the plan** via `tosumu verify` (§12.3). The extension is making it *actionable*, not just diagnostic.
+
+**What "repair" means concretely:**
+- **Freelist corruption:** Rebuild freelist by scanning all pages and inferring free vs. allocated state.
+- **B+ tree corruption (Stage 2+):** Rebuild the tree index from leaf pages (raw data survives even if the tree structure doesn't).
+- **WAL corruption:** Truncate WAL to last clean commit point. Report which transactions were lost.
+- **Keyslot corruption (Stage 4+):** Report which slots are tampered (`KeyslotTampered` error), which slots are intact, whether any valid protector remains.
+
+**Repair is never silent.** Every repair operation produces a structured `RepairReport`:
+```rust
+RepairReport {
+    pages_ok: 1021,
+    pages_repaired: 2,
+    pages_unrecoverable: 1,
+    lsn_before: 1044,
+    lsn_after: 1039,    // rolled back to last clean WAL point
+    warnings: vec!["page 847: slot 3 truncated to page boundary"],
+}
+```
+
+Stage-level targeting:
+- Stage 1: `rebuild_freelist()` — reconstruct freelist from page scan.
+- Stage 3+: `repair_wal()` — truncate to last clean commit.
+- Stage 4+: `diagnose_keyslots()` — report which slots are intact.
+- Stage 5+: `rebuild_index()` — reconstruct B+ tree from leaf pages.
+
+---
+
+### 20.2 Secondary bets (valuable, lower priority)
+
+These are worth naming but should not be built before the primary bets above are working.
+
+#### 20.2.1 Time travel / navigable history
+
+WAL + LSN naturally supports "what did this key look like at LSN N?" The cost is retaining WAL longer and supporting point-in-time reads.
+
+**Minimum viable version:** `tosumu get key --at-lsn 1000`. No new storage format needed for Stage 6 MVCC — LSN-based snapshots already give you this. The UI work is a `--at-lsn` flag on CLI commands.
+
+**Stretch version:** `tosumu diff key --from 900 --to 1000` — show what changed between two LSNs. Useful for debugging "what happened between this deploy and the customer's complaint."
+
+**Why not now:** Requires MVCC (Stage 6). Do not fake it before then.
+
+#### 20.2.2 Structured observability (operation log)
+
+Instead of logs scattered in files, operations emit **structured, queryable events** linked to data:
+
+```
+tosumu ops key:customer:123
+→ [LSN 900]  PUT  by: api/v2    value_size: 412  duration: 0.3ms
+→ [LSN 1042] PUT  by: patch/v3  value_size: 415  duration: 0.2ms
+→ [LSN 1044] GET  by: render/v7              duration: 0.1ms
+```
+
+**Implementation path:** A thin op-log table (ring buffer of recent operations, queryable by key prefix). Separate from WAL — WAL is durability, op-log is observability. Capped at N entries; no persistence guarantees.
+
+**Why not now:** Needs Stage 5 query layer to be useful. Before then, `tosumu verify` and `dump` are sufficient.
+
+#### 20.2.3 Schema-optional validation
+
+```
+data is flexible
+validation rules are explicit
+rules are versioned
+rule violations surface as typed errors, not silent writes
+```
+
+**Not a schema in the SQL sense.** Think closer to: a declared set of `(key_pattern, validator_fn)` pairs that run at write time. Validators are pure functions (no side effects), evaluated in a sandboxed interpreter or expressed as a compact rule DSL.
+
+**Why not now:** Needs Stage 5 query layer and a safe extension mechanism (§20.2.4). Do not build the validator before the storage is solid.
+
+#### 20.2.4 Safe extensions (structured, inspectable, sandboxed)
+
+Instead of "run this arbitrary trigger and pray," extensions are:
+
+- **Structured:** defined in a typed manifest, not arbitrary code.
+- **Inspectable:** `tosumu extensions list` shows what's registered and what it touches.
+- **Sandboxed:** extensions cannot write outside their declared scope, cannot block I/O, have execution time limits.
+
+**Minimum viable version:** A pure-function trigger expressed as a rule AST (no Turing-complete code execution). Heavy version: WASM sandbox for arbitrary logic. Do not start with WASM.
+
+**Why not now:** Stage 7+ at earliest. Sandboxed execution is a project in itself. Name it, don't build it yet.
+
+### 20.3 What is explicitly off the table
+
+Some ideas from the landscape that are **not** tosumu's direction, even if they sound appealing:
+
+- **Full graph database.** Relationship-aware lookups (§20.2) are not a graph DB. No traversal engine, no Cypher-style query language, no hyperedges.
+- **Event sourcing framework.** WAL is not an event bus. Do not expose WAL entries as a pub/sub mechanism.
+- **Distributed / replicated storage.** Single-process, single-file. Replication is an application-layer concern.
+- **ML/AI pipeline integration.** Vector search, embedding storage, nearest-neighbor indexes — out of scope per §18. Use a specialized tool.
+
+### 20.4 Design principle summary
+
+Across all of the above, the common thread is:
+
+> **Make systems understandable, safe, and repairable.**
+
+Applied to tosumu:
+
+| Principle | Current expression | Future expression |
+|-----------|-------------------|-------------------|
+| Understandable | `verify`, `dump`, `hex`, TUI viewer | Provenance on reads, op-log, time travel |
+| Safe | AEAD per page, typed errors, no silent corruption | Sandboxed extensions, schema validation |
+| Repairable | `verify` exits non-zero | Structured repair stack, `RepairReport` |
+| Explainable | `EXPLAIN` roadmap (Stage 5) | Derivation tracking, staleness annotation |
+
+**The most honest version of this section:** tosumu is a learning project, and learning projects that try to innovate on 10 axes finish zero of them. The value of this section is naming the ideas clearly so that Stage-N decisions are made deliberately, not accidentally. When Stage 3 WAL design comes up, add the `source` field. When Stage 5 query design comes up, add `GET ... EXPLAIN`. When Stage 6 MVCC comes up, add `--at-lsn`. These are not separate projects. They are one extra field or one extra flag added at the right moment.
+
+---
