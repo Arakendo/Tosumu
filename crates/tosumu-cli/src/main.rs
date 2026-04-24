@@ -1,14 +1,15 @@
-//! `tosumu` command-line interface — MVP +2.
+//! `tosumu` command-line interface — MVP +6.
 //!
 //! Inspect tooling (dump, hex, verify) on top of MVP +1.
-//! See DESIGN.md §12.1 (MVP +2).
+//! See DESIGN.md §12.1 (MVP +6).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use clap::{Parser, Subcommand};
+use tosumu_core::error::TosumError;
 use tosumu_core::page_store::PageStore;
 
 #[derive(Parser)]
-#[command(name = tosumu_core::NAME, version, about = "tosumu key-value store (MVP +1)")]
+#[command(name = tosumu_core::NAME, version, about = "tosumu key-value store (MVP +6)")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -19,6 +20,9 @@ enum Command {
     /// Create a new database file.
     Init {
         path: PathBuf,
+        /// Protect the database with a passphrase (Argon2id).
+        #[arg(long)]
+        encrypt: bool,
     },
     /// Insert or update a key-value pair.
     Put {
@@ -83,18 +87,51 @@ fn main() {
     }
 }
 
-fn run(cli: Cli) -> Result<(), tosumu_core::error::TosumError> {
+/// Open a `PageStore`, automatically prompting for a passphrase if required.
+fn open_store(path: &Path) -> Result<PageStore, TosumError> {
+    match PageStore::open(path) {
+        Ok(store) => Ok(store),
+        Err(TosumError::WrongKey) => {
+            let pass = prompt_passphrase("passphrase: ")?;
+            PageStore::open_with_passphrase(path, &pass)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Prompt for a passphrase without echoing.
+fn prompt_passphrase(prompt: &str) -> Result<String, TosumError> {
+    rpassword::prompt_password(prompt)
+        .map_err(|e| TosumError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))
+}
+
+fn run(cli: Cli) -> Result<(), TosumError> {
     match cli.command {
-        Command::Init { path } => {
-            PageStore::create(&path)?;
-            println!("initialized {}", path.display());
+        Command::Init { path, encrypt } => {
+            if encrypt {
+                let pass = prompt_passphrase("new passphrase: ")?;
+                let confirm = prompt_passphrase("confirm passphrase: ")?;
+                if pass != confirm {
+                    eprintln!("error: passphrases do not match");
+                    std::process::exit(1);
+                }
+                PageStore::create_encrypted(&path, &pass)?;
+                println!("initialized {} (passphrase-protected)", path.display());
+                println!();
+                println!("NOTE: Tosumu is always authenticated. With a passphrase protector,");
+                println!("      the database is also confidential. Without one, it provides");
+                println!("      integrity only — a local reader with file access can read the data.");
+            } else {
+                PageStore::create(&path)?;
+                println!("initialized {} (sentinel protector — authentication only, no passphrase)", path.display());
+            }
         }
         Command::Put { path, key, value } => {
-            let mut store = PageStore::open(&path)?;
+            let mut store = open_store(&path)?;
             store.put(key.as_bytes(), value.as_bytes())?;
         }
         Command::Get { path, key } => {
-            let store = PageStore::open(&path)?;
+            let store = open_store(&path)?;
             match store.get(key.as_bytes())? {
                 Some(v) => println!("{}", String::from_utf8_lossy(&v)),
                 None => {
@@ -104,17 +141,17 @@ fn run(cli: Cli) -> Result<(), tosumu_core::error::TosumError> {
             }
         }
         Command::Delete { path, key } => {
-            let mut store = PageStore::open(&path)?;
+            let mut store = open_store(&path)?;
             store.delete(key.as_bytes())?;
         }
         Command::Scan { path } => {
-            let store = PageStore::open(&path)?;
+            let store = open_store(&path)?;
             for (k, v) in store.scan()? {
                 println!("{}\t{}", String::from_utf8_lossy(&k), String::from_utf8_lossy(&v));
             }
         }
         Command::Stat { path } => {
-            let store = PageStore::open(&path)?;
+            let store = open_store(&path)?;
             let s = store.stat();
             println!("page_count:  {}", s.page_count);
             println!("data_pages:  {}", s.data_pages);
@@ -133,7 +170,7 @@ fn run(cli: Cli) -> Result<(), tosumu_core::error::TosumError> {
 fn cmd_dump(path: &std::path::Path, page: Option<u64>) -> tosumu_core::error::Result<()> {
     use tosumu_core::format::{
         PAGE_TYPE_LEAF, PAGE_TYPE_INTERNAL, PAGE_TYPE_OVERFLOW, PAGE_TYPE_FREE,
-        KEYSLOT_KIND_EMPTY, KEYSLOT_KIND_SENTINEL,
+        KEYSLOT_KIND_EMPTY, KEYSLOT_KIND_SENTINEL, KEYSLOT_KIND_PASSPHRASE,
     };
     use tosumu_core::inspect::{read_header_info, inspect_page, RecordInfo};
 
@@ -160,14 +197,15 @@ fn cmd_dump(path: &std::path::Path, page: Option<u64>) -> tosumu_core::error::Re
             println!();
             println!("=== keyslot 0 ===");
             let kind_name = match h.ks0_kind {
-                KEYSLOT_KIND_EMPTY    => "Empty",
-                KEYSLOT_KIND_SENTINEL => "Sentinel",
-                _                    => "Unknown",
+                KEYSLOT_KIND_EMPTY      => "Empty",
+                KEYSLOT_KIND_SENTINEL   => "Sentinel",
+                KEYSLOT_KIND_PASSPHRASE => "Passphrase",
+                _                       => "Unknown",
             };
-            let kind_note = if h.ks0_kind == KEYSLOT_KIND_SENTINEL {
-                "  (plaintext DEK — authentication only, no confidentiality)"
-            } else {
-                ""
+            let kind_note = match h.ks0_kind {
+                KEYSLOT_KIND_SENTINEL   => "  (plaintext DEK — authentication only, no confidentiality)",
+                KEYSLOT_KIND_PASSPHRASE => "  (Argon2id KDF — authentication + confidentiality)",
+                _ => "",
             };
             println!("kind:    {kind_name}{kind_note}");
             println!("version: {}", h.ks0_version);
@@ -274,6 +312,7 @@ fn cmd_verify(path: &std::path::Path, explain: bool) -> tosumu_core::error::Resu
 
     if report.issues.is_empty() {
         // Page integrity passed — also check B-tree structural invariants.
+        // For passphrase-protected DBs, skip the btree check (no passphrase available here).
         match BTree::open(path) {
             Ok(tree) => match tree.check_invariants() {
                 Ok(()) => {
@@ -287,8 +326,15 @@ fn cmd_verify(path: &std::path::Path, explain: bool) -> tosumu_core::error::Resu
                     std::process::exit(1);
                 }
             },
+            Err(tosumu_core::error::TosumError::WrongKey) => {
+                if explain {
+                    println!("  btree:       SKIP   — passphrase-protected DB (supply passphrase for btree check)");
+                }
+            }
             Err(e) => {
-                eprintln!("  btree:       SKIP   — could not open as BTree: {e}");
+                if explain {
+                    eprintln!("  btree:       SKIP   — could not open as BTree: {e}");
+                }
             }
         }
         println!("all pages ok: {}/{}", report.pages_ok, report.pages_checked);

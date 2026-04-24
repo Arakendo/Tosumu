@@ -13,7 +13,9 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
-use crate::crypto::{decrypt_page, encrypt_page, generate_dek, derive_subkeys};
+use crate::crypto::{decrypt_page, encrypt_page, generate_dek, derive_subkeys,
+    derive_passphrase_kek, pack_kdf_params, wrap_dek, unwrap_dek, compute_kcv, verify_kcv,
+    compute_header_mac, verify_header_mac, ARGON2_M_COST, ARGON2_T_COST, ARGON2_P_COST};
 use crate::error::{Result, TosumError};
 use crate::format::*;
 use crate::wal::{WalRecord, WalWriter, wal_path};
@@ -22,6 +24,9 @@ use crate::wal::{WalRecord, WalWriter, wal_path};
 pub struct Pager {
     file: File,
     page_key: [u8; 32],
+    /// For passphrase-protected databases: the HMAC key used to MAC page0.
+    /// None for Sentinel databases (no header MAC).
+    header_mac_key: Option<[u8; 32]>,
     // Cached from the file header. Written back on allocate / flush_header.
     page_count: u64,
     freelist_head: u64,
@@ -71,6 +76,7 @@ impl Pager {
         Ok(Pager {
             file,
             page_key,
+            header_mac_key: None,
             page_count: 1,
             freelist_head: 0,
             root_page: 0,
@@ -112,16 +118,23 @@ impl Pager {
             return Err(TosumError::PageSizeMismatch { found: ps, expected: PAGE_SIZE as u16 });
         }
 
-        // Read DEK from Sentinel keyslot.
+        // Read DEK from keyslot.  Sentinel = plaintext DEK; Passphrase = return WrongKey.
         let ks_start = KEYSLOT_REGION_OFFSET;
         let ks_kind = page0[ks_start + KS_OFF_KIND];
-        if ks_kind != KEYSLOT_KIND_SENTINEL {
-            return Err(TosumError::NotATosumFile);
-        }
-        let mut dek = [0u8; 32];
-        dek.copy_from_slice(
-            &page0[ks_start + KS_OFF_WRAPPED_DEK..ks_start + KS_OFF_WRAPPED_DEK + 32],
-        );
+        let dek = match ks_kind {
+            KEYSLOT_KIND_SENTINEL => {
+                let mut dek = [0u8; 32];
+                dek.copy_from_slice(
+                    &page0[ks_start + KS_OFF_WRAPPED_DEK..ks_start + KS_OFF_WRAPPED_DEK + 32],
+                );
+                dek
+            }
+            KEYSLOT_KIND_PASSPHRASE => {
+                // Caller must use open_with_passphrase() to supply credentials.
+                return Err(TosumError::WrongKey);
+            }
+            _ => return Err(TosumError::NotATosumFile),
+        };
 
         let (page_key, _header_mac_key, _audit_key) = derive_subkeys(&dek);
 
@@ -141,6 +154,165 @@ impl Pager {
         Ok(Pager {
             file,
             page_key,
+            header_mac_key: None,
+            page_count,
+            freelist_head,
+            root_page,
+            wal,
+            txn_active: false,
+            txn_id: 0,
+            next_txn_id: 1,
+            dirty_pages: Vec::new(),
+        })
+    }
+
+    /// Create a new passphrase-protected database file at `path`.
+    ///
+    /// Generates a DEK, wraps it with Argon2id-derived KEK, stores the wrapped DEK
+    /// in keyslot 0 (Passphrase kind), and writes a header MAC over the keyslot region.
+    pub fn create_encrypted(path: &Path, passphrase: &str) -> Result<Self> {
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(path)?;
+
+        let dek = generate_dek();
+        let (page_key, header_mac_key, _audit_key) = derive_subkeys(&dek);
+
+        // Random 16-byte salt for this slot.
+        let mut salt = [0u8; 16];
+        getrandom::getrandom(&mut salt).expect("getrandom failed");
+
+        // Derive KEK from passphrase.
+        let kdf_params = pack_kdf_params(ARGON2_M_COST, ARGON2_T_COST, ARGON2_P_COST);
+        let kek = derive_passphrase_kek(passphrase, &salt, &kdf_params)?;
+
+        // Wrap the DEK.
+        let (wrap_nonce, wrapped_dek) = wrap_dek(&kek, &dek, 0, 1, KEYSLOT_KIND_PASSPHRASE)?;
+
+        // Compute KCV.
+        let kcv = compute_kcv(&kek);
+
+        // Build page 0.
+        let mut page0 = [0u8; PAGE_SIZE];
+        write_file_header(&mut page0, &dek); // writes sentinel fields; we overwrite keyslot below
+
+        // Overwrite the keyslot with passphrase data.
+        let ks = KEYSLOT_REGION_OFFSET;
+        page0[ks + KS_OFF_KIND] = KEYSLOT_KIND_PASSPHRASE;
+        page0[ks + KS_OFF_VERSION] = 1;
+        page0[ks + KS_OFF_SALT..ks + KS_OFF_SALT + 16].copy_from_slice(&salt);
+        page0[ks + KS_OFF_KDF_PARAMS..ks + KS_OFF_KDF_PARAMS + 32].copy_from_slice(&kdf_params);
+        page0[ks + KS_OFF_WRAP_NONCE..ks + KS_OFF_WRAP_NONCE + 12].copy_from_slice(&wrap_nonce);
+        page0[ks + KS_OFF_WRAPPED_DEK..ks + KS_OFF_WRAPPED_DEK + 48].copy_from_slice(&wrapped_dek);
+        page0[ks + KS_OFF_KCV..ks + KS_OFF_KCV + 32].copy_from_slice(&kcv);
+
+        // Compute and store the header MAC (covers header plain region + keyslot).
+        let mac = compute_header_mac(&header_mac_key, &page0, 1);
+        page0[OFF_HEADER_MAC..OFF_HEADER_MAC + 32].copy_from_slice(&mac);
+
+        file.write_all(&page0)?;
+        file.sync_data()?;
+
+        // Open/create WAL sidecar.
+        let wal = WalWriter::open_or_create(&wal_path(path)).ok();
+
+        Ok(Pager {
+            file,
+            page_key,
+            header_mac_key: Some(header_mac_key),
+            page_count: 1,
+            freelist_head: 0,
+            root_page: 0,
+            wal,
+            txn_active: false,
+            txn_id: 0,
+            next_txn_id: 1,
+            dirty_pages: Vec::new(),
+        })
+    }
+
+    /// Open a passphrase-protected database file.
+    ///
+    /// Verifies the KCV against the supplied passphrase, unwraps the DEK, and
+    /// verifies the header MAC before returning a usable `Pager`.
+    pub fn open_with_passphrase(path: &Path, passphrase: &str) -> Result<Self> {
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)?;
+
+        let mut page0 = [0u8; PAGE_SIZE];
+        file.seek(SeekFrom::Start(0))?;
+        file.read_exact(&mut page0)?;
+
+        // Basic header validation.
+        if !check_magic(&page0) {
+            return Err(TosumError::NotATosumFile);
+        }
+        let fv = read_u16(&page0, OFF_FORMAT_VERSION);
+        if fv > FORMAT_VERSION {
+            return Err(TosumError::NewerFormat { found: fv, supported_max: FORMAT_VERSION });
+        }
+        let ps = read_u16(&page0, OFF_PAGE_SIZE);
+        if ps as usize != PAGE_SIZE {
+            return Err(TosumError::PageSizeMismatch { found: ps, expected: PAGE_SIZE as u16 });
+        }
+
+        // Read keyslot 0.
+        let ks = KEYSLOT_REGION_OFFSET;
+        let ks_kind = page0[ks + KS_OFF_KIND];
+
+        // For Sentinel DBs, passphrase is ignored (caller may not know the kind).
+        let dek = match ks_kind {
+            KEYSLOT_KIND_SENTINEL => {
+                let mut dek = [0u8; 32];
+                dek.copy_from_slice(&page0[ks + KS_OFF_WRAPPED_DEK..ks + KS_OFF_WRAPPED_DEK + 32]);
+                dek
+            }
+            KEYSLOT_KIND_PASSPHRASE => {
+                let salt: [u8; 16] = page0[ks + KS_OFF_SALT..ks + KS_OFF_SALT + 16].try_into().unwrap();
+                let kdf_params: [u8; 32] = page0[ks + KS_OFF_KDF_PARAMS..ks + KS_OFF_KDF_PARAMS + 32].try_into().unwrap();
+                let wrap_nonce: [u8; 12] = page0[ks + KS_OFF_WRAP_NONCE..ks + KS_OFF_WRAP_NONCE + 12].try_into().unwrap();
+                let wrapped_dek: [u8; 48] = page0[ks + KS_OFF_WRAPPED_DEK..ks + KS_OFF_WRAPPED_DEK + 48].try_into().unwrap();
+                let kcv: [u8; 32] = page0[ks + KS_OFF_KCV..ks + KS_OFF_KCV + 32].try_into().unwrap();
+                let dek_id = read_u64(&page0, OFF_DEK_ID);
+
+                // Derive KEK, verify KCV (fast reject before DEK unwrap).
+                let kek = derive_passphrase_kek(passphrase, &salt, &kdf_params)?;
+                verify_kcv(&kek, &kcv)?;
+
+                // Unwrap DEK.
+                let dek = unwrap_dek(&kek, &wrap_nonce, &wrapped_dek, 0, dek_id, ks_kind)?;
+
+                // Verify header MAC.
+                let stored_mac: [u8; 32] = page0[OFF_HEADER_MAC..OFF_HEADER_MAC + 32].try_into().unwrap();
+                let (_, hmk, _) = derive_subkeys(&dek);
+                verify_header_mac(&hmk, &page0, 1, &stored_mac)?;
+
+                dek
+            }
+            _ => return Err(TosumError::NotATosumFile),
+        };
+
+        let (page_key, derived_hmk, _) = derive_subkeys(&dek);
+        // Only keep the MAC key for passphrase DBs so flush_header maintains integrity.
+        let header_mac_key = if ks_kind == KEYSLOT_KIND_PASSPHRASE { Some(derived_hmk) } else { None };
+        let page_count = read_u64(&page0, OFF_PAGE_COUNT);
+        let freelist_head = read_u64(&page0, OFF_FREELIST_HEAD);
+        let root_page = read_u64(&page0, OFF_ROOT_PAGE);
+
+        let wp = wal_path(path);
+        if wp.exists() {
+            crate::wal::recover(path, &wp)?;
+        }
+        let wal = WalWriter::open_or_create(&wp).ok();
+
+        Ok(Pager {
+            file,
+            page_key,
+            header_mac_key,
             page_count,
             freelist_head,
             root_page,
@@ -314,12 +486,12 @@ impl Pager {
 
     // ── Header flush ─────────────────────────────────────────────────────────
 
-    /// Write updated page_count and freelist_head back to page 0.
+    /// Write updated page_count, freelist_head and root_page back to page 0.
     ///
-    /// NOTE: The header_mac is NOT updated in MVP+1. See DESIGN.md §8.5.
-    /// TODO Stage 4: compute and verify HMAC-SHA256 over header + keyslot region.
+    /// For passphrase-protected databases the header MAC is recomputed over the
+    /// updated page 0 so it remains valid after every header mutation.
     pub fn flush_header(&mut self) -> Result<()> {
-        // Read current page 0, update the two mutable fields, write back.
+        // Read current page 0, update the mutable fields, recompute MAC if needed.
         let mut page0 = [0u8; PAGE_SIZE];
         self.file.seek(SeekFrom::Start(0))?;
         self.file.read_exact(&mut page0)?;
@@ -327,6 +499,12 @@ impl Pager {
         write_u64(&mut page0, OFF_PAGE_COUNT, self.page_count);
         write_u64(&mut page0, OFF_FREELIST_HEAD, self.freelist_head);
         write_u64(&mut page0, OFF_ROOT_PAGE, self.root_page);
+
+        if let Some(ref hmk) = self.header_mac_key {
+            let mac = compute_header_mac(hmk, &page0, 1);
+            page0[OFF_HEADER_MAC..OFF_HEADER_MAC + 32].copy_from_slice(&mac);
+        }
+
         self.file.seek(SeekFrom::Start(0))?;
         self.file.write_all(&page0)?;
         self.file.sync_data()?;

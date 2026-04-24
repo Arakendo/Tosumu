@@ -72,9 +72,27 @@ impl BTree {
         Ok(BTree { pager })
     }
 
+    /// Create a new passphrase-encrypted `.tsm` file with an empty B+ tree.
+    pub fn create_encrypted(path: &Path, passphrase: &str) -> Result<Self> {
+        let mut pager = Pager::create_encrypted(path, passphrase)?;
+        let root_pgno = pager.allocate()?;
+        pager.init_page(root_pgno, PAGE_TYPE_LEAF)?;
+        pager.set_root_page(root_pgno)?;
+        Ok(BTree { pager })
+    }
+
     /// Open an existing `.tsm` file.
     pub fn open(path: &Path) -> Result<Self> {
         let pager = Pager::open(path)?;
+        if pager.root_page() == 0 {
+            return Err(TosumError::Corrupt { pgno: 0, reason: "root_page is 0 — not a BTree file" });
+        }
+        Ok(BTree { pager })
+    }
+
+    /// Open an existing passphrase-protected `.tsm` file.
+    pub fn open_with_passphrase(path: &Path, passphrase: &str) -> Result<Self> {
+        let pager = Pager::open_with_passphrase(path, passphrase)?;
         if pager.root_page() == 0 {
             return Err(TosumError::Corrupt { pgno: 0, reason: "root_page is 0 — not a BTree file" });
         }

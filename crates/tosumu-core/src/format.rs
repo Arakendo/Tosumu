@@ -90,9 +90,12 @@ pub const KS_OFF_KDF_PARAMS: usize = 32;  // [u8; 32]
 pub const KS_OFF_TPM_POLICY: usize = 64;  // [u8; 32]
 pub const KS_OFF_WRAP_NONCE: usize = 96;  // [u8; 12]
 pub const KS_OFF_WRAPPED_DEK: usize = 108; // [u8; 48]  — first 32 bytes = DEK for Sentinel
+pub const KS_OFF_KCV: usize = 156;        // [u8; 32] — AEAD over known-plaintext under KEK
+// [188..256] reserved, zero-filled
 
 pub const KEYSLOT_KIND_EMPTY: u8 = 0;
 pub const KEYSLOT_KIND_SENTINEL: u8 = 1;
+pub const KEYSLOT_KIND_PASSPHRASE: u8 = 2;
 
 // ── Compile-time layout assertions ────────────────────────────────────────────
 

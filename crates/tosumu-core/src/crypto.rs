@@ -16,12 +16,14 @@
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
 use chacha20poly1305::aead::{Aead, Payload};
 use hkdf::Hkdf;
+use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
 use crate::error::{Result, TosumError};
 use crate::format::{
     PAGE_SIZE, PAGE_PLAINTEXT_SIZE, NONCE_SIZE, TAG_SIZE,
     PAGE_VERSION_OFFSET, PAGE_VERSION_SIZE, CIPHERTEXT_OFFSET,
+    FILE_HEADER_PLAIN_LEN, KEYSLOT_SIZE,
 };
 
 /// Generate a fresh 32-byte DEK from the OS random source.
@@ -130,4 +132,358 @@ fn make_aad(pgno: u64, page_version: u64) -> [u8; 16] {
     aad[0..8].copy_from_slice(&pgno.to_le_bytes());
     aad[8..16].copy_from_slice(&page_version.to_le_bytes());
     aad
+}
+
+// ── Passphrase / Argon2id KEK derivation (§8.6.1) ────────────────────────────
+
+/// Default Argon2id parameters (OWASP 2024 interactive recommendation).
+/// m=65536 KiB (64 MiB), t=3 iterations, p=1 lane.
+pub const ARGON2_M_COST: u32 = 65_536;
+pub const ARGON2_T_COST: u32 = 3;
+pub const ARGON2_P_COST: u32 = 1;
+
+/// Derive a 32-byte KEK from a passphrase + 16-byte per-slot salt via Argon2id.
+///
+/// `kdf_params` encodes [m_cost u32 LE][t_cost u32 LE][p_cost u32 LE][version u32 LE]
+/// in the first 16 bytes (matching the keyslot `kdf_params` field).
+/// If all zeros, the default parameters are used.
+pub fn derive_passphrase_kek(
+    passphrase: &str,
+    salt: &[u8; 16],
+    kdf_params: &[u8; 32],
+) -> Result<[u8; 32]> {
+    use argon2::{Algorithm, Argon2, Params, Version};
+
+    let (m, t, p) = if kdf_params[..16].iter().all(|&b| b == 0) {
+        (ARGON2_M_COST, ARGON2_T_COST, ARGON2_P_COST)
+    } else {
+        let m = u32::from_le_bytes(kdf_params[0..4].try_into().unwrap());
+        let t = u32::from_le_bytes(kdf_params[4..8].try_into().unwrap());
+        let p = u32::from_le_bytes(kdf_params[8..12].try_into().unwrap());
+        (m, t, p)
+    };
+
+    let params = Params::new(m, t, p, Some(32))
+        .map_err(|_| TosumError::InvalidArgument("invalid Argon2id parameters"))?;
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+
+    let mut kek = [0u8; 32];
+    argon2
+        .hash_password_into(passphrase.as_bytes(), salt, &mut kek)
+        .map_err(|_| TosumError::InvalidArgument("Argon2id hashing failed"))?;
+    Ok(kek)
+}
+
+/// Pack the Argon2id parameters into the 32-byte `kdf_params` keyslot field.
+pub fn pack_kdf_params(m: u32, t: u32, p: u32) -> [u8; 32] {
+    let mut buf = [0u8; 32];
+    buf[0..4].copy_from_slice(&m.to_le_bytes());
+    buf[4..8].copy_from_slice(&t.to_le_bytes());
+    buf[8..12].copy_from_slice(&p.to_le_bytes());
+    buf[12..16].copy_from_slice(&0x13u32.to_le_bytes()); // Argon2 version 0x13
+    buf
+}
+
+// ── DEK wrap / unwrap (§8.7) ──────────────────────────────────────────────────
+
+/// AAD for DEK wrapping: `"tosumu/v1/wrap" || slot_index (u16 LE) || dek_id (u64 LE) || kind (u8)`
+fn wrap_aad(slot_index: u16, dek_id: u64, kind: u8) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(14 + 2 + 8 + 1);
+    aad.extend_from_slice(b"tosumu/v1/wrap");
+    aad.extend_from_slice(&slot_index.to_le_bytes());
+    aad.extend_from_slice(&dek_id.to_le_bytes());
+    aad.push(kind);
+    aad
+}
+
+/// Wrap a 32-byte DEK with the given KEK.
+///
+/// Returns `(nonce [u8; 12], wrapped [u8; 48])` where `wrapped` = 32-byte ciphertext + 16-byte tag.
+pub fn wrap_dek(
+    kek: &[u8; 32],
+    dek: &[u8; 32],
+    slot_index: u16,
+    dek_id: u64,
+    kind: u8,
+) -> Result<([u8; 12], [u8; 48])> {
+    let nonce = random_nonce();
+    let aad = wrap_aad(slot_index, dek_id, kind);
+    let cipher = ChaCha20Poly1305::new(kek.into());
+    let ct = cipher
+        .encrypt(nonce.as_slice().into(), Payload { msg: dek.as_slice(), aad: &aad })
+        .map_err(|_| TosumError::EncryptFailed)?;
+    debug_assert_eq!(ct.len(), 48);
+    let mut wrapped = [0u8; 48];
+    wrapped.copy_from_slice(&ct);
+    Ok((nonce, wrapped))
+}
+
+/// Unwrap a 32-byte DEK.  Returns `WrongKey` if the AEAD tag fails.
+pub fn unwrap_dek(
+    kek: &[u8; 32],
+    nonce: &[u8; 12],
+    wrapped: &[u8; 48],
+    slot_index: u16,
+    dek_id: u64,
+    kind: u8,
+) -> Result<[u8; 32]> {
+    let aad = wrap_aad(slot_index, dek_id, kind);
+    let cipher = ChaCha20Poly1305::new(kek.into());
+    let pt = cipher
+        .decrypt(nonce.as_slice().into(), Payload { msg: wrapped.as_slice(), aad: &aad })
+        .map_err(|_| TosumError::WrongKey)?;
+    debug_assert_eq!(pt.len(), 32);
+    let mut dek = [0u8; 32];
+    dek.copy_from_slice(&pt);
+    Ok(dek)
+}
+
+// ── Key check value (KCV) (§8.7) ─────────────────────────────────────────────
+
+/// Known plaintext for KCV: 16 zero bytes.
+const KCV_KNOWN_PT: [u8; 16] = [0u8; 16];
+/// Fixed nonce for KCV computation (deterministic; nonce reuse is intentional here
+/// because the key is the variable — we're using AEAD as a KDF check, not for secrecy).
+const KCV_NONCE: [u8; 12] = [0u8; 12];
+const KCV_AAD: &[u8] = b"tosumu/v1/kcv";
+
+/// Compute the 32-byte KCV for a KEK.
+///
+/// KCV = ChaCha20-Poly1305(key=KEK, nonce=0, msg=[0u8;16], aad="tosumu/v1/kcv")
+/// Result = 16-byte ciphertext || 16-byte tag = 32 bytes.
+pub fn compute_kcv(kek: &[u8; 32]) -> [u8; 32] {
+    let cipher = ChaCha20Poly1305::new(kek.into());
+    let ct = cipher
+        .encrypt(KCV_NONCE.as_slice().into(), Payload { msg: &KCV_KNOWN_PT, aad: KCV_AAD })
+        .expect("KCV encryption: ChaCha20-Poly1305 over fixed inputs cannot fail");
+    debug_assert_eq!(ct.len(), 32);
+    let mut kcv = [0u8; 32];
+    kcv.copy_from_slice(&ct);
+    kcv
+}
+
+/// Verify that `kcv` matches the expected KCV for `kek`.
+/// Returns `WrongKey` if they do not match.
+pub fn verify_kcv(kek: &[u8; 32], kcv: &[u8; 32]) -> Result<()> {
+    let cipher = ChaCha20Poly1305::new(kek.into());
+    cipher
+        .decrypt(KCV_NONCE.as_slice().into(), Payload { msg: kcv.as_slice(), aad: KCV_AAD })
+        .map_err(|_| TosumError::WrongKey)?;
+    Ok(())
+}
+
+// ── Header MAC (§8.5) ─────────────────────────────────────────────────────────
+
+type HmacSha256 = Hmac<Sha256>;
+
+/// Compute the 32-byte HMAC-SHA256 over the header plain region and keyslot region.
+///
+/// Input: `page0[0..FILE_HEADER_PLAIN_LEN]` || `page0[KEYSLOT_REGION_OFFSET..+keyslot_count*KEYSLOT_SIZE]`
+pub fn compute_header_mac(
+    header_mac_key: &[u8; 32],
+    page0: &[u8; PAGE_SIZE],
+    keyslot_count: usize,
+) -> [u8; 32] {
+    use crate::format::KEYSLOT_REGION_OFFSET;
+    let mut mac = <HmacSha256 as hmac::Mac>::new_from_slice(header_mac_key)
+        .expect("HMAC: key length is always valid for SHA-256");
+    mac.update(&page0[..FILE_HEADER_PLAIN_LEN]);
+    let ks_end = KEYSLOT_REGION_OFFSET + keyslot_count * KEYSLOT_SIZE;
+    mac.update(&page0[KEYSLOT_REGION_OFFSET..ks_end]);
+    let result = mac.finalize().into_bytes();
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&result);
+    out
+}
+
+/// Verify that the 32-byte header MAC in `page0[OFF_HEADER_MAC]` is correct.
+/// Returns `AuthFailed { pgno: None }` if it does not match.
+pub fn verify_header_mac(
+    header_mac_key: &[u8; 32],
+    page0: &[u8; PAGE_SIZE],
+    keyslot_count: usize,
+    expected_mac: &[u8; 32],
+) -> Result<()> {
+    use crate::format::KEYSLOT_REGION_OFFSET;
+    let mut mac = <HmacSha256 as hmac::Mac>::new_from_slice(header_mac_key)
+        .expect("HMAC: key length is always valid for SHA-256");
+    mac.update(&page0[..FILE_HEADER_PLAIN_LEN]);
+    let ks_end = KEYSLOT_REGION_OFFSET + keyslot_count * KEYSLOT_SIZE;
+    mac.update(&page0[KEYSLOT_REGION_OFFSET..ks_end]);
+    mac.verify_slice(expected_mac)
+        .map_err(|_| TosumError::AuthFailed { pgno: None })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::format::{OFF_HEADER_MAC, KEYSLOT_REGION_OFFSET, KEYSLOT_KIND_PASSPHRASE};
+
+    // ── HKDF KAT ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn kat_hkdf_subkeys_are_deterministic_and_distinct() {
+        let dek = [0x42u8; 32];
+        let (pk1, hk1, ak1) = derive_subkeys(&dek);
+        let (pk2, hk2, ak2) = derive_subkeys(&dek);
+        assert_eq!(pk1, pk2);
+        assert_eq!(hk1, hk2);
+        assert_eq!(ak1, ak2);
+        // All three subkeys must be distinct
+        assert_ne!(pk1, hk1);
+        assert_ne!(pk1, ak1);
+        assert_ne!(hk1, ak1);
+    }
+
+    #[test]
+    fn kat_hkdf_known_vector() {
+        // Different DEKs must produce different page_keys.
+        let (pk_a, _, _) = derive_subkeys(&[0u8; 32]);
+        let (pk_b, _, _) = derive_subkeys(&[1u8; 32]);
+        assert_ne!(pk_a, pk_b, "HKDF must produce different outputs for different DEKs");
+        // Output must be non-trivial (not all zeros with a zero DEK).
+        assert_ne!(pk_a, [0u8; 32], "HKDF page_key must not be all-zeros for a zero DEK");
+    }
+
+    // ── Page AEAD KAT ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn kat_aead_roundtrip() {
+        let dek = [0x11u8; 32];
+        let (page_key, _, _) = derive_subkeys(&dek);
+        let mut plaintext = [0u8; PAGE_PLAINTEXT_SIZE];
+        plaintext[0] = 0xDE;
+        plaintext[1] = 0xAD;
+        let frame = encrypt_page(&page_key, 42, 7, &plaintext).unwrap();
+        let (pt2, version) = decrypt_page(&page_key, 42, &frame).unwrap();
+        assert_eq!(pt2, plaintext);
+        assert_eq!(version, 7);
+    }
+
+    #[test]
+    fn kat_aead_wrong_pgno_rejected() {
+        let dek = [0x22u8; 32];
+        let (page_key, _, _) = derive_subkeys(&dek);
+        let plaintext = [0u8; PAGE_PLAINTEXT_SIZE];
+        let frame = encrypt_page(&page_key, 1, 0, &plaintext).unwrap();
+        // Decrypting with a different pgno must fail (AAD mismatch).
+        assert!(decrypt_page(&page_key, 2, &frame).is_err());
+    }
+
+    // ── DEK wrap / unwrap KAT ─────────────────────────────────────────────────
+
+    #[test]
+    fn kat_dek_wrap_unwrap_roundtrip() {
+        let kek = [0xABu8; 32];
+        let dek = [0xCDu8; 32];
+        let (nonce, wrapped) = wrap_dek(&kek, &dek, 0, 1, KEYSLOT_KIND_PASSPHRASE).unwrap();
+        let recovered = unwrap_dek(&kek, &nonce, &wrapped, 0, 1, KEYSLOT_KIND_PASSPHRASE).unwrap();
+        assert_eq!(recovered, dek);
+    }
+
+    #[test]
+    fn kat_dek_unwrap_wrong_kek_rejected() {
+        let kek = [0xABu8; 32];
+        let bad_kek = [0xACu8; 32];
+        let dek = [0xCDu8; 32];
+        let (nonce, wrapped) = wrap_dek(&kek, &dek, 0, 1, KEYSLOT_KIND_PASSPHRASE).unwrap();
+        let err = unwrap_dek(&bad_kek, &nonce, &wrapped, 0, 1, KEYSLOT_KIND_PASSPHRASE).unwrap_err();
+        assert!(matches!(err, crate::error::TosumError::WrongKey));
+    }
+
+    #[test]
+    fn kat_dek_unwrap_wrong_slot_index_rejected() {
+        let kek = [0x33u8; 32];
+        let dek = [0x44u8; 32];
+        let (nonce, wrapped) = wrap_dek(&kek, &dek, 0, 1, KEYSLOT_KIND_PASSPHRASE).unwrap();
+        // Different slot_index changes the AAD → tag mismatch
+        let err = unwrap_dek(&kek, &nonce, &wrapped, 1, 1, KEYSLOT_KIND_PASSPHRASE).unwrap_err();
+        assert!(matches!(err, crate::error::TosumError::WrongKey));
+    }
+
+    // ── KCV KAT ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn kat_kcv_verify_correct_kek() {
+        let kek = [0x55u8; 32];
+        let kcv = compute_kcv(&kek);
+        verify_kcv(&kek, &kcv).expect("correct KEK must verify KCV");
+    }
+
+    #[test]
+    fn kat_kcv_reject_wrong_kek() {
+        let kek = [0x55u8; 32];
+        let bad_kek = [0x56u8; 32];
+        let kcv = compute_kcv(&kek);
+        let err = verify_kcv(&bad_kek, &kcv).unwrap_err();
+        assert!(matches!(err, crate::error::TosumError::WrongKey));
+    }
+
+    #[test]
+    fn kat_kcv_is_deterministic() {
+        let kek = [0x77u8; 32];
+        assert_eq!(compute_kcv(&kek), compute_kcv(&kek));
+    }
+
+    // ── Header MAC KAT ────────────────────────────────────────────────────────
+
+    #[test]
+    fn kat_header_mac_roundtrip() {
+        let dek = [0x88u8; 32];
+        let (_, hmk, _) = derive_subkeys(&dek);
+        let mut page0 = [0u8; PAGE_SIZE];
+        // Place some sentinel data in header and keyslot region
+        page0[0] = 0x54; // 'T'
+        page0[KEYSLOT_REGION_OFFSET] = 0x01; // sentinel kind
+        let mac = compute_header_mac(&hmk, &page0, 1);
+        // Store in page0 at OFF_HEADER_MAC
+        page0[OFF_HEADER_MAC..OFF_HEADER_MAC + 32].copy_from_slice(&mac);
+        let stored: [u8; 32] = page0[OFF_HEADER_MAC..OFF_HEADER_MAC + 32].try_into().unwrap();
+        verify_header_mac(&hmk, &page0, 1, &stored).expect("header MAC must verify");
+    }
+
+    #[test]
+    fn kat_header_mac_tampered_keyslot_rejected() {
+        let dek = [0x99u8; 32];
+        let (_, hmk, _) = derive_subkeys(&dek);
+        let mut page0 = [0u8; PAGE_SIZE];
+        let mac = compute_header_mac(&hmk, &page0, 1);
+        // Tamper one byte in the keyslot region
+        page0[KEYSLOT_REGION_OFFSET + 5] ^= 0xFF;
+        let err = verify_header_mac(&hmk, &page0, 1, &mac).unwrap_err();
+        assert!(matches!(err, crate::error::TosumError::AuthFailed { pgno: None }));
+    }
+
+    // ── Argon2id KAT ─────────────────────────────────────────────────────────
+    //
+    // Use fast params (m=4096 KiB, t=1, p=1) in tests to avoid 64 MiB allocations.
+    const TEST_ARGON2_PARAMS: [u8; 32] = {
+        let mut p = [0u8; 32];
+        let m = 4096u32.to_le_bytes();
+        let t = 1u32.to_le_bytes();
+        let pa = 1u32.to_le_bytes();
+        let v = 0x13u32.to_le_bytes();
+        p[0] = m[0]; p[1] = m[1]; p[2] = m[2]; p[3] = m[3];
+        p[4] = t[0]; p[5] = t[1]; p[6] = t[2]; p[7] = t[3];
+        p[8] = pa[0]; p[9] = pa[1]; p[10] = pa[2]; p[11] = pa[3];
+        p[12] = v[0]; p[13] = v[1]; p[14] = v[2]; p[15] = v[3];
+        p
+    };
+
+    #[test]
+    fn kat_argon2id_is_deterministic() {
+        let salt = [0xAAu8; 16];
+        let kek1 = derive_passphrase_kek("hunter2", &salt, &TEST_ARGON2_PARAMS).unwrap();
+        let kek2 = derive_passphrase_kek("hunter2", &salt, &TEST_ARGON2_PARAMS).unwrap();
+        assert_eq!(kek1, kek2);
+    }
+
+    #[test]
+    fn kat_argon2id_different_salt_gives_different_kek() {
+        let salt1 = [0x01u8; 16];
+        let salt2 = [0x02u8; 16];
+        let kek1 = derive_passphrase_kek("same", &salt1, &TEST_ARGON2_PARAMS).unwrap();
+        let kek2 = derive_passphrase_kek("same", &salt2, &TEST_ARGON2_PARAMS).unwrap();
+        assert_ne!(kek1, kek2);
+    }
 }

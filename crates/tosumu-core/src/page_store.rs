@@ -44,6 +44,16 @@ impl PageStore {
         Ok(PageStore { tree: BTree::open(path)? })
     }
 
+    /// Create a new passphrase-protected `.tsm` file.
+    pub fn create_encrypted(path: &Path, passphrase: &str) -> Result<Self> {
+        Ok(PageStore { tree: BTree::create_encrypted(path, passphrase)? })
+    }
+
+    /// Open a passphrase-protected `.tsm` file.
+    pub fn open_with_passphrase(path: &Path, passphrase: &str) -> Result<Self> {
+        Ok(PageStore { tree: BTree::open_with_passphrase(path, passphrase)? })
+    }
+
     // ── Writes ───────────────────────────────────────────────────────────────
 
     /// Insert or update a key-value pair.
@@ -314,6 +324,76 @@ mod tests {
             let v = format!("value{i:05}-{}", "x".repeat(90));
             assert_eq!(store2.get(k.as_bytes()).unwrap(), Some(v.into_bytes()));
         }
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // ── Passphrase-encryption tests ───────────────────────────────────────────
+
+    #[test]
+    fn encrypted_create_open_roundtrip() {
+        let path = temp_path("enc_roundtrip");
+        let _ = std::fs::remove_file(&path);
+
+        {
+            let mut store = PageStore::create_encrypted(&path, "correct-horse").unwrap();
+            store.put(b"secret", b"value").unwrap();
+        }
+
+        let store = PageStore::open_with_passphrase(&path, "correct-horse").unwrap();
+        assert_eq!(store.get(b"secret").unwrap(), Some(b"value".to_vec()));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn encrypted_wrong_passphrase_returns_wrong_key() {
+        let path = temp_path("enc_wrongkey");
+        let _ = std::fs::remove_file(&path);
+
+        PageStore::create_encrypted(&path, "correct-horse").unwrap();
+
+        let err = PageStore::open_with_passphrase(&path, "wrong-horse").err().unwrap();
+        assert!(
+            matches!(err, crate::error::TosumError::WrongKey),
+            "expected WrongKey, got {err:?}"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn encrypted_open_without_passphrase_returns_wrong_key() {
+        let path = temp_path("enc_nopw");
+        let _ = std::fs::remove_file(&path);
+
+        PageStore::create_encrypted(&path, "somepass").unwrap();
+
+        // Plain open() must refuse, not panic or silently succeed.
+        let err = PageStore::open(&path).err().unwrap();
+        assert!(
+            matches!(err, crate::error::TosumError::WrongKey),
+            "expected WrongKey, got {err:?}"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn encrypted_data_is_not_plaintext_in_file() {
+        let path = temp_path("enc_notplain");
+        let _ = std::fs::remove_file(&path);
+
+        {
+            let mut store = PageStore::create_encrypted(&path, "p4ssw0rd").unwrap();
+            store.put(b"confidential", b"secret_value_123").unwrap();
+        }
+
+        // The raw bytes of the file must not contain the plaintext value.
+        let raw = std::fs::read(&path).unwrap();
+        let needle = b"secret_value_123";
+        let found = raw.windows(needle.len()).any(|w| w == needle);
+        assert!(!found, "plaintext found in encrypted file — encryption is broken");
 
         let _ = std::fs::remove_file(&path);
     }

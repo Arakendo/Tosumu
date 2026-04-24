@@ -42,6 +42,14 @@ pub enum TosumError {
         path: std::path::PathBuf,
         operation: &'static str,
     },
+
+    /// The supplied passphrase (or other protector secret) is wrong.
+    ///
+    /// Distinct from `AuthFailed` which indicates page-level AEAD corruption.
+    /// `WrongKey` means "your passphrase was rejected by the keyslot KCV before
+    /// we even attempted to decrypt any data pages."
+    #[error("wrong passphrase or key — could not unlock any keyslot")]
+    WrongKey,
 }
 
 pub type Result<T> = std::result::Result<T, TosumError>;
