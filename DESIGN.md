@@ -844,6 +844,100 @@ Debugging a storage engine without visibility is a recipe for learned helplessne
 - `tosumu hex <path> --page N` — raw hex+ASCII dump of one page, 16 bytes per line, with header-field annotations for page 0.
 - `tosumu verify <path>` — walk every page, check page-type consistency, slot bounds (`offset + length <= page_body_size`), freelist reachability, and (Stage 4+) AEAD tag + header MAC. Report every anomaly, exit non-zero on any.
 
+#### 11.3 Viewer evolution (Stage 2+, optional but recommended)
+
+The CLI inspection tools in §11.2 are the foundation. Once they work, an **interactive viewer** becomes a force multiplier for debugging, learning, and demonstrating tosumu. This section documents the staged viewer evolution so we don't accidentally build "Datagrip Junior" before the database works.
+
+**Stage 2–3: TUI viewer (terminal UI)**
+
+An interactive terminal UI using `ratatui` + `crossterm`:
+
+```bash
+tosumu view <path>
+```
+
+**Views to implement:**
+
+- **File header view** — all header fields, flags, version info, page count
+- **Page list** — scrollable list of all pages with type, usage, status
+- **Page detail** — drill into a specific page: slots, records, freelist pointers
+- **B+ tree structure** — visual tree with internal/leaf nodes, key ranges (Stage 2+)
+- **WAL records** — list of WAL entries with LSN, type, affected pages (Stage 3+)
+- **Verification view** — live validation results, anomalies highlighted
+
+**Why TUI, not GUI:**
+
+- Works over SSH, no X11/Wayland needed
+- Faster to implement than Electron/Tauri
+- Fits the "storage engine autopsy table" aesthetic
+- No accidental frontend team
+
+**Stage 4+: Encrypted DB inspection**
+
+Once encryption lands, the viewer becomes a differentiator. Most encrypted storage tools are black boxes or "hex dumps wearing a trench coat." tosumu's viewer shows:
+
+```bash
+tosumu view encrypted.tsm --unlock
+```
+
+**Additional views for encrypted DBs:**
+
+- **Protector summary** — list configured protectors (passphrase, recovery key, TPM, keyfile), their metadata, creation times
+- **Keyslot detail** — per-slot status (active, empty, stale), `dek_id`, KDF params, flags
+- **Header MAC status** — verified / mismatch / not yet unlocked
+- **Per-page auth status** — green/red indicator for each page's AEAD tag
+- **Corruption report** — which pages failed auth, whether it's localized or widespread
+- **Encrypted vs plaintext summary** — page count breakdown, encrypted data size
+
+**Why this matters:**
+
+> A viewer turns `tosumu` from "trust me, it stores bytes" into:
+> 
+> "Look, here are the bytes, their structure, and whether the database believes them."
+
+This aligns with tosumu's core principle: **no silent corruption**. The viewer makes that principle visible.
+
+**Later (Stage 7+): Web/Desktop viewer**
+
+Eventually, a graphical viewer:
+
+- Rust backend + TypeScript frontend via `napi-rs`
+- Or local HTTP server (axum/actix) with browser UI
+- Or Tauri desktop app
+
+But **not before Stage 6 is complete**. That path leads to "I built a database and accidentally became a frontend team."
+
+**Command naming convention:**
+
+- `tosumu inspect <path>` — quick summary (file header, page count, flags)
+- `tosumu dump <path>` — text output (pages, records, structured)
+- `tosumu hex <path> --page N` — raw byte dump
+- `tosumu view <path>` — interactive TUI (Stage 2+)
+- `tosumu verify <path>` — validation with exit code (Stage 1)
+
+**Deliverable per stage:**
+
+- **Stage 1:** CLI inspection tools only (`inspect`, `dump`, `hex`, `verify`)
+- **Stage 2–3:** TUI viewer optional but recommended (implement `view` subcommand)
+- **Stage 4:** Extend TUI viewer with encrypted DB views (protectors, keyslots, auth status)
+- **Stage 7+:** Web/desktop viewer if time permits
+
+**Acceptance criteria for TUI viewer (Stage 2+):**
+
+- Runs in any terminal (Windows Terminal, iTerm2, kitty, etc.)
+- Keyboard navigation (arrow keys, vim bindings optional)
+- Handles large databases (pagination, lazy loading)
+- Real-time refresh (watch mode: `tosumu view --watch`)
+- Colorized output (ANSI colors for status, errors, warnings)
+- Quit without corrupting terminal state
+
+**Non-goals:**
+
+- No write operations in the viewer (read-only, inspection only)
+- No query builder / SQL editor (that's Stage 5's CLI, not the viewer)
+- No connection pooling / multi-database management (single file at a time)
+- No remote connections (local files only, security boundary is clear)
+
 ### Stage 2 — B+ tree index
 - Internal pages, splits, merges (lazy deletes ok).
 - Overflow pages for large values.
