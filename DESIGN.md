@@ -316,6 +316,119 @@ On open:
 
 Torn-write safety: a `PageWrite` is only applied if its CRC and AEAD tag both verify.
 
+### 7.4 Connection and session model
+
+The `Database` type is a shared engine handle — it owns the file lock, the page cache, and the writer gate. User code never talks to the pager directly. Instead it goes through short-lived session and transaction handles:
+
+```rust
+let db = Database::open(path, options)?;   // shared handle; holds file lock
+
+let session = db.session()?;               // lightweight user context
+
+session.read(|tx| {                        // snapshot at current committed LSN
+    tx.get(b"key")
+})?;
+
+session.write(|tx| {                       // exclusive; goes through writer gate
+    tx.put(b"key", b"value")?;
+    Ok(())
+})?;
+```
+
+Type rules:
+
+| Type | Owns | Lifetime |
+|------|------|----------|
+| `Database` | file lock, pager, writer gate | process lifetime |
+| `Session` | a reference to `Database` | short-lived; per-request or per-caller |
+| `ReadTransaction` | LSN snapshot | duration of the read closure |
+| `WriteTransaction` | exclusive writer slot | duration of the write closure; commit on `Ok`, rollback on `Err` |
+
+A `ReadTransaction` sees the database at the LSN that was current when the transaction opened. It does not see writes that commit after it opens. This is a snapshot, not a live view.
+
+A `WriteTransaction` goes through the **writer gate** (§7.5). There is always at most one live `WriteTransaction` at a time.
+
+Rationale: separate types for separate roles prevents "I opened a handle somewhere and now the database is haunted." The write closure model also makes it structurally impossible to forget `commit()` — commit is implied by returning `Ok(())`, rollback by returning `Err(...)`.
+
+### 7.5 Writer gate and busy policy
+
+The writer gate serializes all write transactions. Many callers can request writes concurrently; the gate queues or rejects them according to the `BusyPolicy` set at open time.
+
+```rust
+pub enum BusyPolicy {
+    FailFast,                          // return Err(Busy) immediately
+    Wait(Duration),                    // block up to Duration, then Err(Busy)
+    Retry { max: u32, backoff: Duration }, // retry with fixed backoff
+}
+```
+
+`BusyPolicy::FailFast` is the default. Users opt into waiting behavior explicitly — the opposite of SQLite's implicit busy timeout, which surprises people until they read the docs.
+
+Do not implement `BusyPolicy::Queue` (unbounded internal write queue) until Stage 6+. An unbounded queue hides backpressure problems and is a footgun in disguise.
+
+### 7.6 Snapshot reads and LSN visibility
+
+`ReadTransaction` captures the **committed LSN** at open time. All reads within the transaction see data as of that LSN and no later. The writer can advance the LSN without blocking readers.
+
+```rust
+let snap = db.snapshot()?;     // shorthand: session.read(...)
+let val  = snap.get(b"key")?;
+```
+
+Snapshots keep old WAL frames pinned (the checkpoint cannot truncate past the oldest active reader's LSN). Long-lived snapshots cause WAL growth. See §7.7 for how this is surfaced.
+
+### 7.7 Connection introspection
+
+`Database` exposes a diagnostics view. This is the "checkpoint blocked by mystery" problem solved:
+
+```rust
+let info = db.connection_info();
+// info.active_readers        — count of open ReadTransactions
+// info.oldest_reader_lsn     — oldest pinned LSN
+// info.writer_queue_depth    — pending write requests
+// info.current_writer_age    — how long the current write tx has been open
+// info.dirty_page_count      — pages modified but not yet checkpointed
+// info.wal_frame_count       — total WAL frames since last checkpoint
+// info.last_checkpoint_lsn   — LSN at last successful checkpoint
+// info.checkpoint_blocked_by — Some(session_id) if checkpoint is blocked
+```
+
+If a checkpoint stalls, the engine can say:
+
+```
+Checkpoint blocked by session 8, open for 14m32s (oldest LSN: 882).
+```
+
+Not "the file is large because mystery."
+
+### 7.8 Explicit checkpoint API (Stage 3+)
+
+Checkpointing moves committed WAL frames back into the main file and advances the checkpoint LSN. Three modes:
+
+```rust
+pub enum CheckpointMode {
+    Passive,    // checkpoint whatever frames are not blocked by active readers; never waits
+    Full,       // wait for all current readers to close, then checkpoint everything
+    Truncate,   // Full + truncate WAL to zero bytes after checkpoint
+}
+
+db.checkpoint(CheckpointMode::Passive)?;
+```
+
+`checkpoint()` returns a `CheckpointReport`:
+
+```rust
+pub struct CheckpointReport {
+    pub frames_copied: u32,
+    pub frames_remaining: u32,          // frames not checkpointed (blocked by readers)
+    pub blocked_by: Option<SessionId>,  // first blocking reader, if any
+    pub oldest_blocked_lsn: Option<u64>,
+    pub wal_truncated: bool,
+}
+```
+
+The engine does **not** auto-checkpoint at arbitrary points. Checkpointing is either explicit (via `checkpoint()`) or triggered at `Database::close()`. This keeps behavior predictable — "the WAL grew because no one called checkpoint" is a diagnosable problem, not a mystery.
+
 ---
 
 ## 8. Cryptography
