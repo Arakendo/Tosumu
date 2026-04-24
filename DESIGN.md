@@ -99,6 +99,10 @@ No async. The engine is synchronous. If we ever want async, we wrap at the edges
 
 Each layer only talks to the one directly below it. The crypto layer sits **between** the pager's cache and the file I/O: cached pages are plaintext; on-disk pages are ciphertext. Page numbers and versions are bound as AAD.
 
+**The pager is the trust boundary.** Memory is the trusted zone. Disk is the adversarial zone. Every page that crosses from disk into the cache is authenticated and decrypted at the boundary; every page that crosses from cache to disk is encrypted and tagged at the boundary. Nothing above the pager ever touches ciphertext. Nothing below the pager ever touches plaintext. The crypto layer enforces this: it is not a feature the pager uses — it is the definition of what the pager boundary means.
+
+This has a practical implication: all integrity checking happens exactly once, at the boundary, in one place. There is no secondary "was this tampered with?" check higher up the stack because the answer is already known — a page that passed the AEAD boundary is authentic; a page that failed never entered the cache.
+
 **Layer dependency is a structural invariant, not a convention.** No lower layer calls into a layer above it. No higher layer bypasses a layer below it. The B+ tree does not access the file directly. The pager does not know about transactions. The crypto layer does not know that keys are protector-derived. This is enforced by the crate and module structure: the dependency graph is a DAG, and module visibility rules make cross-layer calls a compiler error, not a code-review comment.
 
 This matters because safety-by-convention degrades under time pressure. An architectural boundary that can be crossed when things are urgent is not a boundary. The Tarski hierarchy that makes the Liar Paradox unexpressible in Tonesu works for the same reason: the one-directional level constraint is structural, not advisory.
@@ -251,33 +255,42 @@ A free page's body is a single `next_free: u64`. Linked list rooted at `freelist
 
 ### 6.2 API sketch
 
+The pager API is **closure-based**. This is the committed design, not a fallback.
+
 ```rust
 pub struct Pager { /* ... */ }
 
-pub struct PageRef<'a>    { /* &immutable view */ }
-pub struct PageRefMut<'a> { /* &mut view, marks dirty on drop */ }
-
 impl Pager {
     pub fn open(path: &Path, key: Option<&Key>) -> Result<Self>;
-    pub fn get(&self, pgno: u64) -> Result<PageRef<'_>>;
-    pub fn get_mut(&self, pgno: u64) -> Result<PageRefMut<'_>>;
-    pub fn allocate(&self, page_type: PageType) -> Result<u64>;
-    pub fn free(&self, pgno: u64) -> Result<()>;
+
+    /// Read-only access. Closure receives a shared view; cannot mark page dirty.
+    pub fn with_page<F, T>(&self, pgno: PageNo, f: F) -> Result<T>
+    where F: FnOnce(&PageView) -> Result<T>;
+
+    /// Read-write access. Closure receives a mutable view; page is marked dirty on return.
+    pub fn with_page_mut<F>(&self, pgno: PageNo, f: F) -> Result<()>
+    where F: FnOnce(&mut PageViewMut) -> Result<()>;
+
+    pub fn allocate(&self, page_type: PageType) -> Result<PageNo>;
+    pub fn free(&self, pgno: PageNo) -> Result<()>;
     pub fn flush(&self) -> Result<()>;   // called by txn commit
     pub fn close(self) -> Result<()>;
 }
 ```
 
-Interior mutability via `RefCell` / `parking_lot::Mutex` depending on concurrency stage. Single-writer assumption keeps this honest.
+**Why closure-based, not `PageRef<'_>` / `PageRefMut<'_>` with explicit lifetimes:**
 
-> **Risk — borrow-checker fight.** Returning `PageRef<'_>` / `PageRefMut<'_>` tied to `&self` with interior mutability often collapses into lifetime pain once the B+ tree starts holding references into two pages at once (e.g. during a split). **Fallback design if this gets ugly:** switch to a handle-based API where `get` / `get_mut` return an owned `PageHandle(u64, Generation)` and all reads/writes go through short-lived closures:
->
-> ```rust
-> pager.with_page(pgno, |view| { ... })?;
-> pager.with_page_mut(pgno, |view| { ... })?;
-> ```
->
-> This trades some ergonomics for zero lifetime gymnastics and is the known escape hatch. Decision deferred until Stage 2 actually needs cross-page references.
+Returning borrowed references tied to `&self` causes aliasing problems as soon as the B+ tree needs to hold views into two pages at once (e.g. during a node split: parent + child both pinned). `RefCell` borrow guards don't compose across two simultaneous `borrow_mut()` calls — the second panics at runtime, not at compile time. Lifetime-based APIs that "seem fine" at Stage 1 spread into the B+ tree and become expensive to unwind.
+
+Closure-based API properties:
+- No simultaneous borrows. Each closure runs, completes, and releases before the next.
+- The pager owns the cache exclusively; no external code holds a view longer than one call.
+- Multi-page operations (splits, merges) acquire pages sequentially through nested closures, which is correct by construction.
+- `with_page_mut` marks the page dirty on return from the closure, regardless of how the closure exits.
+
+The one genuine trade-off: closures cannot return borrows into the page data. All data needed outside the closure must be copied out. For a 4096-byte page this is not a problem; if profiling ever shows copy overhead as hot, the inner type can expose a cheap `Copy` view type.
+
+Interior mutability via `parking_lot::Mutex` on the cache map. Single-writer assumption means `with_page_mut` is uncontended in the expected case.
 
 ### 6.3 Cache
 
@@ -615,6 +628,8 @@ One top-level `Error` enum via `thiserror`. Variants include:
 - `OutOfSpace`
 - `TxnConflict`
 - `InvalidArgument(&'static str)`
+- `Busy` — writer gate rejected the request per `BusyPolicy::FailFast`
+- `Poisoned` — previous `AuthFailed` or `Corrupt` on this handle; handle is no longer safe to use
 
 No `unwrap` / `panic` on user-controlled input paths. Panics are reserved for "the programmer wrote a bug" invariants.
 
@@ -626,6 +641,54 @@ Examples:
 - `AuthFailed { pgno }` is appropriate for a variant specifically about AEAD tag failure, where the caller may want to distinguish "the tag was missing" from "the file is garbage." But mixing auth-mechanism names with phenomenon-names in one flat enum creates ambiguity.
 
 The practical rule: if a variant name implies a specific implementation mechanism, ask whether the variant should be renamed to describe the observable symptom, or whether a sub-variant structure (a nested `CorruptReason` enum) better separates the phenomenon from the diagnosis.
+
+### 9.2 Error taxonomy
+
+The flat variant list above can be classified into five categories. Knowing which category an error belongs to determines how the caller should respond:
+
+| Category | Variants | Caller response |
+|----------|----------|-----------------|
+| **Io** | `Io(std::io::Error)` | OS said no. Could be transient (disk full, network blip) or permanent (permission, removed device). Caller decides whether to retry. Never silently discard. |
+| **Corruption** | `Corrupt`, `KeyslotTampered`, `VersionMismatch`, `NewerFormat` | On-disk data is inconsistent or unrecognisable. Not safe to continue operating on this file. Surface to user with path context. |
+| **AuthFailure** | `AuthFailed`, `WrongKey`, `NoProtectorAccepted` | Cryptographic authentication failed or no valid key. Distinct from corruption: the file may be intact but the key is wrong. User-actionable. |
+| **LogicInvariant** | `InvalidArgument`, `TxnConflict`, `OutOfSpace` | The caller did something the engine cannot satisfy given current state. The database itself is fine. Caller fixes their usage. |
+| **Busy** | `Busy` (from `BusyPolicy::FailFast`) | Another writer holds the gate. Caller should back off or wait with `BusyPolicy::Wait`. |
+
+**Migration errors** (`MigrationRequired`, `MigrationFailed`) straddle Corruption and LogicInvariant. `MigrationRequired` is a LogicInvariant (the caller must choose to migrate). `MigrationFailed` is effectively a Corruption (the file may be in a partial state; treat as unsafe to continue).
+
+### 9.3 What crashes vs what bubbles
+
+The "no silent corruption" principle (§2) implies many loud failure paths. This is the policy:
+
+**Panics (`unreachable!` / `panic!` / debug assertions)** — reserved for programmer bugs: invariants that cannot be violated by any valid input, only by code that was written wrong. Examples:
+- An internal enum arm that should be unreachable given earlier validation
+- A `PageNo(0)` appearing as a B+ tree child pointer (caught by `DataPageNo(NonZeroU32)` — §28.2)
+- A cached page whose length is not 4096 bytes
+
+Panics are **not** appropriate for:
+- I/O errors (disk could fail)
+- AEAD failures (file could be tampered)
+- Wrong passphrase (user could mistype)
+- Out of space (disk could be full)
+
+**Errors that bubble to the caller** — everything caused by external state: I/O, cryptography, format version, key material, busy state, caller logic errors. The caller decides whether to retry, prompt the user, abort, or log.
+
+**Errors that are fatal to the session** — `AuthFailed { pgno }` and `Corrupt { pgno }` indicate the database file cannot be trusted. After either of these, the `Database` handle should be treated as poisoned. Reading further pages from it is not safe. The engine closes the file and all subsequent operations on that handle return `Err(Poisoned)` until the handle is dropped and re-opened.
+
+```rust
+// Conceptual (Stage 2+): poisoned state propagation
+match db.read(|tx| tx.get(b"key")) {
+    Err(TosumError::AuthFailed { pgno }) => {
+        // The handle is now poisoned. Log, alert, do not continue.
+    }
+    Err(TosumError::Io(e)) => {
+        // Could be transient. Caller decides.
+    }
+    _ => { ... }
+}
+```
+
+The `Poisoned` state itself is not stored in an error variant — it is stored in the `Database` struct. Subsequent calls return `Err(TosumError::Poisoned)` without touching the file.
 
 ---
 
