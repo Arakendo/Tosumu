@@ -1344,21 +1344,39 @@ In-place is only permitted for migrations whose entire delta fits in a single tr
 
 Migrations are explicit structs implementing a common trait. No if-branch soup in `open()`.
 
+A migration is not done when it runs. It is done when it **proves** the result is structurally valid, the expected changes happened, and unrelated data is unchanged.
+
 ```rust
 pub trait FormatMigration: Send + Sync {
     const FROM: u16;
     const TO: u16;
     const CATEGORY: MigrationCategory;
 
-    fn validate_preconditions(&self, db: &Database) -> Result<()>;
-    fn migrate(&self, ctx: &mut MigrationCtx) -> Result<()>;
-    fn validate_postconditions(&self, db: &Database) -> Result<()>;
+    /// Produces a human-readable plan before any data is touched.
+    /// Called by `inspect()` and `--dry-run`; must have no side effects.
+    fn plan(&self, db: &Database) -> MigrationPlan;
+
+    /// Runs precondition checks: exclusive lock held, WAL clean, free space
+    /// sufficient, backup written if required. Returns `PreflightFailed` with
+    /// a structured reason if any check fails.
+    fn preflight(&self, db: &Database) -> Result<()>;
+
+    /// Applies the migration. Called only after `preflight` returns `Ok`.
+    fn apply(&self, ctx: &mut MigrationCtx) -> Result<()>;
+
+    /// Verifies the result. Must check:
+    ///   - structural validity (page MACs, freelist consistency)
+    ///   - expected changes happened (format_version updated, new fields present)
+    ///   - unrelated data is unchanged (spot-check or full verify depending on category)
+    fn verify(&self, db: &Database) -> Result<VerificationReport>;
 }
 
 inventory::collect!(&'static dyn FormatMigration);
 ```
 
 The engine builds a migration **chain** at open time: it walks registered migrations and verifies there is exactly one path from `file.format_version` to `SUPPORTED_FORMAT`. Ambiguous or missing links fail fast with a descriptive error.
+
+`VerificationReport` mirrors `MigrationPlan` structure: it is a typed value, not a boolean. It contains counts of pages checked, any anomalies found, whether verification passed, and whether any data was unrecoverable.
 
 ### 13.7 Library API
 
@@ -1383,6 +1401,41 @@ impl Database {
 
 `MigrationPlan` includes: current `format_version`, target `format_version`, ordered list of migration steps with category and estimated rewrite cost, whether a backup will be created, and whether unlock (passphrase / TPM) will be required.
 
+`plan.explain()` produces human-readable output. Example for a two-step upgrade:
+
+```
+tosumu migration plan
+
+  Current format: 2
+  Target format:  4
+
+  Steps:
+    2 → 3  Add page_lsn to page header
+           Type:     full rewrite
+           Backup:   required
+           Verifier: page + btree + wal
+
+    3 → 4  Add keyslot flags
+           Type:     metadata-only
+           Backup:   optional
+           Verifier: header_mac
+
+  Safety:
+    exclusive lock required
+    WAL must be clean
+    estimated output size: 48 MB
+    backup: data.tsm.pre-v3.bak
+
+  Can migrate? yes
+```
+
+`--dry-run` calls `plan()` on every pending migration and prints this output without opening the file for write. It explicitly answers:
+- Can migrate? yes/no (with reason if no)
+- What will change?
+- Will it rewrite the file?
+- Is backup required?
+- What validation runs after?
+
 ### 13.8 Key-management migrations
 
 Key-management changes are **keyslot-metadata** migrations almost by construction, because the DEK/KEK split (§8) was designed so rotation rewrites the header, not the pages. Covered operations, all automatic-eligible:
@@ -1395,6 +1448,16 @@ Exceptions that are **not** automatic:
 
 - Full DEK rotation (§8.8) — crypto-structural, rewrites every page.
 - AAD composition change — crypto-structural.
+
+Crypto operations are exposed as **separate, named commands** rather than buried inside `migrate`. Hiding a full database rewrite behind "change password" builds user trust issues.
+
+| Command | Category | Cost | What it does |
+|---------|----------|------|--------------|
+| `rekey-kek` | Keyslot-metadata | O(keyslots) | Rewrap DEK under new KEK; header rewrite only |
+| `rekey-dek` | Crypto-structural | O(pages) | Generate new DEK, rewrite every page |
+| `migrate-crypto` | Crypto-structural | O(pages) | Full crypto migration plan (AAD change, scheme upgrade) |
+
+`rekey-dek` and `migrate-crypto` always require a full migration plan, backup, and post-verification. Neither runs automatically.
 
 ### 13.9 Schema migrations (Stage 5+)
 
@@ -1426,15 +1489,79 @@ tosumu migrate <path>              # apply all pending migrations, with backup
 tosumu migrate --dry-run <path>    # print MigrationPlan, touch nothing
 tosumu migrate --no-backup <path>  # skip the .bak; refuses on destructive categories
 tosumu inspect <path>              # format_version, min_reader_version, protectors
-tosumu backup <path>                # explicit snapshot via copy-and-fsync
-tosumu verify <path>                # already defined §12.3; also checks version fields
+tosumu backup <path>               # explicit snapshot via copy-and-fsync
+tosumu verify <path>               # already defined §12.3; also checks version fields
+tosumu rekey-kek <path>            # fast: rewrap DEK under new KEK; header only
+tosumu rekey-dek <path>            # slow: new DEK, rewrite every page
+tosumu migrate-crypto <path>       # full crypto migration plan (AAD/scheme change)
 ```
 
-### 13.11 What this section does *not* promise
+`rekey-kek` is fast and automatic-eligible. `rekey-dek` and `migrate-crypto` always print a plan first and require explicit confirmation.
+
+### 13.11 Formal rule set
+
+Every migration in Tosumu follows these seven rules without exception:
+
+```
+1. Never auto-migrate read-only opens.
+2. Never destructive-migrate without backup (unless --no-backup is explicit).
+3. Always dry-run possible (plan() has no side effects).
+4. Always verify after migration (verify() is not optional).
+5. Always store migration history (§13.12).
+6. Always distinguish migration category:
+   metadata-only / page-local / index-rebuild / full-rewrite / crypto-structural.
+7. Always leave the old database recoverable unless backup is explicitly disabled.
+```
+
+Additionally:
 
 - No automatic **downgrade**. Ever. Downgrading is "use the backup."
 - No partial migration on open. Either the whole auto-eligible chain applies, or none of it does.
 - No silent destructive behavior. Any migration that touches more than metadata requires explicit opt-in.
+
+### 13.12 Migration history
+
+The database stores a migration log on a **system metadata page** (Page 1, once system pages exist in Stage 3+). Not just `format_version` — a full record of what ran, when, and by which engine.
+
+```
+migration_history
+-----------------
+from_version    u16
+to_version      u16
+name            text   ("AddPageLsn", "AddKeyslotFlags", ...)
+kind            text   ("FullRewrite", "MetadataOnly", ...)
+started_at      u64    (Unix timestamp, wall clock)
+completed_at    u64
+engine_version  text   (semver string of the tosumu binary)
+pre_hash        [u8; 32]  (BLAKE3 hash of file before migration)
+post_hash       [u8; 32]  (BLAKE3 hash of file after migration)
+status          text   ("completed" | "rolled_back" | "partial")
+backup_path     text   (path to .bak file, if any)
+```
+
+This lives in a reserved region of the system page, capped at N entries. On overflow, oldest entries roll off. Entries are read-only after write — no in-place update.
+
+`tosumu inspect <path>` includes the migration history in its output. This is what "the result is explainable" looks like at the format layer.
+
+### 13.13 Page-level migration receipts
+
+For page-touching migrations (page-local rewrite, full rewrite, crypto-structural), the migration engine emits **per-page receipts** during execution:
+
+```rust
+pub struct PageReceipt {
+    pub page_id: u32,
+    pub old_hash: [u8; 32],
+    pub new_hash: [u8; 32],
+    pub migration: &'static str,   // e.g. "v2_to_v3_add_page_lsn"
+}
+```
+
+Receipts are:
+- **Written to a `.receipts` sidecar file** alongside the database during migration.
+- **Used by `verify()` in the same migration** to cross-check that every touched page's new hash matches expectations.
+- **Not retained indefinitely** — the sidecar is cleaned up after successful verification. If migration fails or `verify()` finds a mismatch, the sidecar remains for forensic inspection.
+
+The sidecar filename is `<db>.migration-receipts`. If a receipts file exists at open time, the engine warns: a previous migration either failed or was interrupted. The receipts file is never silently deleted.
 
 ---
 
