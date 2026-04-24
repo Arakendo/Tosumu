@@ -1146,6 +1146,91 @@ Honest list of what this testing strategy does not cover:
 
 This is acceptable for a learning project. Document it so we don't quietly assume otherwise.
 
+### 11.14 Adversarial testing strategy
+
+**Goal:** ensure no input — malicious or corrupted — can cause incorrect success, invariant violation, silent data corruption, or panic. Deeper than a conventional pentest; the threat model is "hostile file on disk," not "hostile network client."
+
+The strategy has four layers. They are not mutually exclusive; they complement each other.
+
+#### Layer 1: Deterministic adversarial tests (done — `page_store.rs`)
+
+Committed at `a21da01`. 125 deterministic tests including:
+
+| Category | What it tests |
+|---|---|
+| Crash simulation | Snapshot-before, snapshot-after, torn write at MAC boundary |
+| Slot reuse / stale AAD | Old wrapped-DEK blob rejected after slot is reused with new key |
+| Cross-DB splice | Full slot + MAC from DB A patched into DB B → AEAD fails (DEK_ID in AAD differs) |
+| Snapshot rollback | Header rolled back to pre-add-protector state → new slot absent; old slot still works |
+| Targeted corruption | Kind byte, wrap nonce, KCV, keyslot count — each triggers correct error, not panic |
+| Bit-flip sweep | Every bit in slot 0 → error, never silent success (`#[ignore]` — 2048 Argon2id calls) |
+| Immutability | Failed open/rekey/add-protector never mutates the file on disk |
+| Invariant sweep | `list_keyslots`, `open`, data integrity checked after every key-management op |
+
+**Design note exposed by these tests:** `dek_id` was hardcoded to `1` in `create_encrypted`, meaning
+every new database had identical AEAD AAD. A full-slot splice from any DB to another with the same
+passphrase was cryptographically undetectable. Fixed: `dek_id` is now a random 64-bit value per
+database, generated at creation time and baked into the AEAD AAD for every wrapped DEK.
+
+#### Layer 2: Structure-aware fuzz targets (partially done — `fuzz/fuzz_targets/`)
+
+Six targets exist:
+
+| Target | Region fuzzed |
+|---|---|
+| `fuzz_page_decode` | Arbitrary 4 KB page blobs |
+| `fuzz_btree_operations` | Op-sequence bytestream (insert/delete/get) |
+| `fuzz_wal_replay` | Arbitrary WAL file |
+| `fuzz_aead_frame` | Arbitrary ciphertext blobs |
+| `fuzz_keyslot_parse` | Keyslot region within a syntactically valid page 0 |
+| `fuzz_btree_crash_boundaries` | B+ tree ops with injected crash points |
+
+**Gap:** `fuzz_keyslot_parse` overwrites the whole slot region with random bytes. It does not
+take a *valid file with a real wrapped DEK* and mutate individual typed fields (nonce, KCV, kind,
+salt, dek_id). A `fuzz_keyslot_mutate` target using the `arbitrary` crate would close this.
+
+Run manually: `cargo fuzz run <target> -- -max_total_time=300`
+
+#### Layer 3: Differential testing (not yet built — highest ROI)
+
+Run the same op sequence against:
+- **Model:** `BTreeMap<Vec<u8>, Vec<u8>>` (in-memory, authoritative)
+- **Subject:** `PageStore` (with crash + WAL recovery between ops)
+
+Assert `model == subject.scan()` after every op including reopen from crash.
+
+This catches "logically wrong but structurally valid" failures — committed transaction silently
+dropped on WAL replay in a page-split edge case, for example. None of the current tests cover this
+class. A single `#[test]` that runs a 100-op model vs subject comparison with a mid-sequence crash
+would be the highest-value addition after MVP +8.
+
+**Sketch:**
+```rust
+for op in ops {
+    match op {
+        Put(k, v) => { model.insert(k, v); store.put(&k, &v)?; }
+        Delete(k) => { model.remove(&k); store.delete(&k)?; }
+        Crash    => { drop(store); store = PageStore::open_with_passphrase(&path, "p")?; }
+    }
+    assert_eq!(model_sorted(&model), store.scan()?);
+}
+```
+
+#### Layer 4: Sanitizers (not yet wired — zero code, just a run profile)
+
+Useful for catching UB if unsafe code is ever introduced (SIMD, mmap, FFI):
+
+```powershell
+# Nightly only. Run before each stage release.
+$env:RUSTFLAGS = "-Zsanitizer=address"
+cargo +nightly test -p tosumu-core --target x86_64-unknown-linux-gnu
+```
+
+ThreadSanitizer becomes relevant at Stage 6 (MVCC / multi-reader).
+
+**Not worth adding yet.** Safe Rust + `#![forbid(unsafe_code)]` makes ASan finds extremely unlikely.
+Wire it up when unsafe code is first introduced or when Stage 6 multi-reader work begins.
+
 ---
 
 ## 12. Roadmap (stages)
