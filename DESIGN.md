@@ -1351,11 +1351,11 @@ Deploy the three-server witness model (§23.4) and local observer model (§23.6)
 | 0 | Append-only log, in-memory index | I/O works, binary runs | pre-Stage 1 | ✅ done |
 | +1 | Slotted pages, file header, freelist | On-disk format works | Stage 1 storage | ✅ done |
 | +2 | `dump` / `hex` / `verify`, fuzz page decode | No silent corruption | Stage 1 debug | ✅ done |
-| +3 | B+ tree, range scans, overflow pages | Real DB lookups | Stage 2 | ✅ done |
+| +3 | B+ tree, range scans | Real DB lookups | Stage 2 | ✅ done |
 | +4 | Transactions, WAL, recovery, retry-on-lock | Durability | Stage 3 | ✅ done |
 | +5 | `CrashWriter`, `check_invariants`, proptest, crash-boundary fuzz | No partial transactions under crash | Stage 3 correctness | ✅ done |
-| +6 | Passphrase-encrypted DB, Argon2id, KATs | Crypto works end-to-end | Stage 4a | 🔜 next |
-| +7 | Multiple protectors, recovery key, KEK rotation | Key management works | Stage 4b | |
+| +6 | Passphrase-encrypted DB, Argon2id, DEK wrap, header MAC, KATs, crypto fuzz targets | Crypto works end-to-end | Stage 4a | ✅ done |
+| +7 | Multiple protectors, recovery key, KEK rotation | Key management works | Stage 4b | 🔜 next |
 | +8 | TUI viewer (`tosumu view`) | Interactive inspection | Stage 2–4 crosscut | |
 | +9 | Toy SQL (`CREATE TABLE`, `SELECT`) | Real query foundation | Stage 5 | |
 | +10 | MVCC readers, secondary indexes, `VACUUM` | Concurrency | Stage 6 | |
