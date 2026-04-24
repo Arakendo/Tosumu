@@ -40,6 +40,54 @@
 - Compression.
 - Replication.
 
+### 1.4 Motivating real-world context: offline-first sync
+
+Tosumu is a learning project, but the epistemic model (§29) emerged from a concrete problem: the standard offline-first architecture —
+
+```
+client → local SQLite
+         ↕ periodic sync
+         central server (e.g. a Raspberry Pi)
+```
+
+— has a structural confidence problem that most systems paper over.
+
+**The actual failures in offline-first systems:**
+
+1. **Stale reads presented as current.** The local DB says "here is your data." It hasn't synced in two hours. SQLite returns it without comment. The application has no way to know whether to trust it.
+
+2. **Sync conflicts with no epistemic metadata.** When two clients diverge, conflict resolution asks "which write wins?" — but neither side can say "how confident am I in this version?" The system has no vocabulary for confidence.
+
+3. **Silent partial failures.** A network glitch or crash mid-sync leaves the system in unknown state while continuing to behave as if it is in known state.
+
+Tosumu's three-dimension model (§29.2) gives offline-first systems a vocabulary that is currently missing:
+
+```
+integrity:   OK     — AEAD tag verified
+freshness:   unanchored — last sync 2h ago, no witness
+epistemic:   do not present as current
+```
+
+This lets the application make an honest disclosure:
+
+```
+⚠ Data may be stale — last sync 2h ago
+```
+
+rather than silently returning data that may be wrong.
+
+**The deeper shift.** The purpose of sync in this model is not just moving bytes — it is moving *confidence*. A client that has not recently synced has lower epistemic standing than the server it synced from. Conflict resolution that takes this into account ("which claim is stronger?") is more correct than resolution that ignores it ("which write is newer?").
+
+**A small central server as a witness.** The §23 witness model maps naturally onto this topology: the central server holds the freshness anchor. Clients ask "am I current?" and receive a real answer backed by the server's audit head. The server becomes a `tosu`-tier anchor; clients that have not yet synced are `to`-tier at best.
+
+**Migration strategy for adopters.** The right approach is not to replace an entire existing stack at once:
+
+1. Introduce Tosumu for one subsystem where staleness visibly hurts.
+2. Add sync metadata and use the server as a freshness witness.
+3. Extend the UI to surface epistemic state where it matters.
+
+The existing stack and Tosumu can coexist. The point is not to eliminate other databases — it is to stop pretending that local copies are ground truth.
+
 ---
 
 ## 2. Guiding principles
