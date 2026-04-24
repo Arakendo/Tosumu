@@ -5,7 +5,7 @@
 **Language:** Rust (stable)
 **Target:** Single-file, single-process, embedded, page-based, authenticated-encrypted key/value store with an eventual toy SQL layer.
 
-> **Name.** `tosumu` (written `to-su-mu`) is a conlang word meaning *knowledge-organization device* — literally "database." Components: `to` (knowledge / information) + `su` (organized structure) + `mu` (object / device). See §16.
+> **Name.** `tosumu` (written `to-su-mu`) is a conlang word meaning *knowledge-organization device* — literally "database." Components: `to` (knowledge / information) + `su` (organized structure) + `mu` (object / device). See §17.
 >
 > **Published at** https://github.com/Arakendo/tosumu. Dual-licensed MIT OR Apache-2.0. This is a public learning project: the crypto and storage design are documented, but neither has been independently reviewed or audited. Do not use `tosumu` to protect real secrets — see [`SECURITY.md`](SECURITY.md).
 
@@ -29,7 +29,7 @@
 - Feature parity with SQLite. We are *inspired by* SQLite, not cloning it.
 - High performance. We will measure it, but we will not chase it.
 - Portability exotica. Little-endian, 64-bit, POSIX-or-Windows file semantics.
-- Advanced indexing (FSTs, full-text search, vector/embedding search, fuzzy matching). See §17 for why these are out of scope and how to use specialized tools if you need them.
+- Advanced indexing (FSTs, full-text search, vector/embedding search, fuzzy matching). See §18 for why these are out of scope and how to use specialized tools if you need them.
 
 ### 1.3 Explicit "out of scope until proven necessary"
 
@@ -123,9 +123,9 @@ Fixed layout. Plaintext fields are readable without any key so we can refuse to 
 | Offset | Size | Field | Notes |
 |---|---|---|---|
 | 0 | 16 | `magic` | ASCII `"TOSUMUv0\0......."` — 8 bytes of tag + NUL + 7 reserved bytes, zero-padded |
-| 16 | 2 | `format_version` | what this file *is* (see §12) |
+| 16 | 2 | `format_version` | what this file *is* (see §13) |
 | 18 | 2 | `page_size` | 4096 |
-| 20 | 2 | `min_reader_version` | lowest engine `format_version` allowed to open this file (see §12.1) |
+| 20 | 2 | `min_reader_version` | lowest engine `format_version` allowed to open this file (see §13.1) |
 | 22 | 2 | `flags` | bit 0 = encrypted; bit 1 = has keyslots |
 | 24 | 8 | `page_count` | total pages including header |
 | 32 | 8 | `freelist_head` | page number or 0 |
@@ -162,7 +162,7 @@ Everything after page 0 and the **keyslot region** uses the page frame in §5.3.
 
 > **Nonce strategy — future option.** `random 96-bit` is simple and safe for our write volumes. If operational reasoning becomes annoying (e.g. during crash/WAL replay analysis), the migration target is `random_prefix (64 bits) || monotonic_counter (32 bits)` per key. Documented here so we don't rediscover it at 2am.
 
-When encryption is disabled (`flags bit 0 = 0`), the entire 4096 bytes is the plaintext page body. The nonce/version/tag fields are absent, and a CRC32C in the page header provides integrity only (see §14 Q4). This mode exists for Stages 1–3.
+When encryption is disabled (`flags bit 0 = 0`), the entire 4096 bytes is the plaintext page body. The nonce/version/tag fields are absent, and a CRC32C in the page header provides integrity only (see §15 Q4). This mode exists for Stages 1–3.
 
 ### 5.4 Slotted page (leaf data pages)
 
@@ -202,7 +202,7 @@ Policy:
 - A page is **eligible for compaction** when `fragmented_bytes >= page_body_size / 4`.
 - Compaction is triggered **lazily on write**: before an insert/update that would otherwise fail with `OutOfSpace`, the pager tries compacting the target page first. No background sweeper.
 - Compaction is a full heap rewrite: copy live records to a scratch buffer in slot order, reset `free_end`, rewrite slots, zero `fragmented_bytes`.
-- Stage 1 may **skip `fragmented_bytes` entirely** and recompute live/dead bytes on demand during compaction. Tracking it in the header is a Stage 2+ optimization, not a Stage 1 requirement. (See §11.1.)
+- Stage 1 may **skip `fragmented_bytes` entirely** and recompute live/dead bytes on demand during compaction. Tracking it in the header is a Stage 2+ optimization, not a Stage 1 requirement. (See §12.1.)
 
 #### 5.4.2 Value size cap (Stage 1)
 
@@ -492,7 +492,91 @@ No `unwrap` / `panic` on user-controlled input paths. Panics are reserved for "t
 
 ---
 
-## 10. Testing strategy
+## 10. Programmer footguns and API guardrails
+
+A storage engine's correctness is only half the battle. The other half is preventing programmers (including future-you) from misusing the API in ways that create application bugs. This section documents common footguns and the design guardrails that prevent them.
+
+**Design principle:** *Make the safe path shorter than the dangerous path.*
+
+### 10.1 Transaction footguns
+
+| Footgun | Problem | Guardrail |
+|---------|---------|-----------|
+| **Implicit writes without transaction clarity** | Programmer calls `put()` ten times and assumes they commit together. They don't. Disaster in a cardigan. | Explicit transaction scope: `db.transaction(\|tx\| { tx.put(k1, v1)?; tx.put(k2, v2)?; Ok(()) })?;` Stage 1 can auto-commit individual operations; Stage 3+ requires transactions for multi-operation atomicity. |
+| **Forgetting to commit** | Opens transaction, does work, forgets commit, wonders why reality disagrees. | Rollback on drop with debug warning. `impl Drop for Transaction { fn drop(&mut self) { if !self.finished { #[cfg(debug_assertions)] warn!("Transaction dropped without commit"); } } }` |
+| **Nested transaction confusion** | Starts transaction inside transaction and expects magic. | **Stage 3 decision:** Either reject nested transactions with `TxnAlreadyOpen` error, or support savepoints explicitly (`tx.savepoint()?`). No ambiguous "sure buddy" behavior. |
+| **Long-running transactions** | Holds locks, prevents checkpoints, grows WAL, annoys everyone. | Expose transaction age and dirty-page count in debug API. Stage 6+ may add configurable limits with `TxnTooLong` error. |
+
+### 10.2 Context and lifetime footguns
+
+| Footgun | Problem | Guardrail |
+|---------|---------|-----------|
+| **Long-lived context / session** | A database handle accumulates cache state, stale reads, open transactions, leaked resources. | Separate types: `Database` (shared engine handle, multi-thread safe), `Session` (short-lived user interaction, single-thread), `Transaction` (scoped mutation). Example: `let mut session = db.session()?; session.transaction(\|tx\| ...)?;` |
+| **Thread misuse** | Shares mutable state across threads and expects peace. | Type system enforces safety. `Transaction` is `!Send` if it holds thread-local state. Write access is single-owner by design. |
+| **Using disposed/closed handle** | Common in managed ecosystems; handle used after `close()` called. | Rust ownership: `db.close(self)` consumes the handle. Compiler prevents use-after-close. No runtime checks needed. |
+
+### 10.3 Query and API footguns
+
+| Footgun | Problem | Guardrail |
+|---------|---------|-----------|
+| **Read-your-writes ambiguity** | Does a read inside a transaction see uncommitted writes? Unclear behavior breaks expectations. | **Guaranteed and documented:** Reads inside a transaction always see uncommitted writes from that transaction. Test: `tx.put(k, v1)?; assert_eq!(tx.get(k)?, Some(v1));` |
+| **Autocommit surprise** | Some DBs autocommit every statement. Some don't. Programmers learn through pain. | Explicit: Stage 1 operations are auto-committed (no WAL yet). Stage 3+ requires `db.transaction()` for multi-operation atomicity. Single operations can use `db.auto_commit().put(k, v)?` for clarity. |
+| **Scan order assumptions** | Stage 1 scan is insertion/page order; Stage 2 scan becomes key order. Silent behavior change breaks users. | Honest API names: `scan_physical()` (Stage 1, page order), `scan_by_key()` (Stage 2+, sorted), `scan_by_insert_order()` if needed. Never let "scan" mean whatever the engine happens to do today. |
+
+### 10.4 Migration footguns
+
+| Footgun | Problem | Guardrail |
+|---------|---------|-----------|
+| **Auto-migrating on read-only open** | User inspects a file, accidentally mutates it. Tiny horror show. | `open_read_only()` never migrates. Returns `MigrationRequired { from, to }` error if file is old format. Already designed in §13. |
+| **Silent destructive migration** | Migrations that lose data or change semantics must not be automatic. | Require explicit `db.migrate()` call. Heavy migrations (§13) use copy-and-swap, preserving `.pre-v{N}.bak` backup. Light migrations may be automatic only if lossless and append-only. |
+| **No backup before migration** | User migrates, migration corrupts file, no backup exists. | Heavy migrations (§13) always create `.pre-v{N}.bak` before mutation. Documented in migration output: "Backup saved to data.tsm.pre-v2.bak" |
+
+### 10.5 Encryption and key footguns
+
+| Footgun | Problem | Guardrail |
+|---------|---------|-----------|
+| **Wrong key treated as corruption** | User types wrong passphrase, gets generic "corrupted database" error. Bad UX. | Separate errors: `WrongKey` (keyslot unlock failed, try again), `AuthFailed { pgno }` (page AEAD failed, actual corruption), `KeyslotTampered` (header MAC mismatch). Already designed in §9. |
+| **Recovery key shown once, user ignores it** | Recovery keys displayed once, never recorded. Users become raccoons near reflective foil. | Require confirmation: CLI prompts "Type word 3 and word 7 of the recovery key to continue." Can't proceed without proving they recorded it. |
+| **Key rotation misunderstood** | KEK rotation is cheap (rewrites 8 keyslots). DEK rotation is expensive (rewrites entire DB). Programmers mix them up. | Separate commands: `tosumu rekey-kek --old-pass X --new-pass Y` (fast, < 1 sec) and `tosumu rekey-dek` (slow, rewrites all pages). Doc explains cost difference. |
+
+### 10.6 File and system footguns
+
+| Footgun | Problem | Guardrail |
+|---------|---------|-----------|
+| **Copying DB without WAL** | User copies `data.tsm` but not `data.tsm.wal`, then complains about missing recent writes. | `tosumu backup <src> <dest>` is the blessed path (Stage 3+). Copies both `.tsm` and `.wal` atomically. Warning in `open()` if WAL exists but is older than expected: "WAL file may be stale or from a previous copy." |
+| **Opening same DB twice** | Single-writer means locks matter. Two processes open same file = corruption. | Exclusive file lock (POSIX `flock()`, Windows `LockFileEx`) acquired in `Database::open()`. Second open returns `Io(ErrorKind::WouldBlock)` with message "Database is already open by another process." |
+| **Editing files externally** | People will hex edit. You invited this with `tosumu hex`, the little chaos menu item. | `tosumu verify` catches tampering (checksum/AEAD failures). Docs say manual edits void reality. Stage 4+ AEAD ensures any byte-level tampering is detected on page load. |
+
+### 10.7 Rust API footguns
+
+| Footgun | Problem | Guardrail |
+|---------|---------|-----------|
+| **Returning references into cached pages** | API returns `&[u8]` pointing into page cache. Page evicted, reference dangles. Borrow-checker nightmare. | Closure-based API (fallback): `db.with_value(key, \|value\| { ... })?` or copy-out API: `db.get(key)? -> Option<Vec<u8>>`. Stage 1 uses copy-out for simplicity. Stage 5+ may offer zero-copy reads for long-running read transactions. |
+| **Panic on malformed input** | Decoder panics when fed corrupted bytes. Violates "no silent corruption" principle. | Every decoder returns `Result<T, Error::Corrupt>`. Panics reserved for internal invariants (`debug_assert!`). Fuzz targets (§11.5) enforce this. |
+| **Generic cleverness too early** | Making everything generic before anything works. The deadliest Rust footgun. | Boring concrete structs until Stage 2 or 3. `Page` is `Page`, not `Page<S: Storage, C: Codec>`. Generic APIs introduced only when third use case appears. |
+
+### 10.8 Summary table
+
+Quick reference for API design reviews:
+
+| Footgun category | Core guardrail |
+|------------------|----------------|
+| Forgot transaction | `db.transaction(\|tx\| ...)` ergonomic API |
+| Long-lived context | `Session` / `Transaction` scoped types |
+| Scan order assumption | Separate `scan_physical()` vs `scan_by_key()` |
+| Copy without WAL | First-class `backup` command |
+| Wrong key confusion | Distinct `WrongKey` vs `AuthFailed` errors |
+| Auto destructive migration | Explicit `migrate()` only |
+| Nested transaction ambiguity | Reject or support savepoints explicitly |
+| Returning stale references | Closure API or copy-out; no dangling `&[u8]` |
+| External file editing | `verify` command + AEAD detect tampering |
+| Opening DB twice | Exclusive file lock, clear error message |
+
+**Review cadence:** Before each stage release, audit new public APIs against this list. If a new API introduces a footgun, either redesign the API or document the sharp edge explicitly with examples.
+
+---
+
+## 11. Testing strategy
 
 Testing is a first-class concern. A storage engine is only as good as the confidence that it won't corrupt data, and confidence comes from systematic, repeatable, adversarial testing. This section is normative: every module ships with its tests, and every stage gate includes test requirements.
 
@@ -813,7 +897,7 @@ This is acceptable for a learning project. Document it so we don't quietly assum
 
 ---
 
-## 11. Roadmap (stages)
+## 12. Roadmap (stages)
 
 Each stage ends with a tagged release and a short write-up.
 
@@ -821,7 +905,7 @@ Each stage ends with a tagged release and a short write-up.
 - File header, page allocation, freelist.
 - Slotted page leaf layout.
 - Single implicit "table."
-- CLI: `init`, `put <k> <v>`, `get <k>`, `scan`, `stat`, plus the debug trio in §11.1.
+- CLI: `init`, `put <k> <v>`, `get <k>`, `scan`, `stat`, plus the debug trio in §12.2.
 - **No encryption, no WAL, no B+ tree yet.** Linear scan across leaf pages.
 - Property tests for page + record codec.
 - **Reference:** See `REFERENCES.md` for LruCache (page cache eviction pattern) and RingBuffer (optional WAL buffering).
@@ -846,7 +930,7 @@ Debugging a storage engine without visibility is a recipe for learned helplessne
 
 #### 11.3 Viewer evolution (Stage 2+, optional but recommended)
 
-The CLI inspection tools in §11.2 are the foundation. Once they work, an **interactive viewer** becomes a force multiplier for debugging, learning, and demonstrating tosumu. This section documents the staged viewer evolution so we don't accidentally build "Datagrip Junior" before the database works.
+The CLI inspection tools in §12.2 are the foundation. Once they work, an **interactive viewer** becomes a force multiplier for debugging, learning, and demonstrating tosumu. This section documents the staged viewer evolution so we don't accidentally build "Datagrip Junior" before the database works.
 
 **Stage 2–3: TUI viewer (terminal UI)**
 
@@ -987,10 +1071,10 @@ Split into three sub-stages because key management is its own discipline and cra
 
 ### Stage 6 — Stretch
 - Multi-reader concurrency (MVCC snapshot by LSN).
-- **Secondary indexes** — additional B+ trees mapping `(secondary_key, primary_key)`. Think `CREATE INDEX idx ON users(email)` for relational-style lookups. Not full-text, not fuzzy, not vectors (see §17).
+- **Secondary indexes** — additional B+ trees mapping `(secondary_key, primary_key)`. Think `CREATE INDEX idx ON users(email)` for relational-style lookups. Not full-text, not fuzzy, not vectors (see §18).
 - `VACUUM` — reclaim space from deleted records and rebuild indexes.
 - Benchmarks vs SQLite on toy workloads, purely for humility.
-- Explicit non-goals for Stage 6: no FSTs, no full-text search, no vector search, no spatial indexes. See §17 for why.
+- Explicit non-goals for Stage 6: no FSTs, no full-text search, no vector search, no spatial indexes. See §18 for why.
 - **Optional optimization:** See `REFERENCES.md` for BloomFilter (per-page negative lookups to skip pages during scans).
 
 ---
@@ -1011,7 +1095,7 @@ The engine itself has a `SUPPORTED_FORMAT` constant. Open rules:
 | File's `format_version` | File's `min_reader_version` | Engine behavior |
 |---|---|---|
 | `== SUPPORTED_FORMAT` | any ≤ `SUPPORTED_FORMAT` | Open normally. |
-| `< SUPPORTED_FORMAT` | any | Eligible for migration (§12.3). |
+| `< SUPPORTED_FORMAT` | any | Eligible for migration (§13.3). |
 | `> SUPPORTED_FORMAT` | `≤ SUPPORTED_FORMAT` | Open **read-only**, print warning. |
 | `> SUPPORTED_FORMAT` | `> SUPPORTED_FORMAT` | Refuse with `NewerFormat`. |
 
@@ -1124,7 +1208,7 @@ Exceptions that are **not** automatic:
 
 ### 12.9 Schema migrations (Stage 5+)
 
-Format migrations (§12.1–8) change how bytes are laid out. Schema migrations change what the bytes *mean*. They are a separate, higher-layer concern and live in the query crate.
+Format migrations (§13.1–8) change how bytes are laid out. Schema migrations change what the bytes *mean*. They are a separate, higher-layer concern and live in the query crate.
 
 Sketch:
 
@@ -1136,7 +1220,7 @@ db.migrate_schema([
 ])?;
 ```
 
-Rules inherited from §12.3:
+Rules inherited from §13.3:
 - Purely additive steps (new table, new nullable column) are automatic-eligible.
 - Data-transforming steps require an explicit callback and explicit invocation.
 - Destructive steps (drop column/table) refuse to run under `open()` — `migrate_schema` only.
@@ -1153,7 +1237,7 @@ tosumu migrate --dry-run <path>    # print MigrationPlan, touch nothing
 tosumu migrate --no-backup <path>  # skip the .bak; refuses on destructive categories
 tosumu inspect <path>              # format_version, min_reader_version, protectors
 tosumu backup <path>                # explicit snapshot via copy-and-fsync
-tosumu verify <path>                # already defined §11.2; also checks version fields
+tosumu verify <path>                # already defined §12.2; also checks version fields
 ```
 
 ### 12.11 What this section does *not* promise
@@ -1164,7 +1248,7 @@ tosumu verify <path>                # already defined §11.2; also checks versio
 
 ---
 
-## 13. Repository layout
+## 14. Repository layout
 
 ```
 Database/
@@ -1201,13 +1285,13 @@ Workspace so Stage 5's query crate can slot in cleanly without bloating the core
 
 ---
 
-## 14. Open questions
+## 15. Open questions
 
 These are tracked here, not silently deferred.
 
 1. **Page size.** 4 KB is the obvious default. Do we want to make it configurable at `init` time for experimentation (e.g. 8 KB, 16 KB)? *Tentative: yes, settable at init, immutable after.*
 2. **Endianness on disk.** Little-endian hardcoded. Any reason to revisit? *Tentative: no.*
-3. ~~**Varint flavor.**~~ **Closed.** LEB128, unsigned. See §11.1.
+3. ~~**Varint flavor.**~~ **Closed.** LEB128, unsigned. See §12.1.
 4. **Checksum vs MAC for unencrypted mode.** If a user opts out of encryption, do we still CRC pages? *Tentative: yes, CRC32C in the page header.*
 5. **WAL in separate file vs embedded.** Starting with a separate `tosumu.wal` file. Embedded WAL (SQLite-style) is possible later but adds complexity.
 6. **Free page zeroing.** Do we zero freed pages on disk? *Tentative: yes when encrypted (cheap), optional when not.*
@@ -1217,15 +1301,15 @@ These are tracked here, not silently deferred.
 10. **TPM library choice.** `tss-esapi` (cross-platform but Linux-centric) vs. platform-native (`windows` crate TBS bindings on Windows). *Tentative: `tss-esapi` for portability; revisit in Stage 4c.*
 11. **`dek_id` in page AAD.** Including it would enable safe incremental rekey but breaks every existing page on DEK rotation. §8.8 currently says no; revisit if online rekey becomes a goal.
 12. **Default `auto_migrate_policy`.** Ship with auto = {metadata-only, keyslot-metadata}. Should page-local rewrite ever be auto under a size threshold (e.g. <1 MB file)? *Tentative: no. Explicit is safer and consistent.*
-13. **Backup retention.** Do we cap the number of `.pre-v{N}.bak` files we leave behind? *Tentative: no. Engine never deletes backups; that’s the user's call per §12.5.*
+13. **Backup retention.** Do we cap the number of `.pre-v{N}.bak` files we leave behind? *Tentative: no. Engine never deletes backups; that’s the user's call per §13.5.*
 
 ---
 
-## 15. Definition of done (per stage)
+## 16. Definition of done (per stage)
 
 A stage is "done" when:
 
-1. **All acceptance tests for that stage pass** (§10.10). This includes:
+1. **All acceptance tests for that stage pass** (§11.10). This includes:
    - All unit tests (`cargo test --workspace`).
    - Stage-specific integration tests in `tests/`.
    - CLI manual smoke tests listed in the stage's acceptance criteria.
@@ -1234,15 +1318,15 @@ A stage is "done" when:
    - CrashFs tests (Stage 3+).
    - KATs (Stage 4+).
 2. **The on-disk format section** of this doc (§5) has been updated *before* code was merged for any format change.
-3. **Any format change** is accompanied by a registered `FormatMigration` (§12.6) and a fixture-based migration test (§10.9).
-4. **Test coverage** in `tosumu-core` is ≥80% (§10.12). Run `cargo tarpaulin` or `cargo llvm-cov` and review uncovered lines.
+3. **Any format change** is accompanied by a registered `FormatMigration` (§13.6) and a fixture-based migration test (§11.9).
+4. **Test coverage** in `tosumu-core` is ≥80% (§11.12). Run `cargo tarpaulin` or `cargo llvm-cov` and review uncovered lines.
 5. **`cargo fmt`, `cargo clippy -- -D warnings`, and `cargo test`** are all clean on stable Rust.
 6. **A short retrospective** is appended to a `STAGES.md` (future) describing what surprised us and what we'd do differently.
 7. **Version tag** created: `git tag v0.{stage}.0 && git push --tags`.
 
 ---
 
-## 16. Name
+## 17. Name
 
 **`tosumu`** — a conlang word meaning *knowledge-organization device*.
 
@@ -1268,7 +1352,7 @@ Conventions:
 
 ---
 
-## 17. Advanced indexing and future directions
+## 18. Advanced indexing and future directions
 
 This section explicitly addresses indexing features beyond a basic B+ tree, so the project scope is honest and the "finishable by a mortal" goal stays intact.
 
@@ -1396,7 +1480,7 @@ The right architecture for a real system is: **tosumu stores records, specialize
 
 ---
 
-## 18. Platform support and mobile deployment
+## 19. Platform support and mobile deployment
 
 tosumu's embedded architecture (single-file, single-process, no server) makes it naturally suitable for mobile platforms. This section documents the plan for iOS and Android support, targeted for Stage 7+.
 
