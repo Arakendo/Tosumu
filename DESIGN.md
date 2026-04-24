@@ -2656,15 +2656,20 @@ Tosumu makes the same assumption (single host, single process) and enforces it r
 
 ### 21.1 Storage location policy
 
-Three modes, set at open time:
+Four modes, set at open time:
 
-| Mode | Behavior |
-|------|----------|
-| `LocalOnly` (default) | Refuses to open if the path looks like a network filesystem. Returns `NetworkFilesystemDetected` error with explanation and alternatives. |
-| `NetworkExclusive` | Opens on a network path but applies conservative rules (§21.3). Requires explicit opt-in. |
-| `LocalMirror` | Copies the database to a local working path, operates there, writes back on explicit save or close (§21.4). |
+| Mode | Behavior | Default for |
+|------|----------|-------------|
+| `Local` | Normal operation. Refuses to open if path looks like a network filesystem. | library |
+| `NetworkWarn` | Opens on a network path, prints a loud warning, applies conservative rules (§21.3). | CLI |
+| `NetworkStrict` | Same as `NetworkWarn` but refuses if the lock probe (§21.6) detects unreliable locking. | explicit opt-in |
+| `NetworkDeny` | Refuses all network paths with no override. | library, high-security contexts |
 
-The default refuses rather than silently allowing a configuration that may corrupt data. This is the annoying-but-correct choice.
+**CLI default is `NetworkWarn`** — users will put databases on network shares regardless, so the right behavior is: allow it, say so loudly, and apply conservative rules. Silent is how support tickets are born.
+
+**Library default is `Local`** — code that calls `Database::open` directly should fail-fast and force the caller to acknowledge the risk. Library callers can opt in with `NetworkPolicy::WarnAndExclusive` or `NetworkPolicy::AllowUnsafe` (§21.4).
+
+`NetworkDeny` is for deployments that want to guarantee no network storage is ever used, regardless of what the caller passes.
 
 ### 21.2 Network path detection
 
@@ -2677,69 +2682,110 @@ On open, tosumu inspects the path before acquiring any lock:
 
 If detection is uncertain, log a warning rather than refusing outright — false positives on unusual local filesystems would be worse than missing some network cases.
 
-When a network path is detected under `LocalOnly` mode:
+When a network path is detected:
 
 ```
-Error: database path appears to be on a network filesystem.
+WARNING: database appears to be on a network filesystem:
+  \\server\share\data.tsm
 
-Path:    \\FILESERVER\shared\app.tsm
-Reason:  WAL and file locking semantics are unreliable across hosts.
+tosumu is designed for local storage. Network filesystems may have unreliable
+locking, caching, and fsync semantics. Concurrent access from multiple machines
+may corrupt data or cause stale reads.
 
-Options:
-  1. Move the database to local storage.
-  2. Use --network-mode=exclusive  (single process, no WAL reader sharing).
-  3. Use --network-mode=mirror     (local working copy, write back on save).
+Recommended:
+  run tosumu-server on the machine that owns the file
+  or copy/checkout the database locally
+
+Continuing in exclusive network mode. To suppress: --network-mode=warn
+To refuse network paths: --network-mode=deny
 ```
 
-### 21.3 Network exclusive mode
+In `Local` or `NetworkDeny` mode, this becomes a hard error:
 
-When `NetworkExclusive` is requested, tosumu applies conservative rules:
+```
+Error: NetworkFilesystemDetected
+  Path: \\FILESERVER\shared\app.tsm
+  Use --network-mode=warn to allow with warning.
+  Use 'tosumu checkout' to create a local working copy.
+```
+
+### 21.3 Network strict / warn mode conservative rules
+
+When `NetworkWarn` or `NetworkStrict` mode is active, tosumu applies conservative rules:
 
 - Holds an **exclusive OS file lock for the entire open lifetime** (not just during writes).
 - Disables WAL reader sharing. No concurrent readers from other processes.
 - All writes use `fsync` aggressively (no lazy flushing).
 - Checkpoints before close.
 - No background WAL growth — checkpoint is called after every commit above a low threshold.
+- Writes the owner lock file (§21.5).
 
-This is slower but predictable. It is explicitly a single-process, single-machine mode that happens to be stored on a network path — not multi-machine concurrent access.
+This is slower but predictable. Explicitly single-process, single-machine, stored-on-a-network-path. Not multi-machine concurrent access. `NetworkStrict` additionally refuses if the lock probe (§21.6) finds unreliable locking behavior.
 
-### 21.4 Local mirror mode
+### 21.4 Library API — `NetworkPolicy`
 
-For workflows where the database lives on a network share but is accessed by one user at a time (a common scenario):
+```rust
+pub enum NetworkPolicy {
+    /// Refuse to open on any detected network path. (library default)
+    Deny,
+    /// Allow network paths; print warning; apply conservative rules.
+    WarnAndExclusive,
+    /// Allow network paths without warning. Caller acknowledges the risk.
+    /// Named honestly so callers type the shame.
+    AllowUnsafe,
+}
 
-```
-open \\FILESERVER\shared\project.tsm
-→ detect network path
-→ copy to %LOCALAPPDATA%\tosumu\mirror\{hash}.tsm
-→ acquire advisory lock on remote manifest file
-→ operate entirely on the local copy
-→ on explicit save or close: atomic replace back to network path
-→ release remote manifest lock
-```
-
-The remote manifest lock (`project.tsm.lock`) contains:
-
-```json
-{
-  "host":       "DESKTOP-ABC123",
-  "pid":        4421,
-  "session_id": "01JV...",
-  "opened_utc": "2026-04-24T10:42:00Z",
-  "mode":       "mirror"
+OpenOptions {
+    network_policy: NetworkPolicy,  // default: NetworkPolicy::Deny
+    ...
 }
 ```
 
-This is not a hard lock — network lock semantics are unreliable, which is the entire problem. It is an advisory signal for humans and tooling. When another process attempts to open in mirror mode and finds a stale lock file, it warns:
+The option is named `AllowUnsafe`, not `Allow`. The name is the warning.
+
+### 21.5 Owner lock file
+
+In any network mode, tosumu writes an advisory lock file alongside the database:
 
 ```
-Warning: project.tsm was last opened by DESKTOP-ABC123 pid 4421 at 10:42 UTC.
+data.tsm.lock
+```
+
+Contents:
+
+```json
+{
+  "host":       "DESKTOP-17",
+  "pid":        1234,
+  "session_id": "01H...",
+  "opened_utc": "2026-04-24T10:42:00Z",
+  "mode":       "network-exclusive"
+}
+```
+
+This is not security. Not correctness. It is human-readable evidence for the inevitable "why is my database locked" conversation.
+
+`tosumu stat` includes it:
+
+```
+Storage location:  \\server\share\data.tsm
+Filesystem:        network (SMB detected)
+Mode:              network-exclusive (NetworkWarn)
+Risk:              elevated
+Owner lock:        DESKTOP-17 pid 1234, opened 2026-04-24T10:42Z
+```
+
+When another process opens the same path and finds a lock file, it warns:
+
+```
+Warning: data.tsm was last opened by DESKTOP-17 pid 1234 at 10:42 UTC.
 The lock may be stale if that session ended without cleanup.
 Proceed? [y/N]
 ```
 
-Not silent. Not automatic. User decides.
+Not silent. Not automatic. User decides. Even though users will press Y immediately and skate on the wet floor anyway.
 
-### 21.5 Lock probe
+### 21.6 Lock probe
 
 Before opening in any mode, tosumu creates a lock probe file (`<db>.lockprobe`) and tests whether OS-level file locking behaves as expected:
 
@@ -2752,23 +2798,24 @@ If lock behavior appears unreliable (probe acquire fails, or a second open unexp
 
 The probe is a fast, best-effort heuristic, not a guarantee. Its value is catching obviously broken environments (some NFS configurations, Samba with `oplocks=no`) rather than certifying all network paths safe.
 
-### 21.6 CLI surface
+### 21.7 CLI surface
 
 ```
-tosumu open <path> --network-mode=local      # default: refuse on network path
-tosumu open <path> --network-mode=exclusive  # single-process network mode
-tosumu open <path> --network-mode=mirror     # local working copy, write back
+tosumu open <path>                         # CLI default: NetworkWarn
+tosumu open <path> --network-mode=warn    # allow + warn (CLI default)
+tosumu open <path> --network-mode=strict  # warn + refuse if lock probe fails
+tosumu open <path> --network-mode=deny    # hard refuse on network paths
 
-tosumu checkout <path> [--dest <local-path>] # copy to local, acquire advisory lock
-tosumu publish  <path> --from <local-path>   # atomic write-back to network path
+tosumu checkout <path> [--dest <local>]   # copy to local, write advisory lock
+tosumu publish  <path> --from <local>     # atomic write-back to network path
 
-tosumu copy   <src> <dst>                    # safe copy including WAL flush
-tosumu backup <path>                         # snapshot via copy-and-fsync
+tosumu copy   <src> <dst>                 # safe copy: flush + checkpoint first
+tosumu backup <path>                      # snapshot via copy-and-fsync
 ```
 
 `copy` and `backup` always flush and checkpoint first — they do not copy a live database while the WAL contains uncommitted frames. Dragging a `.tsm` file without its WAL is a classic data loss pattern; these commands make the safe operation the easy operation.
 
-### 21.7 Design principle
+### 21.8 Design principle
 
 Tosumu is **local-first**. Network paths are supported through explicit, conservative modes, not by pretending a network filesystem is a local disk.
 
