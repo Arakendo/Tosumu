@@ -458,6 +458,8 @@ The engine does **not** auto-checkpoint at arbitrary points. Checkpointing is ei
 
 **Invariant:** every database is always encrypted. There is no opt-out. A database without a user-configured protector uses the `Sentinel` protector (machine-generated key, stored in keyslot 0). The sentinel provides full AEAD integrity from byte one; it is not a placeholder or a CRC substitute.
 
+> **Sentinel means always-authenticated, not always-secret.** This distinction is important and must not be blurred. AEAD provides two properties: *integrity* (tampering is detectable) and *confidentiality* (contents are unreadable without the key). Sentinel provides both — *for an attacker who does not have keyslot 0*. Since the Sentinel key is stored in keyslot 0 on the same file, a local attacker who can read the file can read keyslot 0, derive the KEK, unwrap the DEK, and decrypt the database. Sentinel protects against external attackers, file corruption, and bitflip attacks. It does not protect against a local user with read access to the file. **Do not document Sentinel as providing data confidentiality in any user-facing context.** The correct statement: "Tosumu is always authenticated; if you require data confidentiality, add a Passphrase or RecoveryKey protector." This must be stated at `tosumu init` time in the CLI output.
+
 **In scope:**
 - Attacker with read/write access to the database file at rest.
 - Attacker attempting page swap, page rollback, page reorder, truncation, or bit-flipping.
@@ -605,6 +607,7 @@ Random 96-bit nonces have a birthday bound around 2^48 encryptions per key befor
 - Which pages changed between two snapshots (access pattern leakage).
 - The order and timing of writes.
 - Anything readable from process memory while the database is open.
+- **Data confidentiality when only a `Sentinel` protector is configured.** The Sentinel key is stored on the same file; a local reader with file access can recover the DEK. Sentinel provides authentication (integrity), not secrecy from local readers. See §8.1.
 
 These are called out explicitly so the threat model is honest.
 
@@ -1854,6 +1857,9 @@ These are tracked here, not silently deferred.
 ---
 
 ## 16. Definition of done (per stage)
+
+> **Design status: FROZEN as of 2026-04-24.**
+> §§1–28 are the complete design. No new philosophy sections. The next thing written in this repository is code: `tosumu init` writing a file header, AEAD-encrypting a sentinel-protected DEK, and a test that corrupts the ciphertext and watches authentication fail. Start there.
 
 A stage is "done" when:
 
@@ -3256,6 +3262,8 @@ These are different tools for different questions.
 | **Covers** | Page writes only | All significant lifecycle events |
 
 The WAL is internal storage infrastructure. The audit log is externally verifiable evidence. They are stored separately. Neither replaces the other.
+
+> **Do not conflate these.** The WAL tells you how to recover storage state. The audit log tells you what happened and whether the sequence makes sense. Writing audit events into the WAL ("WAL with vibes") loses the independence property: the WAL is checkpointed and truncated; the audit log must be append-only and independently verifiable. The `audit_key` being a separate HKDF subkey (§8.3) exists precisely to enforce this independence — the audit log can be verified by a party who does not hold the DEK, because the chain runs over ciphertexts. Keep them separate at every level: storage, key material, crate, and API.
 
 ### 23.2 Audit event types
 
