@@ -165,12 +165,20 @@ impl Pager {
     }
 
     /// Read-only access to page `pgno`. Closure receives the decrypted plaintext.
+    ///
+    /// Also checks the dirty-page buffer so that read-your-own-writes works
+    /// correctly inside a transaction (navigating tree structure after splits).
     pub fn with_page<F, T>(&self, pgno: u64, f: F) -> Result<T>
     where
         F: FnOnce(&[u8; PAGE_PLAINTEXT_SIZE]) -> Result<T>,
     {
         assert!(pgno != 0, "pgno 0 is the file header, not an encrypted page");
-        let frame = self.read_frame(pgno)?;
+        // Read-your-own-writes: check dirty buffer first when inside a transaction.
+        let frame = if let Some(pos) = self.dirty_pages.iter().rposition(|(p, _)| *p == pgno) {
+            *self.dirty_pages[pos].1
+        } else {
+            self.read_frame(pgno)?
+        };
         let (plaintext, _version) = decrypt_page(&self.page_key, pgno, &frame)?;
         f(&plaintext)
     }

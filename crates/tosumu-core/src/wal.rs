@@ -864,4 +864,72 @@ mod tests {
         let _ = std::fs::remove_file(&db_p);
         let _ = std::fs::remove_file(&wal_p);
     }
-}
+    /// Insert enough keys inside a single transaction to force B+ tree root
+    /// splits, then simulate a crash by zeroing all data pages in .tsm while
+    /// leaving the committed WAL intact. On reopen, WAL recovery must restore
+    /// every key exactly.
+    ///
+    /// This exercises the interaction between:
+    ///   - allocate() + init_page() writing new split nodes directly to .tsm
+    ///   - with_page_mut() WAL-buffering the final content of each node
+    ///
+    /// Recovery is sound because every init_page() within a transaction is
+    /// always followed by with_page_mut() on the same page, so the WAL holds
+    /// the complete final frame for every page touched by the split. Recovery
+    /// writes those frames unconditionally, restoring the full committed state.
+    #[test]
+    fn btree_root_split_survives_wal_recovery() {
+        use crate::page_store::PageStore;
+
+        let db_p = tmp_db("split_recovery");
+        let wal_p = wal_path(&db_p);
+        let _ = std::fs::remove_file(&db_p);
+        let _ = std::fs::remove_file(&wal_p);
+
+        // 1. Create DB and insert enough keys via a single transaction to force
+        //    at least one root split. 200 inserts reliably produces height >= 2.
+        {
+            let mut store = PageStore::create(&db_p).unwrap();
+            store.transaction(|tx| {
+                for i in 0u32..500 {
+                    tx.put(
+                        format!("key{i:05}").as_bytes(),
+                        format!("val{i:05}").as_bytes(),
+                    )?;
+                }
+                Ok(())
+            }).unwrap();
+            // Confirm the tree actually split before we stress recovery.
+            assert!(
+                store.stat().tree_height >= 2,
+                "expected root split, got height {}; adjust insert count",
+                store.stat().tree_height,
+            );
+        }
+
+        // 2. Simulate crash: zero every data page (1..page_count) in .tsm.
+        //    Page 0 (plaintext header) is preserved — it holds page_count and
+        //    root_page so the pager can seek to the right offsets during replay.
+        //    The WAL sidecar (fsynced inside commit_txn) remains on disk.
+        let mut raw = std::fs::read(&db_p).unwrap();
+        for b in &mut raw[PAGE_SIZE..] { *b = 0; }
+        std::fs::write(&db_p, &raw).unwrap();
+
+        // 3. Reopen — Pager::open detects the WAL sidecar and replays all
+        //    committed PageWrite frames before returning.
+        let store = PageStore::open(&db_p).unwrap();
+
+        // 4. Every key inserted in the transaction must be visible.
+        for i in 0u32..500 {
+            let k = format!("key{i:05}");
+            let v = format!("val{i:05}");
+            assert_eq!(
+                store.get(k.as_bytes()).unwrap(),
+                Some(v.into_bytes()),
+                "key {k} missing after WAL recovery of root-split transaction",
+            );
+        }
+
+        let _ = std::fs::remove_file(&db_p);
+        let _ = std::fs::remove_file(&wal_p);
+    }}
