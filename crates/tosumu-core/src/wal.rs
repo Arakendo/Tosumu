@@ -27,9 +27,19 @@ use crate::format::PAGE_SIZE;
 
 // ── Transient-lock retry ─────────────────────────────────────────────────────
 
-/// Maximum number of retry attempts when a transient file-lock error is
+/// Default maximum number of retry attempts when a transient file-lock error is
 /// encountered before giving up with `TosumError::FileBusy`.
-const MAX_RETRIES: u32 = 5;
+///
+/// Each retry waits 10 ms in production (skipped in tests).  Total worst-case
+/// wait with the default is `DEFAULT_MAX_RETRIES × 10 ms = 50 ms`.
+///
+/// AV scanners, backup tools, or indexers can hold locks for longer.  If you
+/// observe `FileBusy` errors under normal operation, increase this value via a
+/// future `DatabaseConfig` (TODO Stage N: expose via `DatabaseConfig::lock_retry_budget`).
+pub const DEFAULT_MAX_RETRIES: u32 = 5;
+
+// Internal alias so existing code stays readable.
+const MAX_RETRIES: u32 = DEFAULT_MAX_RETRIES;
 
 /// Returns `true` if `e` is a transient file-lock error that may resolve on retry.
 ///
@@ -63,7 +73,7 @@ fn inject_or_open(open_fn: &impl Fn() -> std::io::Result<File>) -> std::io::Resu
 
 /// Open a file with bounded retry on transient lock errors.
 ///
-/// Makes up to `MAX_RETRIES + 1` attempts.  Each transient failure (lock held
+/// Makes up to `max_retries + 1` attempts.  Each transient failure (lock held
 /// by another process) waits 10 ms before retrying.  After exhausting all
 /// attempts returns `TosumError::FileBusy { path, operation }`.
 ///
@@ -73,10 +83,24 @@ fn open_file_retrying<F>(path: &Path, open_fn: F, operation: &'static str) -> Re
 where
     F: Fn() -> std::io::Result<File>,
 {
-    for attempt in 0..=MAX_RETRIES {
+    open_file_retrying_n(path, open_fn, operation, MAX_RETRIES)
+}
+
+/// Like `open_file_retrying` but with an explicit retry limit.  Kept internal
+/// for now; will be surfaced via `DatabaseConfig` in a future stage.
+fn open_file_retrying_n<F>(
+    path: &Path,
+    open_fn: F,
+    operation: &'static str,
+    max_retries: u32,
+) -> Result<File>
+where
+    F: Fn() -> std::io::Result<File>,
+{
+    for attempt in 0..=max_retries {
         match inject_or_open(&open_fn) {
             Ok(f) => return Ok(f),
-            Err(e) if is_transient_lock(&e) && attempt < MAX_RETRIES => {
+            Err(e) if is_transient_lock(&e) && attempt < max_retries => {
                 // Brief pause to let the lock holder release.
                 // Skipped in tests to keep the suite fast.
                 #[cfg(not(test))]
@@ -1068,7 +1092,7 @@ mod tests {
     /// A failed recovery leaves files intact so the next `open()` can retry.
     #[test]
     fn recovery_returns_file_busy_after_exhausted_retries() {
-        let _fi_lock = fault_injection::LOCK.lock().unwrap();
+        let _fi_lock = fault_injection::LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _cleanup = FaultGuard;
 
         let db_p  = tmp_db("fi_file_busy");
@@ -1111,7 +1135,7 @@ mod tests {
     /// retries successfully and applies the committed writes.
     #[test]
     fn recovery_retries_and_succeeds_after_transient_faults() {
-        let _fi_lock = fault_injection::LOCK.lock().unwrap();
+        let _fi_lock = fault_injection::LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _cleanup = FaultGuard;
 
         let db_p  = tmp_db("fi_retry_ok");
@@ -1145,7 +1169,7 @@ mod tests {
     /// non-empty operation description — not silently swallowed as `Corrupt`.
     #[test]
     fn file_busy_error_contains_path_and_operation() {
-        let _fi_lock = fault_injection::LOCK.lock().unwrap();
+        let _fi_lock = fault_injection::LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _cleanup = FaultGuard;
 
         let db_p  = tmp_db("fi_path_check");
