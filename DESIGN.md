@@ -531,6 +531,7 @@ Initial protector types:
 | `Keyfile` | 4b (optional) | Raw 32 bytes read from a file path. |
 | `Tpm` | 4c | Platform-backed; seals KEK to a TPM policy. Feature-flagged, not required to build tosumu. |
 | `TpmPlusPin` | 4c | Combines a TPM-sealed secret with a user PIN through Argon2id. |
+| `AuditProtector` | 7+ | Wraps the `audit_key` independently from the DEK. Enables segregation of duties: a DBA holds the database protector; an auditor holds the `AuditProtector`. Neither role can read or modify the other's domain alone. See §27.3. |
 
 Protectors live behind a trait object; the storage engine never sees protector-specific fields.
 
@@ -3227,6 +3228,16 @@ BulkReadAnomaly           -- heuristic: session read >N distinct key prefixes in
 HighWriteVelocity         -- heuristic: session wrote >N pages in window
 UnusualAccessPattern      -- heuristic: access outside normal session profile
 
+-- Compliance (§27)
+DeletionFingerprint       -- key deleted: prefix, lsn, session, compliance_tag
+RetentionViolationBlocked -- attempt to truncate audit log inside retention window
+AttestationIssued         -- signed integrity attestation produced
+MofNQuorumRequired        -- destructive op requested; awaiting M-of-N approval
+MofNQuorumApproved        -- quorum reached; destructive op authorized
+MofNQuorumDenied          -- quorum not reached within timeout
+ComplianceTagged          -- operation carried a compliance context string
+AuditExportProduced       -- SIEM export produced; export manifest hash recorded
+
 -- Network / deployment
 NetworkModeWarning
 MigrationApplied
@@ -3789,5 +3800,214 @@ Routine backups remain the most reliable single defense. The fingerprint trail a
 ### 26.8 Design principle
 
 > Fingerprinting makes the invisible visible. It does not make the system impenetrable. The goal is to ensure that any access — legitimate or not — leaves a trail that cannot be quietly erased.
+
+---
+
+## 27. Compliance and audit-friendly capabilities (Stage 7+)
+
+This section documents capabilities that exist specifically because professional auditors, compliance teams, and regulated environments need them. The features here are not useful for every deployment — they are opt-in, explicitly staged, and designed so that their absence does not affect core storage engine operation.
+
+The audience is: SOX, HIPAA, GDPR, PCI-DSS, ISO 27001, and similar frameworks where a human auditor will ask hard questions and expect structured answers.
+
+### 27.1 Signed integrity attestations
+
+`tosumu audit attest` produces a signed, exportable attestation document:
+
+```
+Attestation {
+    db_id:              [u8; 16]
+    attested_at:        i64        Unix nanoseconds
+    current_lsn:        u64
+    manifest_hash:      [u8; 32]   hash of page 0 + keyslot region
+    audit_chain_head:   [u8; 32]   event_hash of the most recent audit event
+    audit_event_count:  u64
+    anomalies_detected: bool
+    attested_by:        [u8; 32]   hash of the protector that signed this document
+    signature:          [u8; 64]   Ed25519 signature over all fields above
+}
+```
+
+The attestation is self-contained: it can be saved to a file, emailed to an auditor, or attached to a compliance report. An auditor with the corresponding public key can verify it offline without access to the live database.
+
+`AttestationIssued` is recorded in the audit chain, so there is a tamper-evident record of when attestations were produced and by whom.
+
+**What it proves:** at the stated LSN and timestamp, the database was intact (pages verified), the audit chain was unbroken, and the document was produced by a process holding the named protector.
+
+**What it does not prove:** that the content of the data is correct, complete, or meaningful. Attestation is a structural integrity claim, not a semantic one.
+
+**Rotation:** attestations use an Ed25519 key pair managed as a separate `AttestationKey` protector. The private key can be held by a compliance officer rather than a DBA, enabling independent attestation without database write access.
+
+### 27.2 Proof of deletion
+
+When a key is deleted, a `DeletionFingerprint` event is appended to the audit chain:
+
+```
+DeletionFingerprint {
+    key_prefix:      [u8; 8]   first 8 bytes of deleted key (not full key)
+    key_hash:        [u8; 32]  SHA-256 of the full key (enables verification without storing the key)
+    deleted_at_lsn:  u64
+    session_id:      u64
+    compliance_tag:  Option<[u8; 32]>  e.g. "GDPR-erasure", "retention-expiry"
+    deletion_type:   enum { UserRequested, RetentionExpiry, MigrationPurge, SecureWipe }
+}
+```
+
+This is directly useful for:
+
+- **GDPR right-to-be-forgotten:** an auditor asks "was subject X's data deleted?" The answer is a signed event with a timestamp and LSN, not "we think so."
+- **Retention enforcement audits:** "all records older than 7 years were purged on this date" — the `RetentionExpiry` deletion type with a compliance tag produces exactly this evidence.
+- **Dispute resolution:** if a record is claimed to have existed and been deleted, the audit chain either contains the deletion event or it doesn't. The chain cannot be modified without breaking subsequent hashes.
+
+**Secure wipe:** `DeletionType::SecureWipe` additionally zeroes the freed page on disk (the freed page is re-encrypted with a random throwaway key and overwritten before release to the freelist). The `DeletionFingerprint` records that the wipe occurred. This is distinct from normal deletion, which only marks the slot as deleted in the B+ tree.
+
+### 27.3 Segregation of duties — AuditProtector
+
+By default, the `audit_key` is derived from the DEK (`HKDF(DEK, info = "tosumu/v1/audit")`). This means anyone who can unlock the database can read the audit log. A DBA can theoretically read and observe their own access trail.
+
+The `AuditProtector` breaks this coupling:
+
+- At init or later, an `AuditProtector` is configured by a separate principal (e.g. a compliance officer, a CISO).
+- The `audit_key` is re-wrapped under the `AuditProtector`'s KEK, independent of the DEK.
+- The database can be opened and written to without the `AuditProtector` being present.
+- The audit log can only be *read* (decrypted) by a principal holding the `AuditProtector`.
+- The DBA cannot read the contents of their own audit trail without the compliance officer's credential.
+
+Chain integrity verification (§23.3) remains possible without the `AuditProtector` — it runs over ciphertexts, not plaintexts. Only content decryption requires the audit key.
+
+This satisfies the four-eyes principle at the audit layer: the person operating the database cannot unilaterally read, modify, or suppress their own access record.
+
+### 27.4 Retention enforcement
+
+A `RetentionPolicy` is set at database init or updated later by an authorized principal:
+
+```rust
+RetentionPolicy {
+    min_retention_days: u32,   // e.g. 2555 (7 years for SOX)
+    policy_name:        String, // e.g. "SOX-7yr"
+    enforced_since_lsn: u64,
+}
+```
+
+The engine refuses any operation that would truncate, delete, or overwrite audit events within the retention window. The refusal is itself audited (`RetentionViolationBlocked`). To override, two conditions must be met:
+
+1. A second principal holding an `OverrideProtector` must co-authorize the override.
+2. The override itself is recorded as an `MofNQuorumApproved` event with both principals' protector hashes.
+
+This means: no single administrator can silently destroy audit evidence within the retention window. Override is possible (for legitimate operational reasons) but leaves an indelible record.
+
+### 27.5 M-of-N quorum for destructive operations
+
+Certain operations are too consequential to authorize with a single credential:
+
+| Operation | Minimum quorum |
+|-----------|----------------|
+| DEK rotation (full page re-encrypt) | 2-of-N |
+| Audit log truncation inside retention window | 2-of-N |
+| Database deletion (`tosumu destroy`) | 2-of-N |
+| `AuditProtector` key rotation | 2-of-N |
+| Retention policy change | 2-of-N |
+
+The quorum threshold is configurable. The default `M = 2` requires two distinct protectors (e.g. DBA + compliance officer) to independently authorize before the operation proceeds.
+
+Quorum flow:
+
+```
+Operator A requests: tosumu rekey-dek
+→ MofNQuorumRequired emitted in audit chain
+→ operation suspended; waiting for M-of-N approvals
+
+Operator B approves: tosumu quorum approve <operation_id>
+→ MofNQuorumApproved emitted
+→ operation proceeds
+
+If approval does not arrive within timeout:
+→ MofNQuorumDenied emitted
+→ operation aborted
+```
+
+Each `MofNQuorumApproved` event records the hash of every approving protector, the operation requested, and the timestamp. This produces a complete chain-of-custody record for every destructive operation.
+
+### 27.6 Compliance context tagging
+
+Any write operation, deletion, or migration can carry an optional compliance context string:
+
+```rust
+tx.put_with_context(b"patient:123", value, ComplianceTag::new("HIPAA-treatment-record"))?;
+tx.delete_with_context(b"subject:456", ComplianceTag::new("GDPR-erasure-request-REF-2026-04"))?;
+```
+
+The tag (up to 64 bytes) is stored in the audit event alongside the fingerprint. It is not stored in the data page itself — it is audit metadata only.
+
+This enables post-hoc SIEM queries like:
+
+```
+tosumu audit export --tag "GDPR-erasure" --format jsonl
+→ all deletions carried out under GDPR erasure requests, with timestamps and LSNs
+```
+
+Compliance tags are informational annotations, not access-control labels. They do not grant or restrict permissions. Their value is search and reporting, not enforcement.
+
+### 27.7 Tamper-evident audit export
+
+`tosumu audit export` produces a JSONL file. Without additional protection, that file can be modified after export — defeating the purpose of sending it to an auditor.
+
+Tamper-evident export adds a signed manifest:
+
+```
+tosumu audit export --format jsonl --sign > audit-2026-04.jsonl
+```
+
+The output file includes a final line:
+
+```json
+{"type":"manifest","event_count":4821,"chain_head":"a3f2...","exported_at":1745520000,"signature":"ed25519:..."}
+```
+
+The signature covers all preceding lines. An auditor runs:
+
+```
+tosumu audit verify-export audit-2026-04.jsonl --pubkey auditor.pub
+```
+
+and gets a pass/fail with the number of events verified. Any modification to any line — including deletion of lines — fails the signature check.
+
+`AuditExportProduced` is recorded in the live audit chain, so there is a record of every export: when it was produced, how many events it covered, and the chain head at that moment.
+
+### 27.8 Per-key last-access metadata
+
+For workloads where "who last accessed this record" is a routine question (HIPAA, PCI-DSS), Tosumu can store lightweight per-key last-access metadata:
+
+```
+LastAccess {
+    last_read_lsn:     u64
+    last_read_session: u64
+    last_written_lsn:  u64
+    last_written_session: u64
+}
+```
+
+This is stored in the B+ tree alongside the value, not in the audit chain. It enables O(log n) point queries — "who last read `patient:123`?" — without requiring a full audit chain scan.
+
+This is a **Stage 5+ optional feature**. It adds 32 bytes of overhead per key and slightly increases write amplification (a read updates the last-read metadata, which is a write). The default is off; operators enable it per-database at `init`.
+
+The per-key metadata is complementary to the audit chain, not a substitute. The chain provides the full history; the per-key metadata provides a fast answer to the most common forensic question.
+
+### 27.9 Compliance framework mapping
+
+| Framework | Relevant Tosumu capability |
+|-----------|---------------------------|
+| **GDPR Art. 17** (right to erasure) | `DeletionFingerprint` with `compliance_tag`; `SecureWipe` deletion type |
+| **GDPR Art. 30** (records of processing) | Audit chain export; `AttestationIssued`; session fingerprints |
+| **SOX §302 / §404** (internal controls) | Signed attestations; M-of-N quorum for destructive ops; retention enforcement |
+| **HIPAA § 164.312(b)** (audit controls) | `ReadFingerprint`; per-key last-access; `BulkReadAnomaly`; SIEM export |
+| **PCI-DSS Req. 10** (audit trails) | Hash-chained event log; tamper-evident export; `AuditProtector` segregation |
+| **ISO 27001 A.12.4** (logging) | Full event taxonomy; anomaly heuristics; witness receipts |
+| **ISO 27001 A.9.4** (access control) | `UnauthorizedOpenAttempted`; `ProtectorUsed`; session identity on all events |
+
+This table is a guide, not a certification claim. Actual compliance requires deployment configuration, operational procedures, and legal review outside Tosumu's scope. Tosumu provides the technical primitives; the operator configures and operates them correctly.
+
+### 27.10 Design principle
+
+> An auditor should be able to ask any reasonable question about what happened to this database — who accessed it, what changed, when, under whose authority — and get a structured, verifiable answer without requiring access to the live system.
 
 ---
