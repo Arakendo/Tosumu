@@ -51,6 +51,8 @@
 5. **Types over comments.** Layout is expressed in `#[repr(C)]` structs and enums, not prose.
 6. **Tests before cleverness.** Property tests and fuzzers land with the module they test.
 7. **Declarative intent, imperative mechanics.** Queries, migrations, validation, and provenance express *what* is intended — as plans, ASTs, and typed declarations. The storage engine, pager, and crypto layer express *how* — pages, fsyncs, and AEAD operations. These layers do not leak into each other. A page does not understand a query. A migration plan does not perform I/O. The line between them is the most important architectural boundary in the system.
+8. **Structural impossibility over advisory rules.** The strongest guardrail is one that makes the dangerous path structurally impossible, not one that documents it as inadvisable. An `Err`-returning write closure cannot accidentally commit regardless of what the caller does. An AEAD tag failure is `AuthFailed`, not `Ok(suspicious_bytes)`. `#[forbid(unsafe_code)]` is a proof, not a lint suggestion. When a design decision requires writing a warning in the documentation, first ask whether a redesign could eliminate the need for the warning by construction.
+9. **Stabilize traits after three independent callers.** A public trait, type, or API is not ready to lock until at least three independent, concrete use cases drive its shape. One caller writes the API for its own convenience. Two callers suggest a pattern. Three callers reveal the actual contract. `KeyProtector` earns its trait because `Passphrase`, `RecoveryKey`, and `Tpm` are each independently motivated and would produce incompatible ad-hoc designs without the abstraction. Convenience wrappers with a single caller stay concrete until a second caller appears.
 
 ---
 
@@ -94,6 +96,10 @@ No async. The engine is synchronous. If we ever want async, we wrap at the edges
 ```
 
 Each layer only talks to the one directly below it. The crypto layer sits **between** the pager's cache and the file I/O: cached pages are plaintext; on-disk pages are ciphertext. Page numbers and versions are bound as AAD.
+
+**Layer dependency is a structural invariant, not a convention.** No lower layer calls into a layer above it. No higher layer bypasses a layer below it. The B+ tree does not access the file directly. The pager does not know about transactions. The crypto layer does not know that keys are protector-derived. This is enforced by the crate and module structure: the dependency graph is a DAG, and module visibility rules make cross-layer calls a compiler error, not a code-review comment.
+
+This matters because safety-by-convention degrades under time pressure. An architectural boundary that can be crossed when things are urgent is not a boundary. The Tarski hierarchy that makes the Liar Paradox unexpressible in Tonesu works for the same reason: the one-directional level constraint is structural, not advisory.
 
 ---
 
@@ -567,7 +573,7 @@ Random 96-bit nonces have a birthday bound around 2^48 encryptions per key befor
 
 ### 8.10 Known limitations (explicit)
 
-- **Consistent multi-page rollback** is not detected. See §5.3.
+- **Consistent multi-page rollback is not detected, and per-page AEAD does not change this.** AEAD proves authorship at the claimed `page_version` — it does not prove that the claimed version is the current one. An old authentic page frame (old nonce + old `page_version` + old ciphertext + old tag) still verifies correctly. Detecting staleness requires an independent external anchor: the writer's in-process expected version (safe in verify-after-write), a checkpoint-signed page manifest, a global LSN, or a Merkle root. Without such an anchor, a consistent rollback of old-but-authentic frames is indistinguishable from a current state. This is the standard AEAD bound: authentication proves origin and integrity; it does not prove recency. See §5.3 and §21.10.
 - **DEK/KEK split does not protect against a compromised running process.** If malware can read process memory, it has the DEK. Envelope encryption protects *at rest*, not *at runtime*.
 - **TPM protector does not imply remote attestation.** Sealing to a TPM policy proves "this machine in this state" locally; it says nothing to a remote verifier. Not a goal.
 - **Recovery key secrecy is the user's problem.** If the recovery string is stored next to the database file, the recovery protector adds zero security. Documented in the CLI output at init time.
@@ -1388,6 +1394,12 @@ Split into three sub-stages because key management is its own discipline and cra
 
 Humans are terrible migration engines. The file format will change; the engine’s job is to detect that, do the safe thing automatically, and refuse loudly when the safe thing is not possible. This section is normative: every format change must declare which category it belongs to and which rules apply.
 
+**Why explicit versioning and a stable primitive set matter: the Wilkins lesson.**  John Wilkins (1668) built *An Essay Towards a Real Character, and a Philosophical Language* — a system where every word encoded its position in a taxonomy of concepts. When the taxonomy changed, all vocabulary had to change with it. The language was obsolete before it was finished.
+
+Tosumu applies the same lesson. The on-disk page layout, AEAD construction, and keyslot format are the primitive roots. Once locked at the end of Stage 2, they are stable by policy. New features grow by composition on top of them: new `KeyProtector` implementations, new index types, new CLI commands, new metadata fields in reserved header space. The `format_version` bump is the signal that a primitive has changed — and the migration system, backup policy, and verifier suite exist to handle those controlled exceptions without discarding everything built on top.
+
+A large format built on an unstable foundation requires wholesale revision. Lock the primitives first; grow the vocabulary forward.
+
 ### 13.1 Version fields
 
 Two distinct `u16`s live in the header:
@@ -1550,6 +1562,10 @@ tosumu migration plan
 - Will it rewrite the file?
 - Is backup required?
 - What validation runs after?
+
+**The plan is a correction-pivot, not an inspection.** `plan().preflight().apply().verify()` does not re-examine the old state and ask "is this still valid?" — it asserts "the previous format is denied; the replacement is format N." The old state is named exactly once, in `plan.explain()` output. After `apply()` succeeds, the pre-migration format version does not exist in this file. `verify()` confirms the replacement, not the original.
+
+This means rollback is not "undo apply" — it is "apply failed," which surfaces as a typed error. If `apply()` returns `Err`, the copy-and-swap strategy (§13.4-A) ensures the original file is intact. There is no partial-migration state where the old format and new format coexist in a single live file.
 
 ### 13.8 Key-management migrations
 
@@ -1714,6 +1730,12 @@ Database/
 ```
 
 Workspace so Stage 5's query crate can slot in cleanly without bloating the core crate.
+
+**Source of truth vs. derived artifacts.** DESIGN.md is the hand-authored source of truth. The codebase is derived from it. Before Stage 2 is complete and the on-disk format is locked, DESIGN.md wins when it conflicts with the implementation — the implementation follows the design, not the other way around. Discrepancies are bugs to fix, not justification for retroactive spec updates.
+
+After Stage 2, the relationship partially inverts in one direction: the implemented and tested on-disk format is the ground truth for that format version, and DESIGN.md must be kept in sync with it. Format documentation that diverges from the actual bytes on disk is worse than no documentation.
+
+The same rule applies to generated artifacts: files produced by a build pipeline are never hand-edited. Hand-edits create divergence that cannot be detected and will be silently overwritten on the next build run.
 
 ---
 
