@@ -4011,3 +4011,239 @@ This table is a guide, not a certification claim. Actual compliance requires dep
 > An auditor should be able to ask any reasonable question about what happened to this database — who accessed it, what changed, when, under whose authority — and get a structured, verifiable answer without requiring access to the live system.
 
 ---
+
+## 28. Rust-specific design patterns
+
+Rust provides several features that go beyond what most languages offer for a project like this. This section documents how the language is used deliberately — not just "we wrote it in Rust" but "these language features are load-bearing parts of the design."
+
+Most of these are already partially present in the design. This section names them explicitly so they are applied consistently rather than rediscovered case-by-case.
+
+### 28.1 Typestate pattern for database lifecycle
+
+The database has a lifecycle with distinct legal states:
+
+```
+Closed → Locked → Unlocked → (read / write transactions)
+```
+
+Encoding this in the type system means illegal transitions are compile errors, not runtime panics.
+
+```rust
+struct Database<State> {
+    inner: Arc<DatabaseInner>,
+    _state: PhantomData<State>,
+}
+
+struct Closed;
+struct Locked;     // file open, format verified, protector not yet supplied
+struct Unlocked;   // DEK in memory, pages can be read
+
+impl Database<Closed> {
+    pub fn open(path: &Path, policy: NetworkPolicy) -> Result<Database<Locked>> { ... }
+}
+
+impl Database<Locked> {
+    pub fn unlock(self, input: &ProtectorInput) -> Result<Database<Unlocked>> { ... }
+    pub fn protectors(&self) -> &[ProtectorMetadata] { ... }  // readable before unlock
+}
+
+impl Database<Unlocked> {
+    pub fn read<F, T>(&self, f: F) -> Result<T> where F: FnOnce(&ReadTransaction) -> Result<T> { ... }
+    pub fn write<F>(&self, f: F) -> Result<()> where F: FnOnce(&mut WriteTransaction) -> Result<()> { ... }
+    pub fn lock(self) -> Database<Locked> { ... }  // zeroise DEK, return to Locked
+}
+```
+
+Properties this gives for free:
+- You cannot call `read` or `write` on a locked database — it does not compile.
+- You cannot forget to unlock — the type you need for transactions is only producible via `unlock`.
+- `lock()` consumes the `Unlocked` state and returns `Locked`, which drops and zeroises the DEK.
+
+The `PhantomData<State>` is zero-cost at runtime.
+
+### 28.2 Newtype wrappers for domain primitives
+
+Raw integers for LSN, page numbers, session IDs, and key lengths are interchangeable at the type level. A function that takes `(u64, u64, u64)` for `(lsn, pgno, session_id)` silently accepts arguments in the wrong order.
+
+Newtype wrappers eliminate the confusion:
+
+```rust
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Lsn(u64);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PageNo(u32);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct SessionId(u64);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct DekId(u64);
+```
+
+Passing a `PageNo` where an `Lsn` is expected is a compile error. `Lsn` and `PageNo` derive `Ord` so they can be compared directly without unwrapping.
+
+`PageNo(0)` is always the header page. If page 0 ever appears in a B+ tree node as a child pointer, that is a bug. A `NonZeroU32`-backed `DataPageNo` could make this structural:
+
+```rust
+pub struct DataPageNo(NonZeroU32);  // guaranteed never page 0
+```
+
+### 28.3 `const` assertions for layout invariants
+
+On-disk format correctness can be partially validated at compile time:
+
+```rust
+const PAGE_SIZE: usize = 4096;
+const PAGE_HEADER_SIZE: usize = 8;
+const SLOT_ENTRY_SIZE: usize = 4;
+const MIN_RECORD_SIZE: usize = 2 + 1; // 1-byte key + 1-byte value min
+
+// These fire at compile time if the constants are inconsistent:
+const _: () = assert!(PAGE_SIZE.is_power_of_two());
+const _: () = assert!(PAGE_HEADER_SIZE + SLOT_ENTRY_SIZE < PAGE_SIZE);
+const _: () = assert!(core::mem::size_of::<FileHeader>() <= PAGE_SIZE);
+const _: () = assert!(core::mem::size_of::<KeyslotEntry>() == 256);
+const _: () = assert!(AUDIT_EVENT_MAX_SIZE < PAGE_SIZE / 2);
+```
+
+A change to any constant that breaks a layout invariant fails the build. No runtime check, no test harness — the compiler refuses the program.
+
+This is the §2 principle 8 ("structural impossibility over advisory rules") applied to format constants.
+
+### 28.4 `Send` and `Sync` as concurrency documentation
+
+Rust's `Send`/`Sync` bounds are compile-time documentation of thread-safety properties. For Tosumu:
+
+| Type | `Send` | `Sync` | Rationale |
+|------|--------|--------|-----------|
+| `Database<Unlocked>` | ✅ | ✅ | Internally arc-protected; multiple threads can hold references |
+| `ReadTransaction<'_>` | ✅ | ❌ | Can be moved to another thread but not shared (snapshot is exclusive per-use) |
+| `WriteTransaction<'_>` | ❌ | ❌ | Single-threaded by design; writer gate enforces this structurally |
+| `Zeroizing<[u8; 32]>` | ✅ | ❌ | Key material can be moved but not shared across threads |
+| `Database<Locked>` | ✅ | ✅ | No sensitive material in memory |
+
+`WriteTransaction` being `!Send` means the compiler refuses to let it escape the thread that started the write closure. You cannot accidentally send a live write transaction to a thread pool.
+
+These are not just documentation. They are enforced. Removing `!Send` from `WriteTransaction` to "make it easier to use" would be a correctness regression, not a convenience improvement.
+
+### 28.5 Drop for automatic cleanup and zeroing
+
+Rust's `Drop` trait runs on scope exit regardless of how the scope exits — return, `?`, panic. Tosumu uses this in several places:
+
+**Key zeroing:**
+```rust
+// Zeroizing<T> from the `zeroize` crate: zeroes memory on Drop.
+let dek: Zeroizing<[u8; 32]> = derive_dek(protector_input)?;
+// DEK is used here, then dropped (and zeroed) at end of scope
+```
+
+**File lock release:**
+```rust
+struct FileLock { fd: File, path: PathBuf }
+impl Drop for FileLock {
+    fn drop(&mut self) { unlock_file(&self.fd); }
+}
+// Lock released even if the code panics
+```
+
+**WAL frame rollback:**
+A `WriteTransaction` that is dropped without committing (i.e., the closure returned `Err`) must not leave partial WAL frames. `Drop` on `WriteTransaction` rolls back any buffered frames that weren't flushed to the WAL.
+
+**Audit event flush:**
+The audit log writer flushes on `Drop`. An audit event that was created but whose owning scope panicked still gets written — it's evidence of the panic, not a reason to suppress it.
+
+### 28.6 Sealed traits for controlled extensibility
+
+The `KeyProtector` trait (§8.6) is intended to be implemented by Tosumu's own protector types. It is not intended to be implemented by arbitrary external code (external implementations could bypass security invariants).
+
+Rust's sealed-trait pattern enforces this:
+
+```rust
+mod private {
+    pub trait Sealed {}
+}
+
+pub trait KeyProtector: private::Sealed {
+    fn derive_kek(&self, meta: &ProtectorMetadata, input: &ProtectorInput)
+        -> Result<Zeroizing<[u8; 32]>>;
+}
+
+// Only types in this crate can impl Sealed, so only they can impl KeyProtector
+impl private::Sealed for PassphraseProtector {}
+impl private::Sealed for RecoveryKeyProtector {}
+impl private::Sealed for SentinelProtector {}
+// External crates cannot add new protectors without a tosumu-core fork
+```
+
+The `AuditProtector` (§27.3) and `AttestationKey` (§27.1) follow the same pattern.
+
+This is the right default for security-critical traits. If the sealed restriction becomes a genuine problem (plugin ecosystem, Stage 8+), the decision to unseal is explicit and documented; the default is locked down.
+
+### 28.7 `#[repr(C)]` for on-disk structures
+
+Structures that map directly to on-disk bytes use `#[repr(C)]` with explicit field ordering:
+
+```rust
+#[repr(C)]
+struct PageHeader {
+    page_type: u8,
+    flags:     u8,
+    slot_count: u16,
+    free_start: u16,
+    free_end:   u16,
+}
+```
+
+`#[repr(C)]` with fixed-width integer types gives deterministic layout across platforms. Combined with `const` size assertions (§28.3), this ensures the in-memory layout matches the documented on-disk format exactly.
+
+**Never use `#[repr(Rust)]` (the default) for on-disk structures.** Rust makes no stability guarantees for the default layout — field order and padding can change between compiler versions.
+
+**Never use `#[repr(packed)]` without `const` alignment assertions.** Packed structs can produce unaligned accesses on some targets; on embedded platforms this is undefined behaviour even without `unsafe` if reached through references.
+
+### 28.8 The `?` operator and error propagation discipline
+
+The `?` operator is Tosumu's primary error propagation mechanism. Combined with typed error enums (§9), it produces clean propagation without swallowing context.
+
+Two rules that must be followed:
+
+**Rule 1: Never `.unwrap()` or `.expect()` in production paths.** Every `.unwrap()` in `tosumu-core` is a panic waiting to happen on unexpected input. Use `?` and a typed error. The only acceptable `.unwrap()` is in test code where the test is explicitly asserting the `Ok` case.
+
+**Rule 2: Never use `anyhow` in `tosumu-core`.** `anyhow::Error` is a type-erased error. `tosumu-core` must return typed errors that callers can match on. `anyhow` is acceptable in `tosumu-cli` (where the error will be displayed to a human, not matched by code).
+
+```rust
+// In tosumu-core: typed, matchable
+pub enum PageError {
+    AuthFailed { pgno: PageNo },
+    IoError(std::io::Error),
+    VersionMismatch { found: u16, min: u16 },
+}
+
+// In tosumu-cli: anyhow is fine, we're printing to stderr
+fn cmd_verify(path: &Path) -> anyhow::Result<()> { ... }
+```
+
+### 28.9 Closures for transaction scope enforcement
+
+The write transaction API uses closures rather than explicit `begin`/`commit` calls:
+
+```rust
+db.write(|tx| {
+    tx.put(b"key", b"value")?;
+    Ok(())
+})?;
+```
+
+This is not just aesthetics. It is a structural guarantee:
+- The transaction is automatically committed if the closure returns `Ok(())`.
+- The transaction is automatically rolled back if the closure returns `Err(_)`.
+- There is no `commit()` function to call, so it cannot be forgotten.
+- There is no way to `Ok(())` a closure that called `tx.put` on corrupted data without the AEAD failing first — the type system and the error propagation model enforce this together.
+
+The equivalent pattern for `ReadTransaction` uses a shared reference, not a mutable one — a read closure cannot call `tx.put` because `ReadTransaction` has no `put` method.
+
+### 28.10 Design principle
+
+> Rust's type system, ownership model, and trait system are not constraints to work around. They are the primary implementation of the §2 principle "structural impossibility over advisory rules." Every place where a safety property is enforced by the compiler is one fewer place where a test, a lint, or a code review needs to catch it.
+
+---
