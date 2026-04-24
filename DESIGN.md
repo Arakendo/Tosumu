@@ -3429,3 +3429,118 @@ Any system that only checks AEAD can be fooled by a faithful reproduction of an 
 The goal is not to make attacks impossible. It is to make attacks visible.
 
 ---
+
+## 24. Competitive positioning
+
+This section exists because someone will ask, and "it's a learning project" is not an answer. This is the honest version.
+
+### 24.1 Positioning statement
+
+SQLite is the correct choice for most embedded database workloads. It is small, fast, battle-tested, and ships everywhere. If you need a fast, portable key/value or relational store and you are not worried about tamper detection, rollback detection, or audit trails, use SQLite.
+
+Tosumu is not competing for that space. The distinction:
+
+> SQLite assumes the disk is honest.
+> Tosumu assumes the disk might be lying and is designed to detect it.
+
+This is a different product category, not a better version of the same one.
+
+### 24.2 Honest feature comparison
+
+#### Core storage
+
+| Feature | SQLite | Tosumu |
+|---------|--------|--------|
+| B-tree storage | ✅ | ✅ |
+| WAL | ✅ | ✅ |
+| Page-based | ✅ | ✅ |
+| Single-file DB | ✅ | ✅ |
+| Embedded | ✅ | ✅ |
+
+Parity. No differentiation here.
+
+#### Integrity and tamper detection
+
+| Feature | SQLite | Tosumu |
+|---------|--------|--------|
+| CRC / checksum | optional (`PRAGMA integrity_check`) | per-page AEAD tag |
+| AEAD per page | ❌ | ✅ |
+| Tamper detection | weak (CRC only) | strong (AEAD — any bit flip is caught) |
+| Cross-DB page swap detection | ❌ | ✅ (AAD includes `db_id`) |
+| Wrong-key detection | ❌ | ✅ (tag fails on wrong key) |
+
+SQLite with CRC detects accidental corruption. Tosumu detects accidental corruption and intentional manipulation.
+
+#### Freshness and rollback detection
+
+| Feature | SQLite | Tosumu |
+|---------|--------|--------|
+| Detect LSN rollback | ❌ | ✅ (with witnesses / observers) |
+| External freshness anchors | ❌ | ✅ |
+| Hash-chained audit log | ❌ | ✅ |
+
+AEAD alone is insufficient here — §21.10 documents this explicitly. A faithful copy of an older valid page frame still verifies. Rollback detection requires an external anchor; that is what §23 builds.
+
+#### Security model
+
+| Feature | SQLite | Tosumu |
+|---------|--------|--------|
+| Encryption built-in | ❌ (SEE / SQLCipher are extensions) | ✅ |
+| Envelope encryption (DEK/KEK) | ❌ | ✅ |
+| Multiple key protectors | ❌ | ✅ |
+| KEK rotation without re-encrypt | ❌ | ✅ |
+
+SQLite's answer to encryption is "use an extension." That is a reasonable answer; it is also a separate dependency, a separate attack surface, and a different maintenance contract.
+
+#### Observability and explainability
+
+| Feature | SQLite | Tosumu |
+|---------|--------|--------|
+| `EXPLAIN` query plan | ✅ | planned (Stage 5) |
+| Storage behavior introspection | ❌ | ✅ (`dump`, `hex`, `verify`) |
+| Connection / session introspection | ❌ | ✅ (§7.7 `connection_info`) |
+| Audit trail | ❌ | ✅ (§23) |
+| Structured error reporting | medium (`SQLITE_BUSY` etc.) | goal: high (§9) |
+
+SQLite's `database is locked` error is accurate. It does not tell you which reader is holding the lock, at which LSN, or how long it has been there. Tosumu's design goal is to always answer "why."
+
+#### Migrations
+
+| Feature | SQLite | Tosumu |
+|---------|--------|--------|
+| Structured migration system | ❌ (application concern) | ✅ (§13) |
+| Preflight / dry-run | ❌ | ✅ |
+| Verification after migration | ❌ | ✅ |
+| Format version in header | `application_id` / `user_version` | first-class header field |
+
+SQLite migrations are the application's problem. That is a legitimate design choice. It is also where most production incidents involving schema changes originate.
+
+### 24.3 Where Tosumu loses, honestly
+
+There is no version of this comparison where Tosumu beats SQLite on:
+
+- **Speed.** SQLite is 30+ years of query and I/O optimization. Tosumu is not competing here.
+- **Maturity.** SQLite has billions of deployments and an exhaustive test suite with 100% branch coverage as a stated goal. Tosumu does not.
+- **Ecosystem.** Every language has SQLite bindings. ORMs target it. Tools exist for it. The Tosumu ecosystem is this document and a stub crate.
+- **SQL support.** SQLite has a full SQL engine. Tosumu's SQL layer (Stage 5) will be a toy subset for years.
+- **"Just works."** SQLite requires no configuration, no key management, no audit setup. Tosumu's full feature set requires explicit setup. That is the correct trade-off for what it is, and it is a real cost.
+
+Any pitch that glosses over these is dishonest. Don't make it.
+
+### 24.4 Who would actually choose Tosumu
+
+Not "instead of SQLite." Alongside, or for workloads where the following are true:
+
+1. **Tamper detection is a requirement**, not a nice-to-have — regulated environments, audit logs, financial records, medical device logs, safety-critical telemetry.
+2. **Forensic capability matters** — "what happened, when, and can I prove it?" is a real question, not an edge case.
+3. **Migrations are a first-class concern** — long-lived embedded products where format evolution needs structured tooling, not scripts and hope.
+4. **Rollback or stale-state detection is needed** — any deployment where someone could swap in an old backup and the system needs to notice.
+5. **Explainability is a design value** — teams that want to be able to answer "why" for storage behavior without reading source code.
+
+None of these are niche in isolation. The combination narrows the field.
+
+### 24.5 The honest two-sentence version
+
+Tosumu is not a better SQLite. It is a stricter, more paranoid, more explainable storage engine for workloads where "trust but verify" is the minimum acceptable bar — not an afterthought bolted on later.
+
+---
