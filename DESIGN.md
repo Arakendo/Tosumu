@@ -2851,6 +2851,62 @@ So when it breaks, it says: **"this was a bad idea"** — not **"tosumu randomly
 
 Tosumu is **local-first**. Network paths are supported through explicit, conservative, single-user modes, not by pretending a network filesystem is a local disk. Most embedded database corruption on network paths is not a bug in the database — it is a mismatch between assumptions and environment, and the database was silent about it. Tosumu is not silent about it.
 
+### 21.9 Additional network mode safeguards
+
+Beyond the core conservative rules, these measures help when someone does make the bad decision:
+
+**Verify on open.**  
+Before beginning any session in network mode, run a fast page-MAC sweep of the file. If any page fails verification, refuse to open and report `CorruptionDetectedOnOpen`. The file may have been corrupted by a previous session, a network glitch, or another process. Fail before the session starts, not after the first write makes things worse.
+
+**Mtime watchdog.**  
+After open, periodically stat the database file and compare mtime/size to what tosumu expects. If the file changes in a way tosumu did not cause — another process wrote to it — immediately suspend the session and emit `FileModifiedExternally`. Do not attempt to continue. This is the "two processes on the same network share" scenario; it should be loud and fatal, not silent and corrupting.
+
+**Lock file heartbeat.**  
+The owner lock file (§21.5) gets a `last_heartbeat_utc` field updated every N seconds. Stale lock detection becomes: if `last_heartbeat_utc` is more than 2× the heartbeat interval in the past, the lock is probably stale. Without a heartbeat, "stale" is a guess; with one, it is a measurement.
+
+```json
+{
+  "host":               "DESKTOP-17",
+  "pid":                1234,
+  "session_id":         "01H...",
+  "opened_utc":         "2026-04-24T10:42:00Z",
+  "last_heartbeat_utc": "2026-04-24T10:55:30Z",
+  "heartbeat_interval_secs": 30,
+  "mode":               "network-exclusive"
+}
+```
+
+**Periodic lock re-probe.**  
+Some NFS/SMB implementations silently drop locks after a network partition or server restart. After open, re-run a lightweight version of the lock probe (§21.6) every N minutes. If the lock appears to have been lost, suspend writes immediately and emit `LockLost`. Do not continue writing to a file you may no longer exclusively own.
+
+**Network I/O error handling.**  
+Network filesystems can return errors that local filesystems never do: `EIO`, `ENETDOWN`, `ECONNRESET` on an `fsync` or `write`. In local mode these are catastrophic hardware failures. In network mode they may be transient. When these errors occur:
+- Immediately suspend the session — no further writes.
+- Emit `NetworkIoError` with the raw OS error code.
+- Do not attempt transparent retry. The database state is unknown.
+- The WAL remains intact; recovery is possible once the network is restored and the user explicitly re-opens.
+
+**Session close summary in network mode.**  
+On close, print a one-line summary to stderr:
+
+```
+tosumu [network-exclusive] closed: 42 writes, 42 fsyncs, 42 verify-after-write OK, 0 errors.
+backup recommended: data.tsm.pre-session.bak not found.
+```
+
+This gives the user a paper trail. When something goes wrong later, "I got zero errors at close" is useful diagnostic information. When no backup exists, say so.
+
+**Recommend server mode after repeated use.**  
+If tosumu detects that the same database file on a network path has been opened more than N times across different sessions (tracked in the migration history page, §13.12), emit a one-time advisory:
+
+```
+Advisory: this database has been opened 25 times from a network path.
+Consider running tosumu-server on the host that owns the file for safer multi-session access.
+Suppress: set network_server_advisory = false in config.
+```
+
+Not a nag. Once. Suppressible. The right thing.
+
 ---
 
 ## 22. Server mode and multi-client access (Stage 7+)
