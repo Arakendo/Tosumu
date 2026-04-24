@@ -1355,7 +1355,7 @@ Deploy the three-server witness model (§23.4) and local observer model (§23.6)
 | +4 | Transactions, WAL, recovery, retry-on-lock | Durability | Stage 3 | ✅ done |
 | +5 | `CrashWriter`, `check_invariants`, proptest, crash-boundary fuzz | No partial transactions under crash | Stage 3 correctness | ✅ done |
 | +6 | Passphrase-encrypted DB, Argon2id, DEK wrap, header MAC, KATs, crypto fuzz targets | Crypto works end-to-end | Stage 4a | ✅ done |
-| +7 | Multiple protectors, recovery key, KEK rotation | Key management works | Stage 4b | 🔜 next |
+| +7 | Multiple protectors (up to 8), RecoveryKey (Base32), `rekey-kek`, CLI `protector` subcommand; 9 new KATs, 8 new integration tests incl. protector-swap attack | Key management works | Stage 4b | ✅ done |
 | +8 | TUI viewer (`tosumu view`) | Interactive inspection | Stage 2–4 crosscut | |
 | +9 | Toy SQL (`CREATE TABLE`, `SELECT`) | Real query foundation | Stage 5 | |
 | +10 | MVCC readers, secondary indexes, `VACUUM` | Concurrency | Stage 6 | |

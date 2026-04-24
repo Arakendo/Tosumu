@@ -99,6 +99,37 @@ impl BTree {
         Ok(BTree { pager })
     }
 
+    /// Open an existing recovery-key-protected `.tsm` file.
+    pub fn open_with_recovery_key(path: &Path, recovery_str: &str) -> Result<Self> {
+        let pager = Pager::open_with_recovery_key(path, recovery_str)?;
+        if pager.root_page() == 0 {
+            return Err(TosumError::Corrupt { pgno: 0, reason: "root_page is 0 — not a BTree file" });
+        }
+        Ok(BTree { pager })
+    }
+
+    // ── Key management (delegates to Pager) ──────────────────────────────────
+
+    pub fn add_passphrase_protector(path: &Path, unlock_passphrase: &str, new_passphrase: &str) -> Result<u16> {
+        Pager::add_passphrase_protector(path, unlock_passphrase, new_passphrase)
+    }
+
+    pub fn add_recovery_key_protector(path: &Path, unlock_passphrase: &str) -> Result<String> {
+        Pager::add_recovery_key_protector(path, unlock_passphrase)
+    }
+
+    pub fn remove_keyslot(path: &Path, unlock_passphrase: &str, slot_idx: u16) -> Result<()> {
+        Pager::remove_keyslot(path, unlock_passphrase, slot_idx)
+    }
+
+    pub fn rekey_kek(path: &Path, slot_idx: u16, old_passphrase: &str, new_passphrase: &str) -> Result<()> {
+        Pager::rekey_kek(path, slot_idx, old_passphrase, new_passphrase)
+    }
+
+    pub fn list_keyslots(path: &Path) -> Result<Vec<(u16, u8)>> {
+        Pager::list_keyslots(path)
+    }
+
     // ── Point operations ─────────────────────────────────────────────────────
 
     /// Look up `key`. Returns `Some(value)` if found and live, `None` otherwise.

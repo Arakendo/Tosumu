@@ -314,6 +314,59 @@ pub fn verify_header_mac(
         .map_err(|_| TosumError::AuthFailed { pgno: None })
 }
 
+// ── Recovery key (§8.6.2) ────────────────────────────────────────────────────
+
+/// Number of random bytes in a recovery secret (160 bits = 20 bytes).
+const RECOVERY_SECRET_BYTES: usize = 20;
+
+/// Generate a random recovery secret and return it as an uppercase Base32 string
+/// (32 characters, no padding, grouped 4×8 for readability).
+///
+/// The raw bytes are used as high-entropy key material; Argon2id is not needed
+/// (the entropy already exceeds a passphrase by orders of magnitude).
+pub fn generate_recovery_secret() -> String {
+    use data_encoding::BASE32_NOPAD;
+    let mut secret = [0u8; RECOVERY_SECRET_BYTES];
+    getrandom::getrandom(&mut secret).expect("getrandom failed");
+    let encoded = BASE32_NOPAD.encode(&secret);
+    // Group into 4 blocks of 8 for readability: XXXXXXXX-XXXXXXXX-…
+    encoded
+        .as_bytes()
+        .chunks(8)
+        .map(|c| std::str::from_utf8(c).unwrap())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// Decode a recovery string (with or without dashes) to raw bytes,
+/// then derive a 32-byte KEK via HKDF-SHA256.
+///
+/// High-entropy input → HKDF is sufficient; no Argon2id needed.
+pub fn derive_recovery_kek(recovery_str: &str) -> Result<[u8; 32]> {
+    use data_encoding::BASE32_NOPAD;
+    // Strip dashes and whitespace, uppercase.
+    let clean: String = recovery_str
+        .chars()
+        .filter(|c| !c.is_ascii_whitespace() && *c != '-')
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+
+    let raw = BASE32_NOPAD
+        .decode(clean.as_bytes())
+        .map_err(|_| TosumError::WrongKey)?;
+
+    if raw.len() != RECOVERY_SECRET_BYTES {
+        return Err(TosumError::WrongKey);
+    }
+
+    let hk = Hkdf::<Sha256>::new(None, &raw);
+    let mut kek = [0u8; 32];
+    hk.expand(b"tosumu/v1/recovery-kek", &mut kek)
+        .expect("HKDF expand: output length is valid");
+    Ok(kek)
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -485,5 +538,61 @@ mod tests {
         let kek1 = derive_passphrase_kek("same", &salt1, &TEST_ARGON2_PARAMS).unwrap();
         let kek2 = derive_passphrase_kek("same", &salt2, &TEST_ARGON2_PARAMS).unwrap();
         assert_ne!(kek1, kek2);
+    }
+
+    // ── Recovery key KATs ────────────────────────────────────────────────────
+
+    #[test]
+    fn kat_recovery_key_roundtrip() {
+        let secret = generate_recovery_secret();
+        // Must be 4 groups of 8 chars separated by dashes = 35 chars total.
+        let parts: Vec<&str> = secret.split('-').collect();
+        assert_eq!(parts.len(), 4, "expected 4 dash-separated groups");
+        assert!(parts.iter().all(|p| p.len() == 8), "each group must be 8 chars");
+
+        // Derive KEK from the generated secret — must not fail.
+        let kek = derive_recovery_kek(&secret).unwrap();
+        assert_ne!(kek, [0u8; 32]);
+    }
+
+    #[test]
+    fn kat_recovery_kek_is_deterministic() {
+        // Fixed 20-byte secret encoded as Base32.
+        let secret = "AAAAAAAAAAAAAAAA-AAAAAAAAAAAAAAAA"; // 32 Base32 chars = 20 bytes
+        let kek1 = derive_recovery_kek(secret).unwrap();
+        let kek2 = derive_recovery_kek(secret).unwrap();
+        assert_eq!(kek1, kek2);
+        assert_ne!(kek1, [0u8; 32]);
+    }
+
+    #[test]
+    fn kat_recovery_kek_different_secrets_differ() {
+        let s1 = "AAAAAAAAAAAAAAAA-AAAAAAAAAAAAAAAA";
+        let s2 = "BBBBBBBBBBBBBBBB-BBBBBBBBBBBBBBBB";
+        let kek1 = derive_recovery_kek(s1).unwrap();
+        let kek2 = derive_recovery_kek(s2).unwrap();
+        assert_ne!(kek1, kek2);
+    }
+
+    #[test]
+    fn kat_recovery_kek_ignores_dashes_and_case() {
+        let with_dashes = "AAAAAAAAAAAAAAAA-AAAAAAAAAAAAAAAA";
+        let without = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        let _lower = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; // won't parse — wrong length
+        let kek1 = derive_recovery_kek(with_dashes).unwrap();
+        let kek2 = derive_recovery_kek(without).unwrap();
+        assert_eq!(kek1, kek2, "dashes must be stripped before decoding");
+        // lowercase letters should also be accepted
+        let lower_nodash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let kek3 = derive_recovery_kek(lower_nodash).unwrap();
+        assert_eq!(kek1, kek3);
+    }
+
+    #[test]
+    fn kat_recovery_kek_bad_base32_returns_wrong_key() {
+        assert!(matches!(
+            derive_recovery_kek("not-valid-base32!!!"),
+            Err(crate::error::TosumError::WrongKey)
+        ));
     }
 }

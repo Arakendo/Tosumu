@@ -1,7 +1,7 @@
-//! `tosumu` command-line interface — MVP +6.
+//! `tosumu` command-line interface — MVP +7.
 //!
-//! Inspect tooling (dump, hex, verify) on top of MVP +1.
-//! See DESIGN.md §12.1 (MVP +6).
+//! Key management (multiple protectors, recovery key, KEK rotation) on top of MVP +6.
+//! See DESIGN.md §12.0 (MVP +7).
 
 use std::path::{Path, PathBuf};
 use clap::{Parser, Subcommand};
@@ -9,7 +9,7 @@ use tosumu_core::error::TosumError;
 use tosumu_core::page_store::PageStore;
 
 #[derive(Parser)]
-#[command(name = tosumu_core::NAME, version, about = "tosumu key-value store (MVP +6)")]
+#[command(name = tosumu_core::NAME, version, about = "tosumu key-value store (MVP +7)")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -76,6 +76,34 @@ enum Command {
         /// Destination path for the backup copy.
         dest: PathBuf,
     },
+    /// Manage key protectors (add, remove, list).
+    Protector {
+        #[command(subcommand)]
+        action: ProtectorAction,
+    },
+    /// Rotate the KEK for a passphrase protector slot (cheap — rewraps DEK only).
+    RekeyKek {
+        path: PathBuf,
+        /// Slot index to rotate (use `protector list` to see slot indices).
+        #[arg(long, default_value = "0")]
+        slot: u16,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProtectorAction {
+    /// Add a new passphrase protector.
+    AddPassphrase { path: PathBuf },
+    /// Add a recovery-key protector (prints one-time recovery key).
+    AddRecoveryKey { path: PathBuf },
+    /// Remove a keyslot by index.
+    Remove {
+        path: PathBuf,
+        /// Slot index to remove.
+        slot: u16,
+    },
+    /// List all active keyslots.
+    List { path: PathBuf },
 }
 
 fn main() {
@@ -161,6 +189,67 @@ fn run(cli: Cli) -> Result<(), TosumError> {
         Command::Hex  { path, page } => cmd_hex(&path, page)?,
         Command::Verify { path, explain } => cmd_verify(&path, explain)?,
         Command::Backup { src, dest } => cmd_backup(&src, &dest)?,
+        Command::Protector { action } => match action {
+            ProtectorAction::AddPassphrase { path } => {
+                let unlock = prompt_passphrase("current passphrase: ")?;
+                let new1   = prompt_passphrase("new passphrase: ")?;
+                let new2   = prompt_passphrase("confirm new passphrase: ")?;
+                if new1 != new2 {
+                    eprintln!("passphrases do not match");
+                    std::process::exit(1);
+                }
+                let slot = PageStore::add_passphrase_protector(&path, &unlock, &new1)?;
+                println!("protector added at slot {slot}");
+            }
+            ProtectorAction::AddRecoveryKey { path } => {
+                let unlock = prompt_passphrase("current passphrase: ")?;
+                let key = PageStore::add_recovery_key_protector(&path, &unlock)?;
+                println!();
+                println!("=== RECOVERY KEY — save this somewhere safe ===");
+                println!();
+                println!("  {key}");
+                println!();
+                println!("This key will NOT be shown again.");
+            }
+            ProtectorAction::Remove { path, slot } => {
+                let unlock = prompt_passphrase("passphrase: ")?;
+                PageStore::remove_keyslot(&path, &unlock, slot)?;
+                println!("slot {slot} removed");
+            }
+            ProtectorAction::List { path } => {
+                use tosumu_core::format::{
+                    KEYSLOT_KIND_EMPTY, KEYSLOT_KIND_SENTINEL,
+                    KEYSLOT_KIND_PASSPHRASE, KEYSLOT_KIND_RECOVERY_KEY,
+                };
+                let slots = PageStore::list_keyslots(&path)?;
+                if slots.is_empty() {
+                    println!("no active keyslots");
+                } else {
+                    println!("{:>5}  {}", "SLOT", "KIND");
+                    for (idx, kind) in &slots {
+                        let name = match *kind {
+                            KEYSLOT_KIND_EMPTY        => "Empty",
+                            KEYSLOT_KIND_SENTINEL     => "Sentinel (plaintext)",
+                            KEYSLOT_KIND_PASSPHRASE   => "Passphrase",
+                            KEYSLOT_KIND_RECOVERY_KEY => "RecoveryKey",
+                            _                         => "Unknown",
+                        };
+                        println!("{idx:>5}  {name}");
+                    }
+                }
+            }
+        },
+        Command::RekeyKek { path, slot } => {
+            let old_pass = prompt_passphrase("old passphrase: ")?;
+            let new1     = prompt_passphrase("new passphrase: ")?;
+            let new2     = prompt_passphrase("confirm new passphrase: ")?;
+            if new1 != new2 {
+                eprintln!("passphrases do not match");
+                std::process::exit(1);
+            }
+            PageStore::rekey_kek(&path, slot, &old_pass, &new1)?;
+            println!("slot {slot} KEK rotated");
+        }
     }
     Ok(())
 }

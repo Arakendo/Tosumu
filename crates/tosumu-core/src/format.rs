@@ -96,6 +96,10 @@ pub const KS_OFF_KCV: usize = 156;        // [u8; 32] — AEAD over known-plaint
 pub const KEYSLOT_KIND_EMPTY: u8 = 0;
 pub const KEYSLOT_KIND_SENTINEL: u8 = 1;
 pub const KEYSLOT_KIND_PASSPHRASE: u8 = 2;
+pub const KEYSLOT_KIND_RECOVERY_KEY: u8 = 3;
+
+/// Maximum number of keyslots in the keyslot region (stage 4b).
+pub const MAX_KEYSLOTS: usize = 8;
 
 // ── Compile-time layout assertions ────────────────────────────────────────────
 
@@ -103,6 +107,7 @@ const _: () = assert!(PAGE_SIZE == 4096);
 const _: () = assert!(PAGE_SIZE.is_power_of_two());
 const _: () = assert!(PAGE_PLAINTEXT_SIZE == 4060);
 const _: () = assert!(FILE_HEADER_SIZE + KEYSLOT_SIZE <= PAGE_SIZE);
+const _: () = assert!(FILE_HEADER_SIZE + MAX_KEYSLOTS * KEYSLOT_SIZE <= PAGE_SIZE);
 const _: () = assert!(PAGE_HEADER_SIZE + SLOT_SIZE < PAGE_PLAINTEXT_SIZE);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

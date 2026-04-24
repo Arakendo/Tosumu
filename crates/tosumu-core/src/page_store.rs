@@ -54,6 +54,38 @@ impl PageStore {
         Ok(PageStore { tree: BTree::open_with_passphrase(path, passphrase)? })
     }
 
+    /// Open a recovery-key-protected `.tsm` file.
+    pub fn open_with_recovery_key(path: &Path, recovery_str: &str) -> Result<Self> {
+        Ok(PageStore { tree: BTree::open_with_recovery_key(path, recovery_str)? })
+    }
+
+    // ── Key management ───────────────────────────────────────────────────────
+
+    /// Add a passphrase protector. Returns the slot index used.
+    pub fn add_passphrase_protector(path: &Path, unlock_passphrase: &str, new_passphrase: &str) -> Result<u16> {
+        BTree::add_passphrase_protector(path, unlock_passphrase, new_passphrase)
+    }
+
+    /// Add a recovery-key protector. Returns the one-time recovery string.
+    pub fn add_recovery_key_protector(path: &Path, unlock_passphrase: &str) -> Result<String> {
+        BTree::add_recovery_key_protector(path, unlock_passphrase)
+    }
+
+    /// Remove the keyslot at `slot_idx` (must not be the last active slot).
+    pub fn remove_keyslot(path: &Path, unlock_passphrase: &str, slot_idx: u16) -> Result<()> {
+        BTree::remove_keyslot(path, unlock_passphrase, slot_idx)
+    }
+
+    /// Rotate the KEK for the Passphrase slot at `slot_idx`.
+    pub fn rekey_kek(path: &Path, slot_idx: u16, old_passphrase: &str, new_passphrase: &str) -> Result<()> {
+        BTree::rekey_kek(path, slot_idx, old_passphrase, new_passphrase)
+    }
+
+    /// List active keyslots. Returns `Vec<(slot_index, kind_byte)>`.
+    pub fn list_keyslots(path: &Path) -> Result<Vec<(u16, u8)>> {
+        BTree::list_keyslots(path)
+    }
+
     // ── Writes ───────────────────────────────────────────────────────────────
 
     /// Insert or update a key-value pair.
@@ -396,5 +428,169 @@ mod tests {
         assert!(!found, "plaintext found in encrypted file — encryption is broken");
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    // ── MVP +7: key-management tests ──────────────────────────────────────────
+
+    #[test]
+    fn multi_slot_second_passphrase_can_unlock() {
+        let path = temp_path("multi_slot");
+        let _ = std::fs::remove_file(&path);
+
+        {
+            let mut store = PageStore::create_encrypted(&path, "pass-a").unwrap();
+            store.put(b"key", b"val").unwrap();
+        }
+        let slot = PageStore::add_passphrase_protector(&path, "pass-a", "pass-b").unwrap();
+        assert!(slot >= 1, "second protector should be in slot ≥1");
+
+        // Both passphrases can open the DB.
+        let store_a = PageStore::open_with_passphrase(&path, "pass-a").unwrap();
+        assert_eq!(store_a.get(b"key").unwrap(), Some(b"val".to_vec()));
+        let store_b = PageStore::open_with_passphrase(&path, "pass-b").unwrap();
+        assert_eq!(store_b.get(b"key").unwrap(), Some(b"val".to_vec()));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn recovery_key_roundtrip() {
+        let path = temp_path("recovery_roundtrip");
+        let _ = std::fs::remove_file(&path);
+
+        {
+            let mut store = PageStore::create_encrypted(&path, "main-pass").unwrap();
+            store.put(b"secret", b"data").unwrap();
+        }
+        let recovery = PageStore::add_recovery_key_protector(&path, "main-pass").unwrap();
+
+        // Recovery key must look like XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX
+        let parts: Vec<&str> = recovery.split('-').collect();
+        assert_eq!(parts.len(), 4, "recovery key should have 4 groups");
+        assert!(parts.iter().all(|p| p.len() == 8), "each group should be 8 chars");
+
+        // Must open with recovery key.
+        let store = PageStore::open_with_recovery_key(&path, &recovery).unwrap();
+        assert_eq!(store.get(b"secret").unwrap(), Some(b"data".to_vec()));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn wrong_recovery_key_returns_wrong_key() {
+        let path = temp_path("wrong_recovery");
+        let _ = std::fs::remove_file(&path);
+
+        PageStore::create_encrypted(&path, "p").unwrap();
+        let _real = PageStore::add_recovery_key_protector(&path, "p").unwrap();
+
+        let err = PageStore::open_with_recovery_key(&path, "AAAAAAAA-BBBBBBBB-CCCCCCCC-DDDDDDDD")
+            .err().unwrap();
+        assert!(matches!(err, crate::error::TosumError::WrongKey), "got {err:?}");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn remove_last_slot_is_rejected() {
+        let path = temp_path("remove_last");
+        let _ = std::fs::remove_file(&path);
+
+        PageStore::create_encrypted(&path, "only-pass").unwrap();
+
+        let err = PageStore::remove_keyslot(&path, "only-pass", 0).err().unwrap();
+        assert!(
+            matches!(err, crate::error::TosumError::InvalidArgument(_)),
+            "expected InvalidArgument, got {err:?}"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn remove_second_slot_original_pass_still_works() {
+        let path = temp_path("remove_second");
+        let _ = std::fs::remove_file(&path);
+
+        PageStore::create_encrypted(&path, "orig").unwrap();
+        let slot = PageStore::add_passphrase_protector(&path, "orig", "extra").unwrap();
+        PageStore::remove_keyslot(&path, "orig", slot).unwrap();
+
+        // Original pass still works.
+        let store = PageStore::open_with_passphrase(&path, "orig").unwrap();
+        drop(store);
+        // Removed pass no longer works.
+        let err = PageStore::open_with_passphrase(&path, "extra").err().unwrap();
+        assert!(matches!(err, crate::error::TosumError::WrongKey), "got {err:?}");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn rekey_kek_old_fails_new_succeeds() {
+        let path = temp_path("rekey_kek");
+        let _ = std::fs::remove_file(&path);
+
+        PageStore::create_encrypted(&path, "old-pass").unwrap();
+        PageStore::rekey_kek(&path, 0, "old-pass", "new-pass").unwrap();
+
+        let err = PageStore::open_with_passphrase(&path, "old-pass").err().unwrap();
+        assert!(matches!(err, crate::error::TosumError::WrongKey), "old pass still works: {err:?}");
+
+        PageStore::open_with_passphrase(&path, "new-pass").unwrap();
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn list_keyslots_returns_active_slots() {
+        let path = temp_path("list_slots");
+        let _ = std::fs::remove_file(&path);
+
+        PageStore::create_encrypted(&path, "p").unwrap();
+        let slots = PageStore::list_keyslots(&path).unwrap();
+        assert_eq!(slots.len(), 1);
+        assert_eq!(slots[0].0, 0);
+
+        PageStore::add_passphrase_protector(&path, "p", "p2").unwrap();
+        let slots = PageStore::list_keyslots(&path).unwrap();
+        assert_eq!(slots.len(), 2);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn protector_swap_attack_rejected() {
+        // Write two databases with different passphrases. Manually copy the
+        // wrapped DEK from slot 0 of DB B into slot 0 of DB A. The MAC should
+        // now fail on DB A.
+        use std::fs;
+        use crate::format::{KEYSLOT_REGION_OFFSET, KS_OFF_WRAPPED_DEK};
+
+        let path_a = temp_path("swap_a");
+        let path_b = temp_path("swap_b");
+        let _ = fs::remove_file(&path_a);
+        let _ = fs::remove_file(&path_b);
+
+        PageStore::create_encrypted(&path_a, "pass-a").unwrap();
+        PageStore::create_encrypted(&path_b, "pass-b").unwrap();
+
+        // Corrupt DB A by splicing the wrapped DEK from DB B.
+        let mut bytes_a = fs::read(&path_a).unwrap();
+        let bytes_b = fs::read(&path_b).unwrap();
+        let ks0 = KEYSLOT_REGION_OFFSET;
+        let wdek_off = ks0 + KS_OFF_WRAPPED_DEK;
+        bytes_a[wdek_off..wdek_off + 48].copy_from_slice(&bytes_b[wdek_off..wdek_off + 48]);
+        fs::write(&path_a, &bytes_a).unwrap();
+
+        // Opening with pass-a must fail (MAC or DEK unwrap mismatch).
+        let err = PageStore::open_with_passphrase(&path_a, "pass-a").err().unwrap();
+        assert!(
+            matches!(err, crate::error::TosumError::WrongKey | crate::error::TosumError::AuthFailed { .. }),
+            "expected auth failure, got {err:?}"
+        );
+
+        let _ = fs::remove_file(&path_a);
+        let _ = fs::remove_file(&path_b);
     }
 }
