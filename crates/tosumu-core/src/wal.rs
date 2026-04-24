@@ -682,4 +682,186 @@ mod tests {
         let _ = std::fs::remove_file(&wal_p);
         let _ = std::fs::remove_file(&db_p);
     }
+
+    // ── adversarial / correctness-under-failure tests ────────────────────────
+
+    /// Truncate a WAL record in half — recovery must ignore the partial tail and
+    /// not panic, corrupt the database, or misreport an error.
+    #[test]
+    fn partial_record_at_tail_is_ignored() {
+        let wal_p = tmp("partial_wal");
+        let db_p  = tmp_db("partial_db");
+        let _ = std::fs::remove_file(&wal_p);
+        let _ = std::fs::remove_file(&db_p);
+
+        std::fs::write(&db_p, vec![0u8; PAGE_SIZE * 3]).unwrap();
+
+        // Write txn 1 completely and fsync so we know the exact safe size.
+        {
+            let mut w = WalWriter::create(&wal_p).unwrap();
+            w.append(&WalRecord::Begin { txn_id: 1 }).unwrap();
+            let mut frame = Box::new([0u8; PAGE_SIZE]);
+            frame[0] = 0xAA;
+            w.append(&WalRecord::PageWrite { pgno: 1, page_version: 1, frame }).unwrap();
+            w.append(&WalRecord::Commit { txn_id: 1 }).unwrap();
+            w.sync().unwrap();
+        }
+        // Capture the offset where txn 1 ends — everything before this is valid.
+        let safe_len = std::fs::metadata(&wal_p).unwrap().len();
+
+        // Append txn 2 (Begin + PageWrite, no Commit — simulates crash before commit).
+        {
+            let mut w = WalWriter::open(&wal_p).unwrap();
+            w.append(&WalRecord::Begin { txn_id: 2 }).unwrap();
+            let mut frame2 = Box::new([0u8; PAGE_SIZE]);
+            frame2[0] = 0xBB;
+            w.append(&WalRecord::PageWrite { pgno: 2, page_version: 1, frame: frame2 }).unwrap();
+            w.sync().unwrap();
+        }
+
+        // Truncate to safe_len + 30 bytes — cuts mid-way through the PageWrite record
+        // of txn 2, which must be ignored on recovery.
+        let partial_len = safe_len + 30;
+        {
+            let f = std::fs::OpenOptions::new().write(true).open(&wal_p).unwrap();
+            f.set_len(partial_len).unwrap();
+        }
+
+        recover(&db_p, &wal_p).unwrap();
+
+        let raw = std::fs::read(&db_p).unwrap();
+        assert_eq!(raw[PAGE_SIZE],     0xAA, "committed txn 1 page 1 must be applied");
+        assert_eq!(raw[PAGE_SIZE * 2], 0x00, "partial txn 2 page 2 must NOT be applied");
+
+        let _ = std::fs::remove_file(&wal_p);
+        let _ = std::fs::remove_file(&db_p);
+    }
+
+    /// WAL contains two transactions: txn 1 fully committed, txn 2 incomplete
+    /// (no Commit record — simulates crash mid-second-transaction).
+    /// Only txn 1's writes may appear in the recovered file.
+    #[test]
+    fn multi_txn_only_committed_applied() {
+        let wal_p = tmp("multi_txn_wal");
+        let db_p  = tmp_db("multi_txn_db");
+        let _ = std::fs::remove_file(&wal_p);
+        let _ = std::fs::remove_file(&db_p);
+
+        std::fs::write(&db_p, vec![0u8; PAGE_SIZE * 4]).unwrap();
+
+        let mut w = WalWriter::create(&wal_p).unwrap();
+
+        // Txn 1: committed — writes page 1.
+        w.append(&WalRecord::Begin { txn_id: 1 }).unwrap();
+        let mut f1 = Box::new([0u8; PAGE_SIZE]);
+        f1[0] = 0x11;
+        w.append(&WalRecord::PageWrite { pgno: 1, page_version: 1, frame: f1 }).unwrap();
+        w.append(&WalRecord::Commit { txn_id: 1 }).unwrap();
+
+        // Txn 2: crash before commit — writes page 2.
+        w.append(&WalRecord::Begin { txn_id: 2 }).unwrap();
+        let mut f2 = Box::new([0u8; PAGE_SIZE]);
+        f2[0] = 0x22;
+        w.append(&WalRecord::PageWrite { pgno: 2, page_version: 1, frame: f2 }).unwrap();
+        // NO Commit — simulates crash.
+        w.sync().unwrap();
+
+        recover(&db_p, &wal_p).unwrap();
+
+        let raw = std::fs::read(&db_p).unwrap();
+        assert_eq!(raw[PAGE_SIZE],     0x11, "committed txn 1 must be applied to page 1");
+        assert_eq!(raw[PAGE_SIZE * 2], 0x00, "uncommitted txn 2 must NOT be applied to page 2");
+
+        let _ = std::fs::remove_file(&wal_p);
+        let _ = std::fs::remove_file(&db_p);
+    }
+
+    /// Calling recover() twice on the same WAL + db must produce identical
+    /// results. Pages must not accumulate extra writes or change values.
+    #[test]
+    fn recover_is_idempotent() {
+        let wal_p = tmp("idem_wal");
+        let db_p  = tmp_db("idem_db");
+        let _ = std::fs::remove_file(&wal_p);
+        let _ = std::fs::remove_file(&db_p);
+
+        std::fs::write(&db_p, vec![0u8; PAGE_SIZE * 3]).unwrap();
+
+        let mut w = WalWriter::create(&wal_p).unwrap();
+        w.append(&WalRecord::Begin { txn_id: 1 }).unwrap();
+        let mut frame = Box::new([0u8; PAGE_SIZE]);
+        frame[42] = 0xCC;
+        w.append(&WalRecord::PageWrite { pgno: 1, page_version: 1, frame }).unwrap();
+        w.append(&WalRecord::Commit { txn_id: 1 }).unwrap();
+        w.sync().unwrap();
+
+        recover(&db_p, &wal_p).unwrap();
+        let after_first  = std::fs::read(&db_p).unwrap();
+
+        recover(&db_p, &wal_p).unwrap();
+        let after_second = std::fs::read(&db_p).unwrap();
+
+        assert_eq!(after_first, after_second, "recover() must be idempotent");
+
+        let _ = std::fs::remove_file(&wal_p);
+        let _ = std::fs::remove_file(&db_p);
+    }
+
+    /// Simulate crash *after* WAL Commit is written but before dirty pages are
+    /// flushed to .tsm. On reopen, recovery must restore the committed state.
+    #[test]
+    fn crash_after_commit_before_flush_recovered_on_reopen() {
+        use crate::btree::BTree;
+
+        let db_p  = tmp_db("crash_commit");
+        // The WAL sidecar that BTree::open will look for is wal_path(&db_p).
+        let wal_p = wal_path(&db_p);
+        let _ = std::fs::remove_file(&db_p);
+        let _ = std::fs::remove_file(&wal_p);
+
+        // 1. Create a DB and insert a key so we have a real encrypted frame.
+        {
+            let mut t = BTree::create(&db_p).unwrap();
+            t.put(b"survive", b"yes").unwrap();
+        }
+
+        // 2. Capture the real encrypted frame from .tsm.
+        let real_frame = {
+            let t = BTree::open(&db_p).unwrap();
+            t.pager.read_raw_frame(1).unwrap()
+        };
+
+        // 3. Simulate crash: zero out page 1 in .tsm (flush never completed).
+        let db_bytes = std::fs::read(&db_p).unwrap();
+        let mut reset = db_bytes;
+        for b in &mut reset[PAGE_SIZE..PAGE_SIZE * 2] { *b = 0; }
+        std::fs::write(&db_p, &reset).unwrap();
+
+        // Remove the WAL that was created by create()/open() so we can write our own.
+        let _ = std::fs::remove_file(&wal_p);
+
+        // 4. Write a WAL representing the committed-but-unflushed transaction.
+        {
+            let mut w = WalWriter::create(&wal_p).unwrap();
+            w.append(&WalRecord::Begin { txn_id: 7 }).unwrap();
+            w.append(&WalRecord::PageWrite {
+                pgno: 1,
+                page_version: 1,
+                frame: Box::new(real_frame),
+            }).unwrap();
+            w.append(&WalRecord::Commit { txn_id: 7 }).unwrap();
+            w.sync().unwrap();
+        }
+
+        // 5. Reopen — recovery replays the WAL automatically inside open().
+        let t = BTree::open(&db_p).unwrap();
+        assert_eq!(
+            t.get(b"survive").unwrap(),
+            Some(b"yes".to_vec()),
+            "key must survive crash-after-commit via WAL recovery",
+        );
+
+        let _ = std::fs::remove_file(&db_p);
+        let _ = std::fs::remove_file(&wal_p);
+    }
 }
