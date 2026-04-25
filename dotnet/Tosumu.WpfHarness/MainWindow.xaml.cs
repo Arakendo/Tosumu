@@ -4,6 +4,7 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using Microsoft.Win32;
 using Tosumu.Cli;
 
@@ -12,32 +13,45 @@ namespace Tosumu.WpfHarness;
 public partial class MainWindow : Window, INotifyPropertyChanged
 {
     private const int MaxRecentDatabaseCount = 8;
+    private const double KeyHexColumnVisibleWidth = 320;
+    private const double ValueHexColumnVisibleWidth = 420;
 
     private string databasePath = string.Empty;
+    private string currentDatabaseDetailText = "Browse to a .tsm file to enter inspection mode. The header will load automatically.";
+    private string currentDatabaseTitleText = "No database selected";
     private string executableStateText = "Packaged CLI will be resolved on first command.";
+    private bool isUpdatingRecentSelection;
     private string pageNumberText = "1";
-    private string pageSummaryText = "No page loaded yet.";
-    private string statusText = "Choose a .tsm file, then inspect the header or run verification.";
-    private string verifySummaryText = "No verification run yet.";
+    private string selectedRecordDetailText = "Select a non-placeholder record to inspect the current key/value payloads.";
+    private string selectedRecordHeadlineText = "No record selected";
+    private string pageSummaryText = "Select a page or inspect root to decode the current page.";
+    private bool showHexColumns;
+    private string statusText = "Open a .tsm file to enter inspection mode.";
+    private string unlockModeHintText = "Auto is the normal path. Switch modes only when the current database requires an explicit passphrase, recovery key, or keyfile.";
+    private Brush verificationBadgeBrush = Brushes.Khaki;
+    private string verificationBadgeText = "Verify pending";
+    private string verifySummaryText = "Run verification to check page auth and B-tree integrity.";
     private readonly string sessionStatePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Tosumu",
         "WpfHarness",
         "session.json");
+    private bool restoreDatabaseOnLoad;
     private TosumuCliTool? cli;
 
     public MainWindow()
     {
         InitializeComponent();
         Closing += MainWindow_OnClosing;
+        Loaded += MainWindow_OnLoaded;
         DataContext = this;
         UnlockModeComboBox.SelectedIndex = 0;
         UpdateUnlockInputs();
-        HeaderRows.Add(new HeaderFieldRow("State", "No header loaded yet."));
-        VerifyIssues.Add(new VerifyIssueRow("-", "No verification run yet."));
-        PageResults.Add(new PageVerifyRow("-", "-", "-", "No verification run yet."));
-        PageRecords.Add(new PageRecordRow("-", "-", "-", "No page loaded yet.", "-", "-", "-"));
-        ProtectorSlots.Add(new ProtectorSlotRow("-", "No protector data loaded yet.", "-"));
+        UpdateHexColumnVisibility();
+        ResetHeaderState("Open a database to load the header automatically.");
+        ResetVerifyState();
+        ResetPageState();
+        ResetProtectorsState();
         LoadSessionState();
     }
 
@@ -67,10 +81,34 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         set => SetProperty(ref executableStateText, value);
     }
 
+    public string CurrentDatabaseTitleText
+    {
+        get => currentDatabaseTitleText;
+        set => SetProperty(ref currentDatabaseTitleText, value);
+    }
+
+    public string CurrentDatabaseDetailText
+    {
+        get => currentDatabaseDetailText;
+        set => SetProperty(ref currentDatabaseDetailText, value);
+    }
+
     public string PageNumberText
     {
         get => pageNumberText;
         set => SetProperty(ref pageNumberText, value);
+    }
+
+    public string SelectedRecordDetailText
+    {
+        get => selectedRecordDetailText;
+        set => SetProperty(ref selectedRecordDetailText, value);
+    }
+
+    public string SelectedRecordHeadlineText
+    {
+        get => selectedRecordHeadlineText;
+        set => SetProperty(ref selectedRecordHeadlineText, value);
     }
 
     public string PageSummaryText
@@ -79,10 +117,34 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         set => SetProperty(ref pageSummaryText, value);
     }
 
+    public bool ShowHexColumns
+    {
+        get => showHexColumns;
+        set => SetProperty(ref showHexColumns, value);
+    }
+
     public string StatusText
     {
         get => statusText;
         set => SetProperty(ref statusText, value);
+    }
+
+    public string UnlockModeHintText
+    {
+        get => unlockModeHintText;
+        set => SetProperty(ref unlockModeHintText, value);
+    }
+
+    public Brush VerificationBadgeBrush
+    {
+        get => verificationBadgeBrush;
+        set => SetProperty(ref verificationBadgeBrush, value);
+    }
+
+    public string VerificationBadgeText
+    {
+        get => verificationBadgeText;
+        set => SetProperty(ref verificationBadgeText, value);
     }
 
     public string VerifySummaryText
@@ -102,9 +164,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             StatusText = "Loading header...";
             AddRecentDatabasePath(path);
-            await LoadHeaderAsync(path);
+            var header = await LoadHeaderAsync(path);
 
-            StatusText = $"Loaded header for {System.IO.Path.GetFileName(path)}.";
+            StatusText = $"Loaded {System.IO.Path.GetFileName(path)}: {header.PageCount} pages, root page {header.RootPage}.";
         });
     }
 
@@ -124,9 +186,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             StatusText = "Running verification...";
             AddRecentDatabasePath(path);
-            await LoadVerifyAsync(path, unlock);
+            var verify = await LoadVerifyAsync(path, unlock);
 
-            StatusText = $"Verification finished for {System.IO.Path.GetFileName(path)}.";
+            StatusText = BuildVerifyStatusText(path, verify);
         });
     }
 
@@ -243,19 +305,46 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             DatabasePath = dialog.FileName;
             AddRecentDatabasePath(dialog.FileName);
-            StatusText = $"Selected {System.IO.Path.GetFileName(dialog.FileName)}.";
+            _ = AutoLoadSelectedDatabaseAsync(dialog.FileName, "Opened database and loaded header.");
         }
     }
 
     private void RecentDatabasesComboBox_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (isUpdatingRecentSelection)
+        {
+            return;
+        }
+
         if (RecentDatabasesComboBox.SelectedItem is not string path || string.IsNullOrWhiteSpace(path))
         {
             return;
         }
 
         DatabasePath = path;
-        StatusText = $"Selected recent database {System.IO.Path.GetFileName(path)}.";
+        _ = AutoLoadSelectedDatabaseAsync(path, "Loaded header from recent database.");
+    }
+
+    private void ShowHexColumnsCheckBox_OnChanged(object sender, RoutedEventArgs e)
+    {
+        ShowHexColumns = ShowHexColumnsCheckBox.IsChecked == true;
+        UpdateHexColumnVisibility();
+    }
+
+    private void PageRecordsListView_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        UpdateSelectedRecordSummary(PageRecordsListView.SelectedItem as PageRecordRow);
+    }
+
+    private async void MainWindow_OnLoaded(object sender, RoutedEventArgs e)
+    {
+        if (!restoreDatabaseOnLoad)
+        {
+            return;
+        }
+
+        restoreDatabaseOnLoad = false;
+        await AutoLoadSelectedDatabaseAsync(DatabasePath.Trim(), "Restored last database and loaded header.");
     }
 
     private async Task RunUnlockableInspectActionAsync(
@@ -336,6 +425,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private async Task<TosumuInspectHeaderPayload> LoadHeaderAsync(string path)
     {
         var header = await GetCli().GetHeaderAsync(path);
+        var fileName = Path.GetFileName(path);
 
         HeaderRows.Clear();
         HeaderRows.Add(new HeaderFieldRow("Format version", header.FormatVersion.ToString()));
@@ -352,10 +442,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         HeaderRows.Add(new HeaderFieldRow("Slot 0 kind", $"{header.Slot0.Kind} ({header.Slot0.KindByte})"));
         HeaderRows.Add(new HeaderFieldRow("Slot 0 version", header.Slot0.Version.ToString()));
 
+        CurrentDatabaseTitleText = fileName;
+        CurrentDatabaseDetailText = $"{header.PageCount} pages | root {header.RootPage} | format v{header.FormatVersion} | page size {header.PageSize}";
+
         return header;
     }
 
-    private async Task LoadVerifyAsync(string path, TosumuInspectUnlockOptions? unlock)
+    private async Task<TosumuInspectVerifyPayload> LoadVerifyAsync(string path, TosumuInspectUnlockOptions? unlock)
     {
         var verify = await GetCli().GetVerifyAsync(path, unlock);
 
@@ -370,25 +463,41 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         VerifyIssues.Clear();
         if (verify.Issues.Count == 0)
         {
-            VerifyIssues.Add(new VerifyIssueRow("-", "No issues reported."));
+            VerifyIssues.Add(new VerifyIssueRow("-", "Verification passed. No integrity or auth issues were reported.", HasIssue: false, IsPlaceholder: true));
         }
         else
         {
             foreach (var issue in verify.Issues)
             {
-                VerifyIssues.Add(new VerifyIssueRow(issue.Pgno.ToString(), issue.Description));
+                VerifyIssues.Add(new VerifyIssueRow(issue.Pgno.ToString(), issue.Description, HasIssue: true, IsPlaceholder: false));
             }
         }
 
         PageResults.Clear();
         foreach (var result in verify.PageResults)
         {
+            var hasIssue = !result.AuthOk || !string.IsNullOrWhiteSpace(result.Issue);
             PageResults.Add(new PageVerifyRow(
                 result.Pgno.ToString(),
                 result.AuthOk ? "ok" : "fail",
                 result.PageVersion?.ToString() ?? "-",
-                string.IsNullOrWhiteSpace(result.Issue) ? "-" : result.Issue));
+                string.IsNullOrWhiteSpace(result.Issue) ? "-" : result.Issue,
+                HasIssue: hasIssue,
+                IsPlaceholder: false));
         }
+
+        if (verify.IssueCount == 0 && verify.Btree.Ok)
+        {
+            VerificationBadgeText = "Verified clean";
+            VerificationBadgeBrush = Brushes.Honeydew;
+        }
+        else
+        {
+            VerificationBadgeText = verify.IssueCount == 1 ? "1 issue found" : $"{verify.IssueCount} issues found";
+            VerificationBadgeBrush = Brushes.MistyRose;
+        }
+
+        return verify;
     }
 
     private async Task LoadPageAsync(string path, ulong pageNumber, TosumuInspectUnlockOptions? unlock)
@@ -403,7 +512,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         PageRecords.Clear();
         if (page.Records.Count == 0)
         {
-            PageRecords.Add(new PageRecordRow("-", "-", "-", "No decoded records on this page.", "-", "-", "-"));
+            PageRecords.Add(new PageRecordRow("-", "-", "-", "No decoded records on this page.", "-", "Inspect a different page if you expected payload bytes.", "-", IsPlaceholder: true));
+            SelectPageRecord(PageRecords[0]);
         }
         else
         {
@@ -418,8 +528,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     keyPreview,
                     record.KeyHex ?? "-",
                     valuePreview,
-                    record.ValueHex ?? "-"));
+                    record.ValueHex ?? "-",
+                    IsPlaceholder: false));
             }
+
+            SelectPageRecord(PageRecords.FirstOrDefault(record => !record.IsPlaceholder));
         }
     }
 
@@ -430,7 +543,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         ProtectorSlots.Clear();
         if (protectors.Slots.Count == 0)
         {
-            ProtectorSlots.Add(new ProtectorSlotRow("-", "No protectors reported.", "-"));
+            ProtectorSlots.Add(new ProtectorSlotRow("-", "No user-visible protectors reported.", "-"));
         }
         else
         {
@@ -474,7 +587,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             DatabasePath = sessionState.LastDatabasePath;
             AddRecentDatabasePath(sessionState.LastDatabasePath);
-            StatusText = $"Restored last database {System.IO.Path.GetFileName(sessionState.LastDatabasePath)}.";
+            CurrentDatabaseTitleText = Path.GetFileName(sessionState.LastDatabasePath);
+            CurrentDatabaseDetailText = "Restored from the last session. Loading header on startup...";
+            restoreDatabaseOnLoad = File.Exists(sessionState.LastDatabasePath);
+            StatusText = restoreDatabaseOnLoad
+                ? $"Restored {Path.GetFileName(sessionState.LastDatabasePath)} from the last session."
+                : $"Restored last database path {Path.GetFileName(sessionState.LastDatabasePath)}, but the file is no longer present.";
         }
 
         if (!string.IsNullOrWhiteSpace(sessionState.LastPageNumber))
@@ -533,8 +651,164 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         if (RecentDatabasesComboBox is not null)
         {
-            RecentDatabasesComboBox.SelectedItem = normalizedPath;
+            isUpdatingRecentSelection = true;
+            try
+            {
+                RecentDatabasesComboBox.SelectedItem = normalizedPath;
+            }
+            finally
+            {
+                isUpdatingRecentSelection = false;
+            }
         }
+    }
+
+    private async Task AutoLoadSelectedDatabaseAsync(string path, string completionStatus)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return;
+        }
+
+        PrepareForDatabaseSelection(path);
+
+        await RunBusyActionAsync(async () =>
+        {
+            StatusText = $"Opening {Path.GetFileName(path)}...";
+            AddRecentDatabasePath(path);
+            await LoadHeaderAsync(path);
+            StatusText = completionStatus;
+        });
+    }
+
+    private void PrepareForDatabaseSelection(string path)
+    {
+        DatabasePath = path;
+        CurrentDatabaseTitleText = Path.GetFileName(path);
+        CurrentDatabaseDetailText = "Loading header and resetting stale pane state for the selected database...";
+        VerificationBadgeText = "Verify pending";
+        VerificationBadgeBrush = Brushes.Khaki;
+        ResetHeaderState("Loading header for the selected database...");
+        ResetVerifyState();
+        ResetPageState();
+        ResetProtectorsState();
+    }
+
+    private void ResetHeaderState(string message)
+    {
+        HeaderRows.Clear();
+        HeaderRows.Add(new HeaderFieldRow("State", message));
+    }
+
+    private void ResetVerifyState()
+    {
+        VerifySummaryText = "Run verification to check page auth and B-tree integrity.";
+        VerifyIssues.Clear();
+        VerifyIssues.Add(new VerifyIssueRow("-", "Run verification to surface integrity or auth problems.", HasIssue: false, IsPlaceholder: true));
+        PageResults.Clear();
+        PageResults.Add(new PageVerifyRow("-", "-", "-", "Run verification to populate per-page auth results.", HasIssue: false, IsPlaceholder: true));
+    }
+
+    private void ResetPageState()
+    {
+        PageSummaryText = "Select a page or inspect root to decode the current page.";
+        PageRecords.Clear();
+        PageRecords.Add(new PageRecordRow("-", "-", "-", "Select a page or inspect root to decode records.", "-", "Turn to a different page to compare record payloads.", "-", IsPlaceholder: true));
+        SelectPageRecord(null);
+    }
+
+    private void UpdateHexColumnVisibility()
+    {
+        if (KeyHexColumn is null || ValueHexColumn is null)
+        {
+            return;
+        }
+
+        KeyHexColumn.Width = ShowHexColumns ? KeyHexColumnVisibleWidth : 0;
+        ValueHexColumn.Width = ShowHexColumns ? ValueHexColumnVisibleWidth : 0;
+    }
+
+    private void SelectPageRecord(PageRecordRow? record)
+    {
+        if (PageRecordsListView is null)
+        {
+            UpdateSelectedRecordSummary(record);
+            return;
+        }
+
+        PageRecordsListView.SelectedItem = record;
+        UpdateSelectedRecordSummary(record);
+    }
+
+    private void UpdateSelectedRecordSummary(PageRecordRow? record)
+    {
+        if (record is null)
+        {
+            SelectedRecordHeadlineText = "No record selected";
+            SelectedRecordDetailText = "Select a non-placeholder record to inspect the current key/value payloads.";
+            return;
+        }
+
+        if (record.IsPlaceholder)
+        {
+            SelectedRecordHeadlineText = "Waiting for decoded record data";
+            SelectedRecordDetailText = record.KeyPreview;
+            return;
+        }
+
+        SelectedRecordHeadlineText = $"{record.Kind} · slot {record.Slot} · type {record.RecordType}";
+        SelectedRecordDetailText =
+            $"Key: {DescribePayload(record.KeyPreview, record.KeyHex)}\n" +
+            $"Value: {DescribePayload(record.ValuePreview, record.ValueHex)}";
+    }
+
+    private static string DescribePayload(string preview, string hex)
+    {
+        var byteCount = TryGetHexByteCount(hex);
+        var sizeLabel = byteCount is null ? "size unavailable" : byteCount == 1 ? "1 byte" : $"{byteCount} bytes";
+
+        return preview switch
+        {
+            "-" => $"not present ({sizeLabel})",
+            "(empty)" => $"empty payload ({sizeLabel})",
+            "(binary)" => $"binary payload ({sizeLabel})",
+            "(invalid)" => "invalid hex preview",
+            _ => $"text \"{preview}\" ({sizeLabel})",
+        };
+    }
+
+    private static int? TryGetHexByteCount(string hex)
+    {
+        if (string.IsNullOrWhiteSpace(hex) || hex == "-" || (hex.Length % 2) != 0)
+        {
+            return null;
+        }
+
+        return hex.All(Uri.IsHexDigit) ? hex.Length / 2 : null;
+    }
+
+    private void ResetProtectorsState()
+    {
+        ProtectorSlots.Clear();
+        ProtectorSlots.Add(new ProtectorSlotRow("-", "Load protectors to inspect user-visible keyslots.", "-"));
+    }
+
+    private static string BuildVerifyStatusText(string path, TosumuInspectVerifyPayload verify)
+    {
+        var fileName = Path.GetFileName(path);
+
+        if (verify.IssueCount == 0 && verify.Btree.Ok)
+        {
+            return $"{fileName} verified clean across {verify.PagesChecked} pages.";
+        }
+
+        var firstIssue = verify.Issues.FirstOrDefault();
+        if (firstIssue is not null)
+        {
+            return $"{fileName} verification found {verify.IssueCount} issue(s); first issue on page {firstIssue.Pgno}.";
+        }
+
+        return $"{fileName} verification completed with {verify.IssueCount} reported issue(s).";
     }
 
     private bool TryGetPageNumber(out ulong pageNumber)
@@ -664,6 +938,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         BrowseKeyfileButton.Visibility = usesKeyfile ? Visibility.Visible : Visibility.Collapsed;
 
         SecretLabelTextBlock.Text = selectedMode == HarnessUnlockModes.RecoveryKey ? "Recovery key" : "Passphrase";
+        UnlockModeHintText = selectedMode switch
+        {
+            HarnessUnlockModes.Auto => "Auto is the normal path. The harness only asks for credentials when an inspect action needs them.",
+            HarnessUnlockModes.Passphrase => "Use this when the database should unlock with a passphrase piped to the CLI.",
+            HarnessUnlockModes.RecoveryKey => "Use this when you need the recovery key instead of a passphrase.",
+            HarnessUnlockModes.Keyfile => "Use this when the database should unlock from a keyfile path instead of typed secret input.",
+            _ => "Choose how inspect commands should unlock the current database."
+        };
 
         if (!usesSecret)
         {
@@ -758,10 +1040,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
 public sealed record HeaderFieldRow(string Label, string Value);
 
-public sealed record VerifyIssueRow(string Pgno, string Description);
+public sealed record VerifyIssueRow(string Pgno, string Description, bool HasIssue, bool IsPlaceholder);
 
-public sealed record PageVerifyRow(string Pgno, string AuthOkLabel, string PageVersionLabel, string Issue);
+public sealed record PageVerifyRow(string Pgno, string AuthOkLabel, string PageVersionLabel, string Issue, bool HasIssue, bool IsPlaceholder);
 
-public sealed record PageRecordRow(string Kind, string Slot, string RecordType, string KeyPreview, string KeyHex, string ValuePreview, string ValueHex);
+public sealed record PageRecordRow(string Kind, string Slot, string RecordType, string KeyPreview, string KeyHex, string ValuePreview, string ValueHex, bool IsPlaceholder);
 
 public sealed record ProtectorSlotRow(string Slot, string Kind, string KindByte);

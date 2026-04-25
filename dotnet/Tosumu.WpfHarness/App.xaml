@@ -7,8 +7,16 @@
     <SolidColorBrush x:Key="PanelBrush" Color="#FFFDF8" />
     <SolidColorBrush x:Key="AccentBrush" Color="#1E4D5C" />
     <SolidColorBrush x:Key="AccentSoftBrush" Color="#D8E6EA" />
+    <SolidColorBrush x:Key="AccentDeepBrush" Color="#153843" />
     <SolidColorBrush x:Key="BorderBrush" Color="#C8BBA8" />
     <SolidColorBrush x:Key="TextBrush" Color="#1D1B17" />
     <SolidColorBrush x:Key="MutedTextBrush" Color="#60574B" />
+    <SolidColorBrush x:Key="SuccessBrush" Color="#BFE1CA" />
+    <SolidColorBrush x:Key="WarningBrush" Color="#F1D8A7" />
+    <SolidColorBrush x:Key="DangerBrush" Color="#E8B7AE" />
+    <SolidColorBrush x:Key="SuccessSoftBrush" Color="#E6F4EB" />
+    <SolidColorBrush x:Key="WarningSoftBrush" Color="#FBF0D7" />
+    <SolidColorBrush x:Key="DangerSoftBrush" Color="#F8E3DE" />
+    <SolidColorBrush x:Key="InfoSoftBrush" Color="#EEE7DA" />
     </Application.Resources>
 </Application>

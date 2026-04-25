@@ -34,7 +34,45 @@
                     <TextBlock Margin="0,6,0,0"
                                FontSize="14"
                                Foreground="#F2F6F7"
-                               Text="First MVP 8 desktop slice: choose a database, inspect header state, and run verification through the packaged CLI contract." />
+                               Text="Inspection shell for entering a database, checking integrity, and navigating page structure through the packaged CLI contract." />
+
+                    <Border Margin="0,16,0,0"
+                            Padding="14,12"
+                            Background="{StaticResource AccentDeepBrush}"
+                            CornerRadius="12">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel>
+                                <TextBlock FontSize="12"
+                                           Foreground="#C8DDE4"
+                                           Text="Current database" />
+                                <TextBlock Margin="0,3,0,0"
+                                           FontSize="19"
+                                           FontWeight="SemiBold"
+                                           Foreground="White"
+                                           Text="{Binding CurrentDatabaseTitleText}" />
+                                <TextBlock Margin="0,5,0,0"
+                                           TextWrapping="Wrap"
+                                           Foreground="#E6F0F3"
+                                           Text="{Binding CurrentDatabaseDetailText}" />
+                            </StackPanel>
+
+                            <Border Grid.Column="1"
+                                    Margin="16,0,0,0"
+                                    Padding="12,6"
+                                    VerticalAlignment="Top"
+                                    Background="{Binding VerificationBadgeBrush}"
+                                    CornerRadius="999">
+                                <TextBlock FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextBrush}"
+                                           Text="{Binding VerificationBadgeText}" />
+                            </Border>
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </DockPanel>
         </Border>
@@ -56,6 +94,7 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -95,13 +134,16 @@
                         Margin="12,0,0,0"
                         Padding="16,10"
                         Click="LoadHeaderButton_OnClick"
-                        Content="Inspect Header" />
+                    Content="Reload Header" />
 
                 <Button x:Name="VerifyButton"
                         Grid.Row="1"
                         Grid.Column="3"
                         Margin="12,0,0,0"
                         Padding="16,10"
+                    Background="{StaticResource AccentBrush}"
+                    Foreground="White"
+                    FontWeight="SemiBold"
                         Click="VerifyButton_OnClick"
                         Content="Verify" />
 
@@ -137,7 +179,7 @@
                                VerticalAlignment="Center"
                                FontSize="13"
                                Foreground="{StaticResource MutedTextBrush}"
-                               Text="Unlock" />
+                               Text="Unlock when needed" />
 
                     <ComboBox x:Name="UnlockModeComboBox"
                               Grid.Column="1"
@@ -145,7 +187,7 @@
                               Margin="0,0,12,0"
                               VerticalContentAlignment="Center"
                               SelectionChanged="UnlockModeComboBox_OnSelectionChanged">
-                        <ComboBoxItem Tag="Auto" Content="Auto / none" />
+                           <ComboBoxItem Tag="Auto" Content="Auto when needed" />
                         <ComboBoxItem Tag="Passphrase" Content="Passphrase" />
                         <ComboBoxItem Tag="RecoveryKey" Content="Recovery key" />
                         <ComboBoxItem Tag="Keyfile" Content="Keyfile" />
@@ -187,7 +229,14 @@
                             Visibility="Collapsed" />
                 </Grid>
 
-                <Grid Grid.Row="3"
+                                <TextBlock Grid.Row="3"
+                                                     Grid.ColumnSpan="6"
+                                                     Margin="0,8,0,0"
+                                                     TextWrapping="Wrap"
+                                                     Foreground="{StaticResource MutedTextBrush}"
+                                                     Text="{Binding UnlockModeHintText}" />
+
+                                <Grid Grid.Row="4"
                                             Grid.ColumnSpan="6"
                       Margin="0,14,0,0">
                     <Grid.ColumnDefinitions>
@@ -221,23 +270,23 @@
                             Click="InspectPageButton_OnClick"
                             Content="Inspect Page" />
 
-                        <Button x:Name="InspectRootPageButton"
+                                        <Button x:Name="InspectRootPageButton"
                             Grid.Column="3"
                             Margin="12,0,0,0"
                             Padding="16,10"
                             Click="InspectRootPageButton_OnClick"
                             Content="Inspect Root Page" />
 
-                        <TextBlock Grid.Column="4"
+                                        <TextBlock Grid.Column="4"
                                Margin="16,0,0,0"
                                VerticalAlignment="Center"
                                TextWrapping="Wrap"
                                Foreground="{StaticResource MutedTextBrush}"
-                               Text="Use the same unlock mode as verify when inspecting encrypted pages. Root page inspection reloads the header first so the page number stays aligned with the current file." />
+                                                             Text="Select a page or jump straight to root. Root page inspection reloads the header first so the page number stays aligned with the current file." />
                 </Grid>
 
-                <Grid Grid.Row="4"
-                        Grid.ColumnSpan="6"
+                                <Grid Grid.Row="5"
+                                            Grid.ColumnSpan="6"
                       Margin="0,14,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
@@ -285,7 +334,7 @@
                 <StackPanel Grid.Column="1">
                     <TextBlock FontSize="13"
                                Foreground="{StaticResource MutedTextBrush}"
-                               Text="Executable" />
+                               Text="CLI resolution" />
                     <TextBlock Margin="0,4,0,0"
                                TextWrapping="Wrap"
                                Text="{Binding ExecutableStateText}" />
@@ -384,6 +433,22 @@
                     <ListView ItemsSource="{Binding VerifyIssues}"
                               BorderThickness="0"
                               Background="Transparent">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="Padding" Value="6,4" />
+                                <Setter Property="Margin" Value="0,0,0,4" />
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPlaceholder}" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource InfoSoftBrush}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding HasIssue}" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource DangerSoftBrush}" />
+                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ListView.ItemContainerStyle>
                         <ListView.View>
                             <GridView>
                                 <GridViewColumn Width="80" Header="Page" DisplayMemberBinding="{Binding Pgno}" />
@@ -411,6 +476,22 @@
                     <ListView ItemsSource="{Binding PageResults}"
                               BorderThickness="0"
                               Background="Transparent">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="Padding" Value="6,4" />
+                                <Setter Property="Margin" Value="0,0,0,4" />
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPlaceholder}" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource InfoSoftBrush}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding HasIssue}" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource DangerSoftBrush}" />
+                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ListView.ItemContainerStyle>
                         <ListView.View>
                             <GridView>
                                 <GridViewColumn Width="80" Header="Page" DisplayMemberBinding="{Binding Pgno}" />
@@ -435,14 +516,29 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0"
-                               Margin="0,0,0,10"
-                               FontSize="18"
-                               FontWeight="SemiBold"
-                               Text="Page Detail" />
+                    <Grid Grid.Row="0"
+                          Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0"
+                                   FontSize="18"
+                                   FontWeight="SemiBold"
+                                   Text="Page Detail" />
+
+                        <CheckBox x:Name="ShowHexColumnsCheckBox"
+                                  Grid.Column="1"
+                                  VerticalAlignment="Center"
+                                  Checked="ShowHexColumnsCheckBox_OnChanged"
+                                  Unchecked="ShowHexColumnsCheckBox_OnChanged"
+                                  Content="Show hex columns" />
+                    </Grid>
 
                     <TextBlock Grid.Row="1"
                                Margin="0,0,0,12"
@@ -450,19 +546,53 @@
                                FontSize="15"
                                Text="{Binding PageSummaryText}" />
 
-                    <ListView Grid.Row="2"
+                    <Border Grid.Row="2"
+                            Margin="0,0,0,12"
+                            Padding="12"
+                            Background="{StaticResource AccentSoftBrush}"
+                            CornerRadius="10">
+                        <StackPanel>
+                            <TextBlock FontSize="13"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       Text="Selected record" />
+                            <TextBlock Margin="0,4,0,0"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       Text="{Binding SelectedRecordHeadlineText}" />
+                            <TextBlock Margin="0,4,0,0"
+                                       TextWrapping="Wrap"
+                                       Text="{Binding SelectedRecordDetailText}" />
+                        </StackPanel>
+                    </Border>
+
+                    <ListView x:Name="PageRecordsListView"
+                              Grid.Row="3"
                               ItemsSource="{Binding PageRecords}"
                               BorderThickness="0"
-                              Background="Transparent">
+                              Background="Transparent"
+                              SelectionChanged="PageRecordsListView_OnSelectionChanged">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="Padding" Value="6,4" />
+                                <Setter Property="Margin" Value="0,0,0,4" />
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPlaceholder}" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource InfoSoftBrush}" />
+                                        <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ListView.ItemContainerStyle>
                         <ListView.View>
                             <GridView>
                                 <GridViewColumn Width="100" Header="Kind" DisplayMemberBinding="{Binding Kind}" />
                                 <GridViewColumn Width="80" Header="Slot" DisplayMemberBinding="{Binding Slot}" />
                                 <GridViewColumn Width="110" Header="Record Type" DisplayMemberBinding="{Binding RecordType}" />
                                 <GridViewColumn Width="180" Header="Key Preview" DisplayMemberBinding="{Binding KeyPreview}" />
-                                <GridViewColumn Width="320" Header="Key Hex" DisplayMemberBinding="{Binding KeyHex}" />
+                                <GridViewColumn x:Name="KeyHexColumn" Width="320" Header="Key Hex" DisplayMemberBinding="{Binding KeyHex}" />
                                 <GridViewColumn Width="220" Header="Value Preview" DisplayMemberBinding="{Binding ValuePreview}" />
-                                <GridViewColumn Width="420" Header="Value Hex" DisplayMemberBinding="{Binding ValueHex}" />
+                                <GridViewColumn x:Name="ValueHexColumn" Width="420" Header="Value Hex" DisplayMemberBinding="{Binding ValueHex}" />
                             </GridView>
                         </ListView.View>
                     </ListView>
