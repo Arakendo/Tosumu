@@ -4986,3 +4986,145 @@ Queries still execute — warnings do not block reads. But the caller is told th
 ### 31.9 Design principle
 
 > The database does not just shrug and say "string good." It says: this string is being claimed as an integer, and I checked. Validation is auditable; the receipt is authenticated; the planner tells you when the receipt is stale.
+
+---
+
+## 32. Health heartbeat (Stage 6+)
+
+### 32.1 Motivation
+
+"Database opened" is barely a pulse check. The machinery already built — WAL status, audit chain, freshness anchors, tree invariants, AEAD verification, column claim receipts — can produce a compact, cheap, and actually useful health snapshot. The heartbeat is not monitoring fluff; it is the natural output of all that machinery assembled into a single read.
+
+The key distinction between heartbeat and full verification:
+
+| Operation | Cost | Frequency |
+|---|---|---|
+| Heartbeat | Cheap — read catalog fields, check header MAC, sample one page | Every N seconds |
+| Verify | Expensive — walk every page, check every AEAD tag | On demand / scheduled |
+| Audit | Historical — query `_tosumu_audit` and `_tosumu_changes` | Forensic / compliance |
+
+### 32.2 The `DatabaseHealthSnapshot` struct
+
+```rust
+pub struct DatabaseHealthSnapshot {
+    // Identity
+    pub db_id:              [u8; 8],
+    pub process_id:         u32,
+    pub snapshot_at:        SystemTime,
+
+    // State
+    pub opened_at:          SystemTime,
+    pub last_lsn:           u64,
+    pub page_count:         u64,
+    pub root_page:          u64,
+    pub tree_height:        u32,
+
+    // WAL
+    pub wal_status:         WalStatus,
+
+    // Structural integrity (last check, not re-run on every heartbeat)
+    pub integrity_status:   IntegrityStatus,
+    pub invariant_status:   InvariantStatus,
+    pub last_verify_at:     Option<SystemTime>,
+
+    // Crypto
+    pub keyslot_count:      u8,
+    pub audit_head_hash:    Option<[u8; 32]>,
+
+    // Freshness (§29)
+    pub freshness:          FreshnessStatus,
+
+    // Schema
+    pub dirty_column_claims: u32,   // columns with ValidationStatus::Dirty
+}
+
+pub enum WalStatus    { Clean, Pending, Replayed, CheckpointNeeded }
+pub enum IntegrityStatus { Ok, AuthFailed, Corrupt, NotChecked }
+pub enum InvariantStatus { Ok, Failed, NotChecked }
+pub enum FreshnessStatus { Anchored, Unanchored, Behind }
+```
+
+`DatabaseHealthSnapshot` is serialisable to JSON (and later to a compact binary format for low-overhead emission).
+
+### 32.3 What a heartbeat detects
+
+An observer storing heartbeat history can detect:
+
+| Signal | Symptom |
+|---|---|
+| LSN went backwards | Database was replaced or rolled back to an older state |
+| Audit head changed unexpectedly | Audit chain was modified outside of normal writes |
+| WAL keeps growing | Checkpoint is not running; disk pressure risk |
+| Tree height jump | Unexpected large insert or structural corruption |
+| `AuthFailed` / `Corrupt` | Integrity issue since last verify |
+| Process stopped emitting | Crash or hang |
+| Database reopened with older LSN | Snapshot replay or swap attack (§11.14 scenario) |
+| `dirty_column_claims` nonzero | Bulk load left claims in Dirty state; queries may warn |
+
+This is the bridge from the witness/observer design (§23, §29) to runtime monitoring: the heartbeat is a compact signed summary that a witness can store and compare over time.
+
+### 32.4 Cheap vs deep checks
+
+The heartbeat does **not** re-run full verification. It reads:
+
+- Header fields (LSN, page count, root page, tree height) — O(1)
+- Header MAC — already verified on open; re-check costs one HMAC
+- WAL state from the pager's in-memory status — O(1)
+- Audit head hash from the system catalog — one B+ tree lookup
+- Column claim summary (count of Dirty claims) — one catalog scan
+
+Full page walks and AEAD tag verification are only triggered by explicit `Database::verify()` or `tosumu audit`. The last result of a full verify is cached in `integrity_status` / `invariant_status` with a timestamp.
+
+### 32.5 CLI and server emission
+
+**CLI:**
+
+```
+tosumu health <path>
+```
+
+Outputs the snapshot as JSON. Exits non-zero if `integrity_status` is not `Ok` or `NotChecked`, or if `invariant_status` is `Failed`.
+
+**Server (Stage 8):**
+
+The server emits a heartbeat on a configurable interval (default: 30 s) to a configurable sink:
+
+```
+[health]
+interval_secs = 30
+sink = "stdout"          # stdout | file:<path> | http:<url>
+deep_verify_interval_secs = 3600   # full verify once per hour
+```
+
+**Application API:**
+
+```rust
+pub fn health_snapshot(&self) -> Result<DatabaseHealthSnapshot>
+```
+
+Available on `Database` as a cheap read-only call. No locks beyond the page cache read lock required.
+
+### 32.6 Heartbeat as freshness anchor infrastructure
+
+This is not just monitoring. The heartbeat, when signed and stored by a witness, becomes an external freshness anchor (§29.1). An observer receiving heartbeats at regular intervals builds a timeline:
+
+```
+t0: lsn=100, audit_head=abc123, freshness=Anchored
+t1: lsn=145, audit_head=def456, freshness=Anchored
+t2: lsn=145, audit_head=def456, freshness=Anchored  ← LSN stopped
+t3: lsn=100, audit_head=abc123, freshness=Anchored  ← LSN went backwards → ALERT
+```
+
+The witness does not need to understand WAL, pages, or crypto. It only needs:
+
+```
+did the LSN advance monotonically?
+did the audit head change in the expected direction?
+is the database still emitting?
+```
+
+So `DatabaseHealthSnapshot` is freshness anchor infrastructure wearing a heartbeat costume.
+
+### 32.7 Design principle
+
+> Heartbeat = cheap facts. Verify = expensive proof. Audit = historical record. Witness = external memory. Each layer does exactly one job; none duplicates another.
