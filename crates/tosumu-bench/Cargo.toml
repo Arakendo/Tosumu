@@ -1,0 +1,38 @@
+[package]
+name = "tosumu-bench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+# ── Features ─────────────────────────────────────────────────────────────────
+#
+# Default: plain bundled SQLite via rusqlite.
+#
+# To bench against SQLite SEE (AES-256) instead:
+#   $env:SQLITE_SEE_DIR = 'F:\LocalSource\ClassLibrary\sqlite-see-efcore\see-sources'
+#   $env:SQLITE_SEE_SRC = 'sqlite3-see-aes256-ofb.c'   # default; override if needed
+#   cargo bench --no-default-features --features sqlite-see
+#
+# NOTE: SEE source files must NOT be copied into this repo. Reference them
+# by path only (SQLITE_SEE_DIR). They are built by build.rs at bench time.
+
+[features]
+default = ["bundled-sqlite"]
+bundled-sqlite = ["rusqlite/bundled"]
+sqlite-see = []
+
+[dependencies]
+tosumu-core = { path = "../tosumu-core" }
+rusqlite = { version = "0.31", default-features = false }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+tempfile = "3"
+
+[build-dependencies]
+cc = "1"
+
+[[bench]]
+name = "btree_vs_sqlite"
+harness = false

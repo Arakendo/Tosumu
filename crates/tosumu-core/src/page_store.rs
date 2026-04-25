@@ -114,6 +114,17 @@ impl PageStore {
         self.tree.scan_physical()
     }
 
+    /// Return all live key-value pairs where `start <= key <= end`, sorted by key.
+    pub fn scan_range(&self, start: &[u8], end: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        if start.is_empty() {
+            return Err(TosumError::InvalidArgument("start key must not be empty"));
+        }
+        if end.is_empty() {
+            return Err(TosumError::InvalidArgument("end key must not be empty"));
+        }
+        self.tree.scan_by_key(start, end)
+    }
+
     /// Return summary statistics.
     pub fn stat(&self) -> StoreStat {
         let page_count = self.tree.page_count();
