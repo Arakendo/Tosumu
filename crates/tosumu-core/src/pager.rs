@@ -682,6 +682,7 @@ impl Pager {
     }
 
     fn read_frame(&self, pgno: u64) -> Result<[u8; PAGE_SIZE]> {
+        self.validate_data_pgno(pgno)?;
         let mut frame = [0u8; PAGE_SIZE];
         let offset = pgno * PAGE_SIZE as u64;
         // PERF TODO: try_clone() issues a syscall and creates a new OS file handle per read.
@@ -695,6 +696,11 @@ impl Pager {
     }
 
     fn write_frame(&mut self, pgno: u64, frame: &[u8; PAGE_SIZE]) -> Result<()> {
+        // Note: pgno validation is intentionally omitted here. write_frame is
+        // called from init_page (via allocate) with pgno == page_count, which
+        // is the next-to-be-allocated slot and is correctly > the current
+        // validate_data_pgno upper bound. Callers (with_page_mut, commit_txn,
+        // init_page) are responsible for their own precondition checks.
         let offset = pgno * PAGE_SIZE as u64;
         self.file.seek(SeekFrom::Start(offset))?;
         self.file.write_all(frame)?;
@@ -713,27 +719,39 @@ fn write_u16_buf(buf: &mut [u8], offset: usize, v: u16) {
 ///
 /// Catches cases where an attacker (or corrupted file) flips page_type or
 /// free_start/free_end to values that would cause higher layers to misbehave.
+///
+/// The `free_start`/`free_end` bounds check only applies to LEAF and INTERNAL
+/// pages: OVERFLOW and FREE pages do not use those header fields.
 fn validate_plaintext_header(page: &[u8; PAGE_PLAINTEXT_SIZE], pgno: u64) -> Result<()> {
     let page_type = page[PAGE_OFF_TYPE];
-    if page_type != PAGE_TYPE_LEAF && page_type != PAGE_TYPE_INTERNAL {
-        return Err(TosumuError::Corrupt {
-            pgno,
-            reason: "decrypted page has unknown page_type",
-        });
-    }
-    let free_start = u16::from_le_bytes([page[PAGE_OFF_FREE_START], page[PAGE_OFF_FREE_START + 1]]) as usize;
-    let free_end   = u16::from_le_bytes([page[PAGE_OFF_FREE_END],   page[PAGE_OFF_FREE_END   + 1]]) as usize;
-    if free_start > free_end {
-        return Err(TosumuError::Corrupt {
-            pgno,
-            reason: "decrypted page: free_start > free_end",
-        });
-    }
-    if free_end > PAGE_PLAINTEXT_SIZE {
-        return Err(TosumuError::Corrupt {
-            pgno,
-            reason: "decrypted page: free_end > PAGE_PLAINTEXT_SIZE",
-        });
+    match page_type {
+        PAGE_TYPE_LEAF | PAGE_TYPE_INTERNAL => {
+            // B-tree pages: validate the free-space region pointers.
+            let free_start = u16::from_le_bytes([page[PAGE_OFF_FREE_START], page[PAGE_OFF_FREE_START + 1]]) as usize;
+            let free_end   = u16::from_le_bytes([page[PAGE_OFF_FREE_END],   page[PAGE_OFF_FREE_END   + 1]]) as usize;
+            if free_start > free_end {
+                return Err(TosumuError::Corrupt {
+                    pgno,
+                    reason: "decrypted page: free_start > free_end",
+                });
+            }
+            if free_end > PAGE_PLAINTEXT_SIZE {
+                return Err(TosumuError::Corrupt {
+                    pgno,
+                    reason: "decrypted page: free_end > PAGE_PLAINTEXT_SIZE",
+                });
+            }
+        }
+        PAGE_TYPE_OVERFLOW | PAGE_TYPE_FREE => {
+            // Overflow and free pages don't use the btree header fields;
+            // no further structural checks apply here.
+        }
+        _ => {
+            return Err(TosumuError::Corrupt {
+                pgno,
+                reason: "decrypted page has unknown page_type",
+            });
+        }
     }
     Ok(())
 }
@@ -889,6 +907,13 @@ fn finish_open(
 
     // Sanity-check the file length against the advertised page count.
     // A truncated file means the header is lying; reject rather than trust it.
+    //
+    // Note: we check `<` not `!=`. The crash-safe allocate ordering writes the
+    // new frame *before* incrementing page_count; a crash between those two
+    // steps leaves a file that is exactly one page longer than page_count
+    // predicts.  Rejecting that case would prevent opening after a crash.
+    // Individual page integrity is guaranteed by AEAD regardless of trailing
+    // bytes, so the looser bound here does not weaken security.
     let file_len = file.metadata()?.len();
     let expected_len = page_count
         .checked_mul(PAGE_SIZE as u64)
