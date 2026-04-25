@@ -188,9 +188,19 @@ fn validate_value(value: &[u8]) -> Result<()> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use tempfile;
 
     fn temp_path(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("tosumu_page_test_{name}_{}.tsm", std::process::id()))
+        // Use tempfile to get a collision-free OS-assigned path.
+        // We immediately close the placeholder file so the store can create it fresh.
+        let f = tempfile::Builder::new()
+            .prefix(&format!("tosumu_{name}_"))
+            .suffix(".tsm")
+            .tempfile()
+            .expect("tempfile allocation failed");
+        let path = f.path().to_path_buf();
+        drop(f);
+        path
     }
 
     #[test]
@@ -223,6 +233,23 @@ mod tests {
         assert!(pairs.is_empty());
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// The fresh root leaf must have slot_count == 0, and the B+ tree must
+    /// report height 1. This guards against any init_page regression where
+    /// free_start is set incorrectly (would cause ghost-slot reads).
+    #[test]
+    fn fresh_leaf_has_correct_header_state() {
+        let path = temp_path("fresh_leaf");
+
+        let store = PageStore::create(&path).unwrap();
+        // Empty store: exactly one data page (the root leaf), height 1.
+        assert_eq!(store.stat().data_pages, 1, "expected exactly one data page");
+        assert_eq!(store.tree.tree_height().unwrap(), 1, "expected tree height 1 for empty store");
+        // Invariant checker also validates slot array bounds and free_start sanity.
+        store.tree.check_invariants().unwrap();
+        // No records should be readable.
+        assert!(store.scan().unwrap().is_empty(), "fresh store must scan as empty");
     }
 
     #[test]

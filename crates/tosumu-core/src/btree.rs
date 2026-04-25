@@ -226,7 +226,7 @@ impl BTree {
                         RECORD_LIVE if rec.len() >= 5 => {
                             let kl = u16::from_le_bytes([rec[1], rec[2]]) as usize;
                             let vl = u16::from_le_bytes([rec[3], rec[4]]) as usize;
-                            if 5 + kl + vl <= rec.len() {
+                            if 5 + kl + vl == rec.len() {
                                 let k = &rec[5..5 + kl];
                                 if k > end {
                                     past_end = true;
@@ -237,7 +237,7 @@ impl BTree {
                         }
                         RECORD_TOMBSTONE if rec.len() >= 3 => {
                             let kl = u16::from_le_bytes([rec[1], rec[2]]) as usize;
-                            if 3 + kl <= rec.len() {
+                            if 3 + kl == rec.len() {
                                 let k = &rec[3..3 + kl];
                                 if k > end {
                                     past_end = true;
@@ -263,7 +263,14 @@ impl BTree {
         let mut map: std::collections::BTreeMap<Vec<u8>, Option<Vec<u8>>> = Default::default();
         for pgno in 1..self.pager.page_count() {
             self.pager.with_page(pgno, |page| {
-                if page[HDR_PAGE_TYPE] != PAGE_TYPE_LEAF { return Ok(()); }
+                match page[HDR_PAGE_TYPE] {
+                    PAGE_TYPE_LEAF => {}
+                    PAGE_TYPE_INTERNAL => return Ok(()),
+                    _ => return Err(TosumError::Corrupt {
+                        pgno,
+                        reason: "unknown page type in physical scan",
+                    }),
+                }
                 let slot_count = read_u16(page, HDR_SLOT_COUNT) as usize;
                 for i in 0..slot_count {
                     let slot_pos = PAGE_HEADER_SIZE + i * SLOT_SIZE;
@@ -276,7 +283,7 @@ impl BTree {
                         RECORD_LIVE if rec.len() >= 5 => {
                             let kl = u16::from_le_bytes([rec[1], rec[2]]) as usize;
                             let vl = u16::from_le_bytes([rec[3], rec[4]]) as usize;
-                            if 5 + kl + vl <= rec.len() {
+                            if 5 + kl + vl == rec.len() {
                                 let k = rec[5..5 + kl].to_vec();
                                 let v = rec[5 + kl..5 + kl + vl].to_vec();
                                 map.insert(k, Some(v));
@@ -284,7 +291,7 @@ impl BTree {
                         }
                         RECORD_TOMBSTONE if rec.len() >= 3 => {
                             let kl = u16::from_le_bytes([rec[1], rec[2]]) as usize;
-                            if 3 + kl <= rec.len() {
+                            if 3 + kl == rec.len() {
                                 let k = rec[3..3 + kl].to_vec();
                                 map.insert(k, None);
                             }
@@ -404,7 +411,7 @@ impl BTree {
             RECORD_LIVE if new_record.len() >= 5 => {
                 let kl = u16::from_le_bytes([new_record[1], new_record[2]]) as usize;
                 let vl = u16::from_le_bytes([new_record[3], new_record[4]]) as usize;
-                if 5 + kl + vl <= new_record.len() {
+                if 5 + kl + vl == new_record.len() {
                     let v = new_record[5 + kl..5 + kl + vl].to_vec();
                     records.insert(pos, (sort_key_vec, v));
                 }
@@ -776,16 +783,14 @@ fn leaf_get(page: &[u8; PAGE_PLAINTEXT_SIZE], key: &[u8]) -> Option<Vec<u8>> {
         match rec[0] {
             RECORD_LIVE if rec.len() >= 5 => {
                 let kl = u16::from_le_bytes([rec[1], rec[2]]) as usize;
-                if 5 + kl <= rec.len() && &rec[5..5 + kl] == key {
-                    let vl = u16::from_le_bytes([rec[3], rec[4]]) as usize;
-                    if 5 + kl + vl <= rec.len() {
-                        result = Some(Some(rec[5 + kl..5 + kl + vl].to_vec()));
-                    }
+                let vl = u16::from_le_bytes([rec[3], rec[4]]) as usize;
+                if 5 + kl + vl == rec.len() && &rec[5..5 + kl] == key {
+                    result = Some(Some(rec[5 + kl..5 + kl + vl].to_vec()));
                 }
             }
             RECORD_TOMBSTONE if rec.len() >= 3 => {
                 let kl = u16::from_le_bytes([rec[1], rec[2]]) as usize;
-                if 3 + kl <= rec.len() && &rec[3..3 + kl] == key {
+                if 3 + kl == rec.len() && &rec[3..3 + kl] == key {
                     result = Some(None);
                 }
             }
@@ -811,7 +816,7 @@ fn leaf_read_all_live(page: &[u8; PAGE_PLAINTEXT_SIZE]) -> Vec<(Vec<u8>, Vec<u8>
             RECORD_LIVE if rec.len() >= 5 => {
                 let kl = u16::from_le_bytes([rec[1], rec[2]]) as usize;
                 let vl = u16::from_le_bytes([rec[3], rec[4]]) as usize;
-                if 5 + kl + vl <= rec.len() {
+                if 5 + kl + vl == rec.len() {
                     let k = rec[5..5 + kl].to_vec();
                     let v = rec[5 + kl..5 + kl + vl].to_vec();
                     map.insert(k, Some(v));
@@ -819,7 +824,7 @@ fn leaf_read_all_live(page: &[u8; PAGE_PLAINTEXT_SIZE]) -> Vec<(Vec<u8>, Vec<u8>
             }
             RECORD_TOMBSTONE if rec.len() >= 3 => {
                 let kl = u16::from_le_bytes([rec[1], rec[2]]) as usize;
-                if 3 + kl <= rec.len() {
+                if 3 + kl == rec.len() {
                     let k = rec[3..3 + kl].to_vec();
                     map.insert(k, None);
                 }

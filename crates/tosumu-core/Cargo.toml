@@ -27,3 +27,4 @@ zeroize = "1.8.2"
 
 [dev-dependencies]
 proptest = "1"
+tempfile = "3"
