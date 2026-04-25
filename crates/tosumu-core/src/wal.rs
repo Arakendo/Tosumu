@@ -312,6 +312,8 @@ impl WalWriter {
 /// Reads WAL records sequentially from a `.wal` file.
 pub struct WalReader {
     reader: BufReader<File>,
+    /// Byte offset of the start of the record currently being read.
+    pos: u64,
 }
 
 impl WalReader {
@@ -322,11 +324,12 @@ impl WalReader {
             || OpenOptions::new().read(true).open(path),
             "opening WAL for record replay",
         )?;
-        Ok(WalReader { reader: BufReader::new(file) })
+        Ok(WalReader { reader: BufReader::new(file), pos: 0 })
     }
 
     /// Read the next record. Returns `None` at clean EOF; error on truncation/CRC failure.
     pub fn next_record(&mut self) -> Result<Option<(u64, WalRecord)>> {
+        let record_start = self.pos;
         // Read fixed header: lsn(8) + type(1) + payload_len(4).
         let mut hdr = [0u8; 13];
         match self.reader.read_exact(&mut hdr) {
@@ -342,14 +345,14 @@ impl WalReader {
         let mut payload = vec![0u8; payload_len];
         self.reader.read_exact(&mut payload).map_err(|e| {
             if e.kind() == ErrorKind::UnexpectedEof {
-                TosumuError::CorruptRecord { offset: 0, reason: "WAL record truncated in payload" }
+                TosumuError::CorruptRecord { offset: record_start, reason: "WAL record truncated in payload" }
             } else { e.into() }
         })?;
 
         let mut crc_bytes = [0u8; 4];
         self.reader.read_exact(&mut crc_bytes).map_err(|e| {
             if e.kind() == ErrorKind::UnexpectedEof {
-                TosumuError::CorruptRecord { offset: 0, reason: "WAL record truncated in CRC" }
+                TosumuError::CorruptRecord { offset: record_start, reason: "WAL record truncated in CRC" }
             } else { e.into() }
         })?;
         let stored_crc = u32::from_le_bytes(crc_bytes);
@@ -361,12 +364,15 @@ impl WalReader {
         let computed_crc = crc32fast::hash(&covered);
         if computed_crc != stored_crc {
             return Err(TosumuError::CorruptRecord {
-                offset: 0,
+                offset: record_start,
                 reason: "WAL record CRC mismatch",
             });
         }
 
-        let record = decode_payload(record_type, &payload)?;
+        // Advance position past this record: 13-byte header + payload + 4-byte CRC.
+        self.pos = record_start + 13 + payload_len as u64 + 4;
+
+        let record = decode_payload(record_type, &payload, record_start)?;
         Ok(Some((lsn, record)))
     }
 
@@ -504,18 +510,18 @@ pub fn wal_path(db_path: &Path) -> PathBuf {
     PathBuf::from(p)
 }
 
-fn decode_payload(record_type: u8, payload: &[u8]) -> Result<WalRecord> {
+fn decode_payload(record_type: u8, payload: &[u8], offset: u64) -> Result<WalRecord> {
     match record_type {
         RT_BEGIN => {
             if payload.len() < 8 {
-                return Err(TosumuError::CorruptRecord { offset: 0, reason: "Begin payload too short" });
+                return Err(TosumuError::CorruptRecord { offset, reason: "Begin payload too short" });
             }
             Ok(WalRecord::Begin { txn_id: u64::from_le_bytes(payload[0..8].try_into().unwrap()) })
         }
         RT_PAGE_WRITE => {
             let expected = 8 + 8 + PAGE_SIZE;
             if payload.len() < expected {
-                return Err(TosumuError::CorruptRecord { offset: 0, reason: "PageWrite payload too short" });
+                return Err(TosumuError::CorruptRecord { offset, reason: "PageWrite payload too short" });
             }
             let pgno         = u64::from_le_bytes(payload[0..8].try_into().unwrap());
             let page_version = u64::from_le_bytes(payload[8..16].try_into().unwrap());
@@ -525,17 +531,17 @@ fn decode_payload(record_type: u8, payload: &[u8]) -> Result<WalRecord> {
         }
         RT_COMMIT => {
             if payload.len() < 8 {
-                return Err(TosumuError::CorruptRecord { offset: 0, reason: "Commit payload too short" });
+                return Err(TosumuError::CorruptRecord { offset, reason: "Commit payload too short" });
             }
             Ok(WalRecord::Commit { txn_id: u64::from_le_bytes(payload[0..8].try_into().unwrap()) })
         }
         RT_CHECKPOINT => {
             if payload.len() < 8 {
-                return Err(TosumuError::CorruptRecord { offset: 0, reason: "Checkpoint payload too short" });
+                return Err(TosumuError::CorruptRecord { offset, reason: "Checkpoint payload too short" });
             }
             Ok(WalRecord::Checkpoint { up_to_lsn: u64::from_le_bytes(payload[0..8].try_into().unwrap()) })
         }
-        _ => Err(TosumuError::CorruptRecord { offset: 0, reason: "unknown WAL record type" }),
+        _ => Err(TosumuError::CorruptRecord { offset, reason: "unknown WAL record type" }),
     }
 }
 

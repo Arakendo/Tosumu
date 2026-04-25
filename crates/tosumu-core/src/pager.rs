@@ -26,6 +26,7 @@
 // handles physical correctness. Debugging hint: if data looks decrypted but
 // logically wrong, the bug is above the pager layer.
 
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
@@ -60,8 +61,8 @@ pub struct Pager {
     /// Counter for generating unique txn_ids.
     next_txn_id: u64,
     /// Dirty page frames buffered during the current transaction.
-    /// Entries are (pgno, encrypted_frame). Latest write wins for the same pgno.
-    dirty_pages: Vec<(u64, Box<[u8; PAGE_SIZE]>)>,
+    /// Keyed by pgno so lookups are O(1); latest write wins.
+    dirty_pages: HashMap<u64, Box<[u8; PAGE_SIZE]>>,
     /// Set when `flush_header()` is deferred during a transaction.
     /// Cleared (and the real write performed) at commit or rollback.
     pending_header_flush: bool,
@@ -120,7 +121,7 @@ impl Pager {
             txn_active: false,
             txn_id: 0,
             next_txn_id: 1,
-            dirty_pages: Vec::new(),
+            dirty_pages: HashMap::new(),
             pending_header_flush: false,
             txn_saved_page_count: 0,
             txn_saved_root_page: 0,
@@ -243,7 +244,7 @@ impl Pager {
             txn_active: false,
             txn_id: 0,
             next_txn_id: 1,
-            dirty_pages: Vec::new(),
+            dirty_pages: HashMap::new(),
             pending_header_flush: false,
             txn_saved_page_count: 0,
             txn_saved_root_page: 0,
@@ -269,8 +270,7 @@ impl Pager {
         validate_header(&page0)?;
 
         let dek_id = read_u64(&page0, OFF_DEK_ID);
-        let keyslot_count = read_u16(&page0, OFF_KEYSLOT_COUNT) as usize;
-        let keyslot_count = keyslot_count.max(1).min(MAX_KEYSLOTS);
+        let keyslot_count = keyslot_count(&page0);
 
         // Try to unlock: scan all slots.
         let (dek, is_encrypted) = try_unlock_passphrase(&page0, passphrase, dek_id, keyslot_count)?;
@@ -304,7 +304,7 @@ impl Pager {
         validate_header(&page0)?;
 
         let dek_id = read_u64(&page0, OFF_DEK_ID);
-        let keyslot_count = (read_u16(&page0, OFF_KEYSLOT_COUNT) as usize).max(1).min(MAX_KEYSLOTS);
+        let keyslot_count = keyslot_count(&page0);
 
         let kek = derive_recovery_kek(recovery_str)?;
         let dek = try_unlock_with_kek(&page0, &kek, dek_id, keyslot_count, KEYSLOT_KIND_RECOVERY_KEY)?;
@@ -329,7 +329,7 @@ impl Pager {
         validate_header(&page0)?;
 
         let dek_id = read_u64(&page0, OFF_DEK_ID);
-        let keyslot_count = (read_u16(&page0, OFF_KEYSLOT_COUNT) as usize).max(1).min(MAX_KEYSLOTS);
+        let keyslot_count = keyslot_count(&page0);
         let (dek, _) = try_unlock_passphrase(&page0, unlock_passphrase, dek_id, keyslot_count)?;
         let (_, hmk, _) = derive_subkeys(&dek);
 
@@ -361,7 +361,7 @@ impl Pager {
         validate_header(&page0)?;
 
         let dek_id = read_u64(&page0, OFF_DEK_ID);
-        let keyslot_count = (read_u16(&page0, OFF_KEYSLOT_COUNT) as usize).max(1).min(MAX_KEYSLOTS);
+        let keyslot_count = keyslot_count(&page0);
         let (dek, _) = try_unlock_passphrase(&page0, unlock_passphrase, dek_id, keyslot_count)?;
         let (_, hmk, _) = derive_subkeys(&dek);
 
@@ -394,7 +394,7 @@ impl Pager {
         validate_header(&page0)?;
 
         let dek_id = read_u64(&page0, OFF_DEK_ID);
-        let keyslot_count = (read_u16(&page0, OFF_KEYSLOT_COUNT) as usize).max(1).min(MAX_KEYSLOTS);
+        let keyslot_count = keyslot_count(&page0);
         let (dek, _) = try_unlock_passphrase(&page0, unlock_passphrase, dek_id, keyslot_count)?;
         let (_, hmk, _) = derive_subkeys(&dek);
 
@@ -431,7 +431,7 @@ impl Pager {
         validate_header(&page0)?;
 
         let dek_id = read_u64(&page0, OFF_DEK_ID);
-        let keyslot_count = (read_u16(&page0, OFF_KEYSLOT_COUNT) as usize).max(1).min(MAX_KEYSLOTS);
+        let keyslot_count = keyslot_count(&page0);
 
         if slot_idx as usize >= keyslot_count {
             return Err(TosumuError::InvalidArgument("slot index out of range"));
@@ -478,12 +478,14 @@ impl Pager {
         let page0 = read_page0(&mut file)?;
         validate_header(&page0)?;
 
-        let keyslot_count = (read_u16(&page0, OFF_KEYSLOT_COUNT) as usize).max(1).min(MAX_KEYSLOTS);
+        let kc = keyslot_count(&page0);
         let mut result = Vec::new();
-        for i in 0..keyslot_count {
+        for i in 0..kc {
             let ks = KEYSLOT_REGION_OFFSET + i * KEYSLOT_SIZE;
             let kind = page0[ks + KS_OFF_KIND];
-            if kind != KEYSLOT_KIND_EMPTY {
+            // Exclude empty slots and the Sentinel bootstrap slot — callers expect
+            // only user-visible protectors (passphrase, recovery key, etc.).
+            if kind != KEYSLOT_KIND_EMPTY && kind != KEYSLOT_KIND_SENTINEL {
                 result.push((i as u16, kind));
             }
         }
@@ -512,8 +514,8 @@ impl Pager {
     {
         self.validate_data_pgno(pgno)?;
         // Read-your-own-writes: check dirty buffer first when inside a transaction.
-        let frame = if let Some(pos) = self.dirty_pages.iter().rposition(|(p, _)| *p == pgno) {
-            *self.dirty_pages[pos].1
+        let frame = if let Some(buffered) = self.dirty_pages.get(&pgno) {
+            **buffered
         } else {
             self.read_frame(pgno)?
         };
@@ -538,8 +540,8 @@ impl Pager {
         self.validate_data_pgno(pgno)?;
 
         // For reads: check dirty buffer first (read-your-own-writes).
-        let frame = if let Some(pos) = self.dirty_pages.iter().rposition(|(p, _)| *p == pgno) {
-            *self.dirty_pages[pos].1.clone()
+        let frame = if let Some(buffered) = self.dirty_pages.get(&pgno) {
+            **buffered
         } else {
             self.read_frame(pgno)?
         };
@@ -557,19 +559,12 @@ impl Pager {
 
         if self.txn_active {
             // WAL path: buffer the frame, append PageWrite.
-            let txn_id = self.txn_id;
             self.wal.append(&WalRecord::PageWrite {
                     pgno,
                     page_version: version + 1,
                     frame: Box::new(new_frame),
                 })?;
-            // Update dirty buffer (replace existing entry for same pgno).
-            if let Some(pos) = self.dirty_pages.iter().position(|(p, _)| *p == pgno) {
-                self.dirty_pages[pos].1 = Box::new(new_frame);
-            } else {
-                self.dirty_pages.push((pgno, Box::new(new_frame)));
-            }
-            let _ = txn_id; // used via self.txn_id above
+            self.dirty_pages.insert(pgno, Box::new(new_frame));
         } else {
             // Auto-commit path: write directly to .tsm.
             self.write_frame(pgno, &new_frame)?;
@@ -623,14 +618,9 @@ impl Pager {
                 page_version: 1,
                 frame: Box::new(frame),
             })?;
-            // Insert or replace in dirty buffer.
-            if let Some(pos) = self.dirty_pages.iter().position(|(p, _)| *p == pgno) {
-                self.dirty_pages[pos].1 = Box::new(frame);
-            } else {
-                self.dirty_pages.push((pgno, Box::new(frame)));
-            }
+            self.dirty_pages.insert(pgno, Box::new(frame));
         } else {
-            self.write_frame(pgno, &frame)?;
+            self.write_frame(pgno, &frame)?
         }
         Ok(())
     }
@@ -668,49 +658,56 @@ impl Pager {
         assert!(self.txn_active, "commit_txn called with no active transaction");
 
         // Phase 1: make the transaction durable in the WAL.
-        // If flush_header was deferred, include a PageWrite for page 0 so recovery
-        // can restore page_count/root_page even if the .tsm flush below is interrupted.
-        if self.pending_header_flush {
+        // Build page 0 bytes once so they can be reused in both the WAL record and
+        // the .tsm flush (avoids reading page 0 twice and eliminates a second fsync).
+        let page0_frame: Option<Box<[u8; PAGE_SIZE]>> = if self.pending_header_flush {
             let page0 = self.build_updated_page0()?;
             self.wal.append(&WalRecord::PageWrite {
                 pgno: 0,
                 page_version: 0,
                 frame: Box::new(page0),
             })?;
-        }
+            Some(Box::new(page0))
+        } else {
+            None
+        };
         self.wal.append(&WalRecord::Commit { txn_id: self.txn_id })?;
         self.wal.sync()?;
 
         // Transaction is now committed.  Clear txn_active *before* the .tsm flush so
         // the handle is never left stuck in txn_active=true even if the flush fails.
         self.txn_active = false;
-        let had_header_flush = self.pending_header_flush;
         self.pending_header_flush = false;
-        let pages: Vec<(u64, Box<[u8; PAGE_SIZE]>)> = self.dirty_pages.drain(..).collect();
+        // Drain dirty pages, sorted by pgno for sequential I/O.
+        let mut pages: Vec<(u64, Box<[u8; PAGE_SIZE]>)> = self.dirty_pages.drain().collect();
+        pages.sort_unstable_by_key(|(pgno, _)| *pgno);
 
-        // Phase 2: write pages to .tsm (WAL recovery covers crashes, so this is
-        // opportunistic).  A failure here means the data is safe in the WAL but
-        // the handle's caches no longer reflect .tsm — caller must reopen.
-        for (pgno, frame) in pages {
-            if let Err(e) = self.write_frame(pgno, &frame) {
-                // Extract the underlying io::Error (write_frame only returns Io variants).
-                let io_err = match e {
-                    TosumuError::Io(io) => io,
-                    other => return Err(other),
-                };
-                return Err(TosumuError::CommittedButFlushFailed { source: io_err });
+        // Phase 2: write all pages (data + optional page 0) to .tsm with a single
+        // fsync at the end.  WAL recovery covers crashes, so this flush is opportunistic.
+        // A failure here means the data is safe in the WAL but the handle's caches no
+        // longer reflect .tsm — caller must reopen.
+        let flush_result = (|| -> Result<()> {
+            for (pgno, frame) in &pages {
+                let offset = *pgno * PAGE_SIZE as u64;
+                self.file.seek(SeekFrom::Start(offset))?;
+                self.file.write_all(frame.as_ref())?;
             }
-        }
-        // Flush the updated header (page 0) to .tsm after all data pages are written.
-        // txn_active is already false so flush_header() will perform the actual write.
-        if had_header_flush {
-            if let Err(e) = self.flush_header() {
-                let io_err = match e {
-                    TosumuError::Io(io) => io,
-                    other => return Err(other),
-                };
-                return Err(TosumuError::CommittedButFlushFailed { source: io_err });
+            // Write the updated header (page 0) last, after all data pages.
+            if let Some(ref frame) = page0_frame {
+                self.file.seek(SeekFrom::Start(0))?;
+                self.file.write_all(frame.as_ref())?;
             }
+            if !pages.is_empty() || page0_frame.is_some() {
+                self.file.sync_data()?;
+            }
+            Ok(())
+        })();
+        if let Err(e) = flush_result {
+            let io_err = match e {
+                TosumuError::Io(io) => io,
+                other => return Err(other),
+            };
+            return Err(TosumuError::CommittedButFlushFailed { source: io_err });
         }
         Ok(())
     }
@@ -881,7 +878,26 @@ fn validate_header(page0: &[u8; PAGE_SIZE]) -> Result<()> {
     if ps as usize != PAGE_SIZE {
         return Err(TosumuError::PageSizeMismatch { found: ps, expected: PAGE_SIZE as u16 });
     }
+    // Sanity-check keyslot_count in page 0: out-of-range values are clamped by every
+    // caller, but validating here surfaces corruption/tampering at one central point.
+    let kc = read_u16(page0, OFF_KEYSLOT_COUNT) as usize;
+    if kc == 0 || kc > MAX_KEYSLOTS {
+        return Err(TosumuError::Corrupt {
+            pgno: 0,
+            reason: "keyslot_count in header is out of valid range",
+        });
+    }
     Ok(())
+}
+
+/// Return the validated, clamped keyslot count from page 0.
+///
+/// Centralises the `max(1).min(MAX_KEYSLOTS)` clamping that every open path
+/// needs.  The value is already bounds-checked by `validate_header` before
+/// this is called, so the clamp is a safety net for callers that may not have
+/// invoked `validate_header` first.
+fn keyslot_count(page0: &[u8; PAGE_SIZE]) -> usize {
+    (read_u16(page0, OFF_KEYSLOT_COUNT) as usize).max(1).min(MAX_KEYSLOTS)
 }
 
 /// Read the full page-0 from an open file.
@@ -1049,7 +1065,7 @@ fn finish_open(
         return Ok(Pager {
             file, page_key, header_mac_key,
             page_count, freelist_head, root_page,
-            wal, txn_active: false, txn_id: 0, next_txn_id: 1, dirty_pages: Vec::new(),
+            wal, txn_active: false, txn_id: 0, next_txn_id: 1, dirty_pages: HashMap::new(),
             pending_header_flush: false, txn_saved_page_count: 0, txn_saved_root_page: 0, txn_saved_freelist_head: 0,
         });
     }
@@ -1057,7 +1073,7 @@ fn finish_open(
     Ok(Pager {
         file, page_key, header_mac_key,
         page_count, freelist_head, root_page,
-        wal, txn_active: false, txn_id: 0, next_txn_id: 1, dirty_pages: Vec::new(),
+        wal, txn_active: false, txn_id: 0, next_txn_id: 1, dirty_pages: HashMap::new(),
         pending_header_flush: false, txn_saved_page_count: 0, txn_saved_root_page: 0, txn_saved_freelist_head: 0,
     })
 }

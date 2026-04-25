@@ -1479,7 +1479,12 @@ mod tests {
         // If it fails, the MAC caught the tampered count field.
         if let Err(e) = &result {
             assert!(
-                matches!(e, crate::error::TosumuError::AuthFailed { .. } | crate::error::TosumuError::WrongKey),
+                matches!(
+                    e,
+                    crate::error::TosumuError::AuthFailed { .. }
+                        | crate::error::TosumuError::WrongKey
+                        | crate::error::TosumuError::Corrupt { .. }
+                ),
                 "unexpected error: {e:?}"
             );
         }
