@@ -133,6 +133,7 @@ pub const KEYSLOT_KIND_EMPTY: u8 = 0;
 pub const KEYSLOT_KIND_SENTINEL: u8 = 1;
 pub const KEYSLOT_KIND_PASSPHRASE: u8 = 2;
 pub const KEYSLOT_KIND_RECOVERY_KEY: u8 = 3;
+pub const KEYSLOT_KIND_KEYFILE: u8 = 4;
 
 /// Maximum number of keyslots in the keyslot region (stage 4b).
 pub const MAX_KEYSLOTS: usize = 8;

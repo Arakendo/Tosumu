@@ -90,6 +90,16 @@ impl PageStore {
         Ok(PageStore { tree: BTree::open_with_recovery_key_readonly(path, recovery_str)? })
     }
 
+    /// Open a keyfile-protected `.tsm` file.
+    pub fn open_with_keyfile(path: &Path, keyfile_path: &Path) -> Result<Self> {
+        Ok(PageStore { tree: BTree::open_with_keyfile(path, keyfile_path)? })
+    }
+
+    /// Open a keyfile-protected `.tsm` file in read-only mode.
+    pub fn open_with_keyfile_readonly(path: &Path, keyfile_path: &Path) -> Result<Self> {
+        Ok(PageStore { tree: BTree::open_with_keyfile_readonly(path, keyfile_path)? })
+    }
+
     // ── Key management ───────────────────────────────────────────────────────
 
     /// Add a passphrase protector. Returns the slot index used.
@@ -102,6 +112,11 @@ impl PageStore {
         BTree::add_passphrase_protector_with_recovery_key(path, recovery_str, new_passphrase)
     }
 
+    /// Add a passphrase protector, unlocking the DEK with a keyfile protector.
+    pub fn add_passphrase_protector_with_keyfile(path: &Path, keyfile_path: &Path, new_passphrase: &str) -> Result<u16> {
+        BTree::add_passphrase_protector_with_keyfile(path, keyfile_path, new_passphrase)
+    }
+
     /// Add a recovery-key protector. Returns the one-time recovery string.
     pub fn add_recovery_key_protector(path: &Path, unlock_passphrase: &str) -> Result<String> {
         BTree::add_recovery_key_protector(path, unlock_passphrase)
@@ -110,6 +125,41 @@ impl PageStore {
     /// Add a recovery-key protector, unlocking the DEK with an existing recovery key.
     pub fn add_recovery_key_protector_with_recovery_key(path: &Path, recovery_str: &str) -> Result<String> {
         BTree::add_recovery_key_protector_with_recovery_key(path, recovery_str)
+    }
+
+    /// Add a recovery-key protector, unlocking the DEK with a keyfile protector.
+    pub fn add_recovery_key_protector_with_keyfile(path: &Path, keyfile_path: &Path) -> Result<String> {
+        BTree::add_recovery_key_protector_with_keyfile(path, keyfile_path)
+    }
+
+    /// Add a recovery-key protector using a caller-supplied recovery string.
+    pub fn add_recovery_key_protector_with_secret(path: &Path, unlock_passphrase: &str, recovery_str: &str) -> Result<()> {
+        BTree::add_recovery_key_protector_with_secret(path, unlock_passphrase, recovery_str)
+    }
+
+    /// Add a recovery-key protector using an existing recovery key and caller-supplied secret.
+    pub fn add_recovery_key_protector_with_recovery_key_and_secret(path: &Path, recovery_str: &str, new_recovery_str: &str) -> Result<()> {
+        BTree::add_recovery_key_protector_with_recovery_key_and_secret(path, recovery_str, new_recovery_str)
+    }
+
+    /// Add a recovery-key protector using a keyfile unlock and caller-supplied secret.
+    pub fn add_recovery_key_protector_with_keyfile_and_secret(path: &Path, keyfile_path: &Path, recovery_str: &str) -> Result<()> {
+        BTree::add_recovery_key_protector_with_keyfile_and_secret(path, keyfile_path, recovery_str)
+    }
+
+    /// Add a keyfile protector. Returns the slot index used.
+    pub fn add_keyfile_protector(path: &Path, unlock_passphrase: &str, keyfile_path: &Path) -> Result<u16> {
+        BTree::add_keyfile_protector(path, unlock_passphrase, keyfile_path)
+    }
+
+    /// Add a keyfile protector, unlocking with an existing recovery key.
+    pub fn add_keyfile_protector_with_recovery_key(path: &Path, recovery_str: &str, keyfile_path: &Path) -> Result<u16> {
+        BTree::add_keyfile_protector_with_recovery_key(path, recovery_str, keyfile_path)
+    }
+
+    /// Add a keyfile protector, unlocking with another keyfile protector.
+    pub fn add_keyfile_protector_with_keyfile(path: &Path, unlock_keyfile_path: &Path, keyfile_path: &Path) -> Result<u16> {
+        BTree::add_keyfile_protector_with_keyfile(path, unlock_keyfile_path, keyfile_path)
     }
 
     /// Remove the keyslot at `slot_idx` (must not be the last active slot).
@@ -122,6 +172,11 @@ impl PageStore {
         BTree::remove_keyslot_with_recovery_key(path, recovery_str, slot_idx)
     }
 
+    /// Remove a keyslot, unlocking the DEK with a keyfile protector.
+    pub fn remove_keyslot_with_keyfile(path: &Path, keyfile_path: &Path, slot_idx: u16) -> Result<()> {
+        BTree::remove_keyslot_with_keyfile(path, keyfile_path, slot_idx)
+    }
+
     /// Rotate the KEK for the Passphrase slot at `slot_idx`.
     pub fn rekey_kek(path: &Path, slot_idx: u16, old_passphrase: &str, new_passphrase: &str) -> Result<()> {
         BTree::rekey_kek(path, slot_idx, old_passphrase, new_passphrase)
@@ -130,6 +185,11 @@ impl PageStore {
     /// Rotate a Passphrase slot using a recovery key to unlock the DEK.
     pub fn rekey_kek_with_recovery_key(path: &Path, slot_idx: u16, recovery_str: &str, new_passphrase: &str) -> Result<()> {
         BTree::rekey_kek_with_recovery_key(path, slot_idx, recovery_str, new_passphrase)
+    }
+
+    /// Rotate a Passphrase slot using a keyfile protector to unlock the DEK.
+    pub fn rekey_kek_with_keyfile(path: &Path, slot_idx: u16, keyfile_path: &Path, new_passphrase: &str) -> Result<()> {
+        BTree::rekey_kek_with_keyfile(path, slot_idx, keyfile_path, new_passphrase)
     }
 
     /// List active keyslots. Returns `Vec<(slot_index, kind_byte)>`.
@@ -563,6 +623,33 @@ mod tests {
         assert_eq!(store.get(b"secret").unwrap(), Some(b"data".to_vec()));
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn keyfile_roundtrip() {
+        use crate::format::KEYSLOT_KIND_KEYFILE;
+
+        let path = temp_path("keyfile_roundtrip");
+        let keyfile = temp_path("keyfile_roundtrip.bin");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&keyfile);
+
+        std::fs::write(&keyfile, [0xA5u8; 32]).unwrap();
+
+        {
+            let mut store = PageStore::create_encrypted(&path, "p").unwrap();
+            store.put(b"secret", b"data").unwrap();
+        }
+
+        let slot = PageStore::add_keyfile_protector(&path, "p", &keyfile).unwrap();
+        let slots = PageStore::list_keyslots(&path).unwrap();
+        assert!(slots.iter().any(|&(idx, kind)| idx == slot && kind == KEYSLOT_KIND_KEYFILE));
+
+        let store = PageStore::open_with_keyfile(&path, &keyfile).unwrap();
+        assert_eq!(store.get(b"secret").unwrap(), Some(b"data".to_vec()));
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&keyfile);
     }
 
     #[test]
@@ -1243,8 +1330,6 @@ mod tests {
     /// remaining 2048 from old state). Must be rejected cleanly — no panic, no wrong-key accept.
     #[test]
     fn crash_mid_rekey_torn_page_rejected() {
-        use crate::format::PAGE_SIZE;
-
         let path = temp_path("crash_mid_rekey");
         let _ = std::fs::remove_file(&path);
 
@@ -1902,5 +1987,54 @@ mod tests {
         assert_eq!(store.get(b"marker").unwrap(), Some(b"ok".to_vec()));
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn keyfile_only_database_can_still_manage_protectors() {
+        let path = temp_path("keyfile_only_manage");
+        let keyfile = temp_path("keyfile_only_manage.bin");
+        let keyfile2 = temp_path("keyfile_only_manage_2.bin");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&keyfile);
+        let _ = std::fs::remove_file(&keyfile2);
+
+        std::fs::write(&keyfile, [0x11u8; 32]).unwrap();
+        std::fs::write(&keyfile2, [0x22u8; 32]).unwrap();
+
+        {
+            let mut store = PageStore::create_encrypted(&path, "main").unwrap();
+            store.put(b"marker", b"ok").unwrap();
+        }
+
+        let key_slot = PageStore::add_keyfile_protector(&path, "main", &keyfile).unwrap();
+        PageStore::remove_keyslot(&path, "main", 0).unwrap();
+
+        let slot = PageStore::add_passphrase_protector_with_keyfile(&path, &keyfile, "p1").unwrap();
+        PageStore::open_with_passphrase(&path, "p1").unwrap();
+
+        PageStore::add_recovery_key_protector_with_keyfile_and_secret(&path, &keyfile, "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GGGG-HHHH").unwrap();
+        PageStore::open_with_recovery_key(&path, "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GGGG-HHHH").unwrap();
+
+        let slot2 = PageStore::add_keyfile_protector_with_keyfile(&path, &keyfile, &keyfile2).unwrap();
+        PageStore::open_with_keyfile(&path, &keyfile2).unwrap();
+
+        PageStore::rekey_kek_with_keyfile(&path, slot, &keyfile, "p1-new").unwrap();
+        assert!(PageStore::open_with_passphrase(&path, "p1").is_err());
+        PageStore::open_with_passphrase(&path, "p1-new").unwrap();
+
+        PageStore::remove_keyslot_with_keyfile(&path, &keyfile, slot).unwrap();
+        PageStore::remove_keyslot_with_keyfile(&path, &keyfile, key_slot).unwrap();
+        assert!(PageStore::open_with_keyfile(&path, &keyfile).is_err());
+        PageStore::open_with_keyfile(&path, &keyfile2).unwrap();
+
+        let slots = PageStore::list_keyslots(&path).unwrap();
+        assert!(slots.iter().any(|&(idx, _)| idx == slot2));
+
+        let store = PageStore::open_with_keyfile(&path, &keyfile2).unwrap();
+        assert_eq!(store.get(b"marker").unwrap(), Some(b"ok".to_vec()));
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&keyfile);
+        let _ = std::fs::remove_file(&keyfile2);
     }
 }

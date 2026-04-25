@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>Tosumu.Cli</PackageId>
+    <Version>0.0.0-local.1</Version>
+    <Authors>Arakendo</Authors>
+    <Description>Thin .NET wrapper around the packaged tosumu CLI executable.</Description>
+    <PackageLicenseExpression>MIT OR Apache-2.0</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/Arakendo/tosumu</RepositoryUrl>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <TosumuRepoRoot>$(MSBuildThisFileDirectory)..\..\</TosumuRepoRoot>
+    <TosumuCliExe>$(TosumuRepoRoot)target\release\tosumu.exe</TosumuCliExe>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="build\Tosumu.Cli.targets" Pack="true" PackagePath="buildTransitive\Tosumu.Cli.targets" />
+    <Content Include="$(TosumuCliExe)" Pack="true" PackagePath="contentFiles\any\any\tosumu.exe" Visible="false" />
+  </ItemGroup>
+
+  <Target Name="BuildRustCliForPack" BeforeTargets="GenerateNuspec">
+    <Error Condition="'$(OS)' != 'Windows_NT'" Text="Tosumu.Cli packaging currently expects Windows and packs target\\release\\tosumu.exe." />
+    <Exec Command="cargo build -p tosumu-cli --release" WorkingDirectory="$(TosumuRepoRoot)" />
+    <Error Condition="!Exists('$(TosumuCliExe)')" Text="Expected packaged CLI executable was not built: $(TosumuCliExe)" />
+  </Target>
+</Project>

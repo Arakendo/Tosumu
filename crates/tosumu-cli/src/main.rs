@@ -1,7 +1,7 @@
-//! `tosumu` command-line interface — MVP +7.
+//! `tosumu` command-line interface — MVP +8.
 //!
-//! Key management (multiple protectors, recovery key, KEK rotation) on top of MVP +6.
-//! See DESIGN.md §12.0 (MVP +7).
+//! Key management plus the first interactive inspection slice.
+//! See DESIGN.md §12.0 (MVP +8).
 
 use std::path::{Path, PathBuf};
 use clap::{Parser, Subcommand};
@@ -9,13 +9,16 @@ use tosumu_core::error::TosumuError;
 use tosumu_core::pager::Pager;
 use tosumu_core::page_store::PageStore;
 
+mod view;
+
 enum UnlockSecret {
     Passphrase(String),
     RecoveryKey(String),
+    Keyfile(PathBuf),
 }
 
 #[derive(Parser)]
-#[command(name = tosumu_core::NAME, version, about = "tosumu key-value store (MVP +7)")]
+#[command(name = tosumu_core::NAME, version, about = "tosumu key-value store (MVP +8)")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -75,6 +78,10 @@ enum Command {
         #[arg(long)]
         explain: bool,
     },
+    /// Open the read-only interactive inspection view.
+    View {
+        path: PathBuf,
+    },
     /// Copy a database file (and its WAL sidecar if present) to a destination.
     Backup {
         /// Source database path.
@@ -102,6 +109,8 @@ enum ProtectorAction {
     AddPassphrase { path: PathBuf },
     /// Add a recovery-key protector (prints one-time recovery key).
     AddRecoveryKey { path: PathBuf },
+    /// Add a keyfile protector from a raw 32-byte file.
+    AddKeyfile { path: PathBuf, keyfile: PathBuf },
     /// Remove a keyslot by index.
     Remove {
         path: PathBuf,
@@ -131,7 +140,14 @@ fn open_store_readonly(path: &Path) -> Result<PageStore, TosumuError> {
                 Ok(store) => Ok(store),
                 Err(TosumuError::WrongKey) => {
                     let recovery = prompt_passphrase("recovery key: ")?;
-                    PageStore::open_with_recovery_key_readonly(path, &recovery)
+                    match PageStore::open_with_recovery_key_readonly(path, &recovery) {
+                        Ok(store) => Ok(store),
+                        Err(TosumuError::WrongKey) => {
+                            let keyfile = prompt_keyfile_path("keyfile path: ")?;
+                            PageStore::open_with_keyfile_readonly(path, &keyfile)
+                        }
+                        Err(e) => Err(e),
+                    }
                 }
                 Err(e) => Err(e),
             }
@@ -149,7 +165,14 @@ fn open_store_writable(path: &Path) -> Result<PageStore, TosumuError> {
                 Ok(store) => Ok(store),
                 Err(TosumuError::WrongKey) => {
                     let recovery = prompt_passphrase("recovery key: ")?;
-                    PageStore::open_with_recovery_key(path, &recovery)
+                    match PageStore::open_with_recovery_key(path, &recovery) {
+                        Ok(store) => Ok(store),
+                        Err(TosumuError::WrongKey) => {
+                            let keyfile = prompt_keyfile_path("keyfile path: ")?;
+                            PageStore::open_with_keyfile(path, &keyfile)
+                        }
+                        Err(e) => Err(e),
+                    }
                 }
                 Err(e) => Err(e),
             }
@@ -167,8 +190,15 @@ fn open_pager(path: &Path) -> Result<(Pager, Option<UnlockSecret>), TosumuError>
                 Ok(pager) => Ok((pager, Some(UnlockSecret::Passphrase(pass)))),
                 Err(TosumuError::WrongKey) => {
                     let recovery = prompt_passphrase("recovery key: ")?;
-                    let pager = Pager::open_with_recovery_key_readonly(path, &recovery)?;
-                    Ok((pager, Some(UnlockSecret::RecoveryKey(recovery))))
+                    match Pager::open_with_recovery_key_readonly(path, &recovery) {
+                        Ok(pager) => Ok((pager, Some(UnlockSecret::RecoveryKey(recovery)))),
+                        Err(TosumuError::WrongKey) => {
+                            let keyfile = prompt_keyfile_path("keyfile path: ")?;
+                            let pager = Pager::open_with_keyfile_readonly(path, &keyfile)?;
+                            Ok((pager, Some(UnlockSecret::Keyfile(keyfile))))
+                        }
+                        Err(e) => Err(e),
+                    }
                 }
                 Err(e) => Err(e),
             }
@@ -182,6 +212,7 @@ fn open_btree_with_unlock(path: &Path, unlock: Option<&UnlockSecret>) -> Result<
         None => tosumu_core::btree::BTree::open_readonly(path),
         Some(UnlockSecret::Passphrase(pass)) => tosumu_core::btree::BTree::open_with_passphrase_readonly(path, pass),
         Some(UnlockSecret::RecoveryKey(recovery)) => tosumu_core::btree::BTree::open_with_recovery_key_readonly(path, recovery),
+        Some(UnlockSecret::Keyfile(keyfile)) => tosumu_core::btree::BTree::open_with_keyfile_readonly(path, keyfile),
     }
 }
 
@@ -189,6 +220,67 @@ fn open_btree_with_unlock(path: &Path, unlock: Option<&UnlockSecret>) -> Result<
 fn prompt_passphrase(prompt: &str) -> Result<String, TosumuError> {
     rpassword::prompt_password(prompt)
         .map_err(|e| TosumuError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))
+}
+
+fn prompt_line(prompt: &str) -> Result<String, TosumuError> {
+    let mut stdout = std::io::stdout();
+    use std::io::Write as _;
+    write!(stdout, "{prompt}").map_err(TosumuError::Io)?;
+    stdout.flush().map_err(TosumuError::Io)?;
+
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input).map_err(TosumuError::Io)?;
+    Ok(input.trim().to_string())
+}
+
+fn prompt_keyfile_path(prompt: &str) -> Result<PathBuf, TosumuError> {
+    let input = prompt_line(prompt)?;
+    if input.is_empty() {
+        return Err(TosumuError::InvalidArgument("keyfile path must not be empty"));
+    }
+    Ok(PathBuf::from(input))
+}
+
+fn recovery_words(secret: &str) -> Vec<String> {
+    secret
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_uppercase())
+        .collect::<Vec<_>>()
+        .chunks(4)
+        .map(|chunk| chunk.iter().collect::<String>())
+        .collect()
+}
+
+fn format_recovery_key_for_display(secret: &str) -> String {
+    recovery_words(secret).join("-")
+}
+
+fn confirm_recovery_words(secret: &str, word3: &str, word7: &str) -> Result<(), TosumuError> {
+    let words = recovery_words(secret);
+    if words.len() < 7 {
+        return Err(TosumuError::InvalidArgument("recovery key format is invalid"));
+    }
+
+    if word3.trim().to_ascii_uppercase() != words[2] || word7.trim().to_ascii_uppercase() != words[6] {
+        return Err(TosumuError::InvalidArgument("recovery key confirmation failed"));
+    }
+
+    Ok(())
+}
+
+fn confirm_recovery_key_saved(secret: &str) -> Result<(), TosumuError> {
+    println!();
+    println!("=== RECOVERY KEY — save this somewhere safe ===");
+    println!();
+    println!("  {}", format_recovery_key_for_display(secret));
+    println!();
+    println!("This key will NOT be shown again.");
+    println!("Confirm you recorded it.");
+
+    let word3 = prompt_line("Type word 3: ")?.to_ascii_uppercase();
+    let word7 = prompt_line("Type word 7: ")?.to_ascii_uppercase();
+    confirm_recovery_words(secret, &word3, &word7)
 }
 
 fn run(cli: Cli) -> Result<(), TosumuError> {
@@ -246,6 +338,7 @@ fn run(cli: Cli) -> Result<(), TosumuError> {
         Command::Dump { path, page } => cmd_dump(&path, page)?,
         Command::Hex  { path, page } => cmd_hex(&path, page)?,
         Command::Verify { path, explain } => cmd_verify(&path, explain)?,
+        Command::View { path } => view::run(&path)?,
         Command::Backup { src, dest } => cmd_backup(&src, &dest)?,
         Command::Protector { action } => match action {
             ProtectorAction::AddPassphrase { path } => {
@@ -268,20 +361,43 @@ fn run(cli: Cli) -> Result<(), TosumuError> {
             }
             ProtectorAction::AddRecoveryKey { path } => {
                 let unlock = prompt_passphrase("current passphrase: ")?;
-                let key = match PageStore::add_recovery_key_protector(&path, &unlock) {
-                    Ok(key) => key,
+                let key = tosumu_core::crypto::generate_recovery_secret();
+                confirm_recovery_key_saved(&key)?;
+                match PageStore::add_recovery_key_protector_with_secret(&path, &unlock, &key) {
+                    Ok(()) => {}
                     Err(TosumuError::WrongKey) => {
                         let recovery = prompt_passphrase("recovery key: ")?;
-                        PageStore::add_recovery_key_protector_with_recovery_key(&path, &recovery)?
+                        match PageStore::add_recovery_key_protector_with_recovery_key_and_secret(&path, &recovery, &key) {
+                            Ok(()) => {}
+                            Err(TosumuError::WrongKey) => {
+                                let current_keyfile = prompt_keyfile_path("current keyfile path: ")?;
+                                PageStore::add_recovery_key_protector_with_keyfile_and_secret(&path, &current_keyfile, &key)?;
+                            }
+                            Err(e) => return Err(e),
+                        }
+                    }
+                    Err(e) => return Err(e),
+                }
+                println!("recovery protector added");
+            }
+            ProtectorAction::AddKeyfile { path, keyfile } => {
+                let unlock = prompt_passphrase("current passphrase: ")?;
+                let slot = match PageStore::add_keyfile_protector(&path, &unlock, &keyfile) {
+                    Ok(slot) => slot,
+                    Err(TosumuError::WrongKey) => {
+                        let recovery = prompt_passphrase("recovery key: ")?;
+                        match PageStore::add_keyfile_protector_with_recovery_key(&path, &recovery, &keyfile) {
+                            Ok(slot) => slot,
+                            Err(TosumuError::WrongKey) => {
+                                let current_keyfile = prompt_keyfile_path("current keyfile path: ")?;
+                                PageStore::add_keyfile_protector_with_keyfile(&path, &current_keyfile, &keyfile)?
+                            }
+                            Err(e) => return Err(e),
+                        }
                     }
                     Err(e) => return Err(e),
                 };
-                println!();
-                println!("=== RECOVERY KEY — save this somewhere safe ===");
-                println!();
-                println!("  {key}");
-                println!();
-                println!("This key will NOT be shown again.");
+                println!("protector added at slot {slot}");
             }
             ProtectorAction::Remove { path, slot } => {
                 let unlock = prompt_passphrase("passphrase: ")?;
@@ -289,7 +405,14 @@ fn run(cli: Cli) -> Result<(), TosumuError> {
                     Ok(()) => {}
                     Err(TosumuError::WrongKey) => {
                         let recovery = prompt_passphrase("recovery key: ")?;
-                        PageStore::remove_keyslot_with_recovery_key(&path, &recovery, slot)?;
+                        match PageStore::remove_keyslot_with_recovery_key(&path, &recovery, slot) {
+                            Ok(()) => {}
+                            Err(TosumuError::WrongKey) => {
+                                let keyfile = prompt_keyfile_path("keyfile path: ")?;
+                                PageStore::remove_keyslot_with_keyfile(&path, &keyfile, slot)?;
+                            }
+                            Err(e) => return Err(e),
+                        }
                     }
                     Err(e) => return Err(e),
                 }
@@ -298,7 +421,7 @@ fn run(cli: Cli) -> Result<(), TosumuError> {
             ProtectorAction::List { path } => {
                 use tosumu_core::format::{
                     KEYSLOT_KIND_EMPTY, KEYSLOT_KIND_SENTINEL,
-                    KEYSLOT_KIND_PASSPHRASE, KEYSLOT_KIND_RECOVERY_KEY,
+                    KEYSLOT_KIND_PASSPHRASE, KEYSLOT_KIND_RECOVERY_KEY, KEYSLOT_KIND_KEYFILE,
                 };
                 let slots = PageStore::list_keyslots(&path)?;
                 if slots.is_empty() {
@@ -311,6 +434,7 @@ fn run(cli: Cli) -> Result<(), TosumuError> {
                             KEYSLOT_KIND_SENTINEL     => "Sentinel (plaintext)",
                             KEYSLOT_KIND_PASSPHRASE   => "Passphrase",
                             KEYSLOT_KIND_RECOVERY_KEY => "RecoveryKey",
+                            KEYSLOT_KIND_KEYFILE      => "Keyfile",
                             _                         => "Unknown",
                         };
                         println!("{idx:>5}  {name}");
@@ -330,7 +454,14 @@ fn run(cli: Cli) -> Result<(), TosumuError> {
                 Ok(()) => {}
                 Err(TosumuError::WrongKey) => {
                     let recovery = prompt_passphrase("recovery key: ")?;
-                    PageStore::rekey_kek_with_recovery_key(&path, slot, &recovery, &new1)?;
+                    match PageStore::rekey_kek_with_recovery_key(&path, slot, &recovery, &new1) {
+                        Ok(()) => {}
+                        Err(TosumuError::WrongKey) => {
+                            let keyfile = prompt_keyfile_path("keyfile path: ")?;
+                            PageStore::rekey_kek_with_keyfile(&path, slot, &keyfile, &new1)?;
+                        }
+                        Err(e) => return Err(e),
+                    }
                 }
                 Err(e) => return Err(e),
             }
@@ -346,6 +477,7 @@ fn cmd_dump(path: &std::path::Path, page: Option<u64>) -> tosumu_core::error::Re
     use tosumu_core::format::{
         PAGE_TYPE_LEAF, PAGE_TYPE_INTERNAL, PAGE_TYPE_OVERFLOW, PAGE_TYPE_FREE,
         KEYSLOT_KIND_EMPTY, KEYSLOT_KIND_SENTINEL, KEYSLOT_KIND_PASSPHRASE,
+        KEYSLOT_KIND_RECOVERY_KEY, KEYSLOT_KIND_KEYFILE,
     };
     use tosumu_core::inspect::{inspect_page_from_pager, read_header_info, RecordInfo};
 
@@ -375,11 +507,15 @@ fn cmd_dump(path: &std::path::Path, page: Option<u64>) -> tosumu_core::error::Re
                 KEYSLOT_KIND_EMPTY      => "Empty",
                 KEYSLOT_KIND_SENTINEL   => "Sentinel",
                 KEYSLOT_KIND_PASSPHRASE => "Passphrase",
+                KEYSLOT_KIND_RECOVERY_KEY => "RecoveryKey",
+                KEYSLOT_KIND_KEYFILE    => "Keyfile",
                 _                       => "Unknown",
             };
             let kind_note = match h.ks0_kind {
                 KEYSLOT_KIND_SENTINEL   => "  (plaintext DEK — authentication only, no confidentiality)",
                 KEYSLOT_KIND_PASSPHRASE => "  (Argon2id KDF — authentication + confidentiality)",
+                KEYSLOT_KIND_RECOVERY_KEY => "  (Base32 recovery secret → HKDF-derived KEK)",
+                KEYSLOT_KIND_KEYFILE    => "  (raw 32-byte KEK loaded from a file)",
                 _ => "",
             };
             println!("kind:    {kind_name}{kind_note}");
@@ -699,4 +835,76 @@ fn print_hex_section(label: &str, data: &[u8], base_offset: usize) {
         println!("{offset:04x}: {:<47}  |{ascii}|", hex_col.join(" "));
     }
     println!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recovery_words_rechunk_into_eight_groups_of_four() {
+        let secret = "ABCDEFGH-IJKLMNOP-QRSTUVWX-YZ234567";
+        let words = recovery_words(secret);
+        assert_eq!(words, vec![
+            "ABCD", "EFGH", "IJKL", "MNOP", "QRST", "UVWX", "YZ23", "4567",
+        ]);
+    }
+
+    #[test]
+    fn recovery_display_uses_eight_groups_of_four() {
+        let secret = "ABCDEFGH-IJKLMNOP-QRSTUVWX-YZ234567";
+        assert_eq!(
+            format_recovery_key_for_display(secret),
+            "ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567"
+        );
+    }
+
+    #[test]
+    fn recovery_confirmation_accepts_correct_words() {
+        let secret = "ABCDEFGH-IJKLMNOP-QRSTUVWX-YZ234567";
+        confirm_recovery_words(secret, "ijkl", "yz23").unwrap();
+    }
+
+    #[test]
+    fn recovery_confirmation_rejects_wrong_words() {
+        let secret = "ABCDEFGH-IJKLMNOP-QRSTUVWX-YZ234567";
+        let err = confirm_recovery_words(secret, "WRONG", "YZ23").unwrap_err();
+        assert!(matches!(err, TosumuError::InvalidArgument("recovery key confirmation failed")));
+    }
+
+    #[test]
+    fn cli_parses_add_keyfile_subcommand() {
+        let cli = Cli::try_parse_from([
+            "tosumu",
+            "protector",
+            "add-keyfile",
+            "db.tsm",
+            "db.key",
+        ]).unwrap();
+
+        match cli.command {
+            Command::Protector { action: ProtectorAction::AddKeyfile { path, keyfile } } => {
+                assert_eq!(path, PathBuf::from("db.tsm"));
+                assert_eq!(keyfile, PathBuf::from("db.key"));
+            }
+            _ => panic!("unexpected command variant"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_add_recovery_key_subcommand() {
+        let cli = Cli::try_parse_from([
+            "tosumu",
+            "protector",
+            "add-recovery-key",
+            "db.tsm",
+        ]).unwrap();
+
+        match cli.command {
+            Command::Protector { action: ProtectorAction::AddRecoveryKey { path } } => {
+                assert_eq!(path, PathBuf::from("db.tsm"));
+            }
+            _ => panic!("unexpected command variant"),
+        }
+    }
 }

@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+    <TosumuCliPackageRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\'))</TosumuCliPackageRoot>
+    <TosumuCliPackagedExe>$(TosumuCliPackageRoot)contentFiles\any\any\tosumu.exe</TosumuCliPackagedExe>
+  </PropertyGroup>
+
+  <Target Name="CopyTosumuCliToOutput" BeforeTargets="CopyFilesToOutputDirectory" Condition="Exists('$(TosumuCliPackagedExe)')">
+    <Copy SourceFiles="$(TosumuCliPackagedExe)" DestinationFiles="$(OutDir)tosumu.exe" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

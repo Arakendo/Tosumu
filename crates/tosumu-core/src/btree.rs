@@ -132,6 +132,22 @@ impl BTree {
         Ok(BTree { pager })
     }
 
+    pub fn open_with_keyfile(path: &Path, keyfile_path: &Path) -> Result<Self> {
+        let pager = Pager::open_with_keyfile(path, keyfile_path)?;
+        if pager.root_page() == 0 {
+            return Err(TosumuError::Corrupt { pgno: 0, reason: "root_page is 0 — not a BTree file" });
+        }
+        Ok(BTree { pager })
+    }
+
+    pub fn open_with_keyfile_readonly(path: &Path, keyfile_path: &Path) -> Result<Self> {
+        let pager = Pager::open_with_keyfile_readonly(path, keyfile_path)?;
+        if pager.root_page() == 0 {
+            return Err(TosumuError::Corrupt { pgno: 0, reason: "root_page is 0 — not a BTree file" });
+        }
+        Ok(BTree { pager })
+    }
+
     // ── Key management (delegates to Pager) ──────────────────────────────────
 
     pub fn add_passphrase_protector(path: &Path, unlock_passphrase: &str, new_passphrase: &str) -> Result<u16> {
@@ -142,12 +158,44 @@ impl BTree {
         Pager::add_passphrase_protector_with_recovery_key(path, recovery_str, new_passphrase)
     }
 
+    pub fn add_passphrase_protector_with_keyfile(path: &Path, keyfile_path: &Path, new_passphrase: &str) -> Result<u16> {
+        Pager::add_passphrase_protector_with_keyfile(path, keyfile_path, new_passphrase)
+    }
+
     pub fn add_recovery_key_protector(path: &Path, unlock_passphrase: &str) -> Result<String> {
         Pager::add_recovery_key_protector(path, unlock_passphrase)
     }
 
     pub fn add_recovery_key_protector_with_recovery_key(path: &Path, recovery_str: &str) -> Result<String> {
         Pager::add_recovery_key_protector_with_recovery_key(path, recovery_str)
+    }
+
+    pub fn add_recovery_key_protector_with_keyfile(path: &Path, keyfile_path: &Path) -> Result<String> {
+        Pager::add_recovery_key_protector_with_keyfile(path, keyfile_path)
+    }
+
+    pub fn add_recovery_key_protector_with_secret(path: &Path, unlock_passphrase: &str, recovery_str: &str) -> Result<()> {
+        Pager::add_recovery_key_protector_with_secret(path, unlock_passphrase, recovery_str)
+    }
+
+    pub fn add_recovery_key_protector_with_recovery_key_and_secret(path: &Path, recovery_str: &str, new_recovery_str: &str) -> Result<()> {
+        Pager::add_recovery_key_protector_with_recovery_key_and_secret(path, recovery_str, new_recovery_str)
+    }
+
+    pub fn add_recovery_key_protector_with_keyfile_and_secret(path: &Path, keyfile_path: &Path, recovery_str: &str) -> Result<()> {
+        Pager::add_recovery_key_protector_with_keyfile_and_secret(path, keyfile_path, recovery_str)
+    }
+
+    pub fn add_keyfile_protector(path: &Path, unlock_passphrase: &str, keyfile_path: &Path) -> Result<u16> {
+        Pager::add_keyfile_protector(path, unlock_passphrase, keyfile_path)
+    }
+
+    pub fn add_keyfile_protector_with_recovery_key(path: &Path, recovery_str: &str, keyfile_path: &Path) -> Result<u16> {
+        Pager::add_keyfile_protector_with_recovery_key(path, recovery_str, keyfile_path)
+    }
+
+    pub fn add_keyfile_protector_with_keyfile(path: &Path, unlock_keyfile_path: &Path, keyfile_path: &Path) -> Result<u16> {
+        Pager::add_keyfile_protector_with_keyfile(path, unlock_keyfile_path, keyfile_path)
     }
 
     pub fn remove_keyslot(path: &Path, unlock_passphrase: &str, slot_idx: u16) -> Result<()> {
@@ -158,12 +206,20 @@ impl BTree {
         Pager::remove_keyslot_with_recovery_key(path, recovery_str, slot_idx)
     }
 
+    pub fn remove_keyslot_with_keyfile(path: &Path, keyfile_path: &Path, slot_idx: u16) -> Result<()> {
+        Pager::remove_keyslot_with_keyfile(path, keyfile_path, slot_idx)
+    }
+
     pub fn rekey_kek(path: &Path, slot_idx: u16, old_passphrase: &str, new_passphrase: &str) -> Result<()> {
         Pager::rekey_kek(path, slot_idx, old_passphrase, new_passphrase)
     }
 
     pub fn rekey_kek_with_recovery_key(path: &Path, slot_idx: u16, recovery_str: &str, new_passphrase: &str) -> Result<()> {
         Pager::rekey_kek_with_recovery_key(path, slot_idx, recovery_str, new_passphrase)
+    }
+
+    pub fn rekey_kek_with_keyfile(path: &Path, slot_idx: u16, keyfile_path: &Path, new_passphrase: &str) -> Result<()> {
+        Pager::rekey_kek_with_keyfile(path, slot_idx, keyfile_path, new_passphrase)
     }
 
     pub fn list_keyslots(path: &Path) -> Result<Vec<(u16, u8)>> {

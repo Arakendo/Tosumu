@@ -19,5 +19,7 @@ workspace = true
 
 [dependencies]
 clap = { version = "4.5.61", features = ["derive"] }
+crossterm = "0.28.1"
+ratatui = "0.29.0"
 rpassword = "7"
 tosumu-core = { path = "../tosumu-core" }
