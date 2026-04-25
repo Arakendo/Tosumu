@@ -5128,3 +5128,136 @@ So `DatabaseHealthSnapshot` is freshness anchor infrastructure wearing a heartbe
 ### 32.7 Design principle
 
 > Heartbeat = cheap facts. Verify = expensive proof. Audit = historical record. Witness = external memory. Each layer does exactly one job; none duplicates another.
+
+---
+
+## 33. Opportunistic repair (Stage 6+)
+
+### 33.1 The idea
+
+While touching a page for a read or write, the engine may notice repair opportunities. Rather than deferring all maintenance to a scheduled VACUUM or VALIDATE event, repairs accumulate through normal use. This is sometimes called **read-repair** or **heal-what-you-touch**.
+
+Tosumu's existing machinery makes this tractable: validation state is already tracked per column, page metadata already records tombstone count, WAL already makes writes atomic, and the audit chain already records the provenance of changes. Repair is just another kind of write — bounded, transactional, and auditable.
+
+### 33.2 What is a good repair candidate
+
+Candidates are situations where the engine already has enough information to fix something safely and the fix is reversible via WAL:
+
+| Finding | Trigger | Safe? |
+|---|---|---|
+| Page has tombstones above threshold | Write touches page | Yes — compact during mutation |
+| Column validation advanced | Read/write confirms a value parses correctly | Yes — promote `ValidationStatus` |
+| Stale validation receipt | Schema epoch advanced since last check | Yes — mark Dirty, re-validate |
+| Missing secondary index entry | Row read detects index gap (Stage 10+) | Yes — re-insert under transaction |
+| Freelist has reclaimable space | Write-path page allocation notices adjacent free pages | Yes — coalesce opportunistically |
+
+**Bad candidates — never auto-repair silently:**
+
+| Situation | Reason |
+|---|---|
+| AEAD tag verification failure | Crypto failure is evidence, not noise. Surface it. |
+| Header MAC mismatch | Could indicate tampering. Must not be hidden. |
+| Unknown page type | Cannot repair what is not understood. |
+| LSN regression | That is an attack signal (§32.3), not a maintenance task. |
+
+The rule: if the finding could be evidence of tampering or corruption, it becomes a `RepairFinding` that surfaces to the caller. It is never silently fixed.
+
+### 33.3 Repair mode configuration
+
+```rust
+pub enum RepairMode {
+    Off,                      // no opportunistic repair, no findings recorded
+    ReportOnly,               // detect and surface findings, do not apply
+    OnWrite,                  // apply safe repairs inside open write transactions only
+    OpportunisticReadRepair,  // apply safe repairs on reads too (explicit opt-in)
+    Background,               // apply repairs from a background worker (Stage 8+)
+}
+```
+
+**Default: `ReportOnly`.**
+
+`OnWrite` is the recommended production setting. It keeps repairs bounded by existing transaction boundaries — no surprises, no silent rewrites during a `SELECT`.
+
+`OpportunisticReadRepair` is an explicit opt-in. It is useful for maintenance passes (`tosumu repair <path>`) but should not be the default: nobody wants a read secretly rewriting half the file.
+
+`Background` defers repairs to a low-priority worker thread, rate-limited so it does not compete with foreground I/O.
+
+### 33.4 The `RepairFinding` type
+
+```rust
+pub enum RepairFinding {
+    PageHasTombstones {
+        pgno:           u64,
+        tombstone_count: u32,
+    },
+    ColumnValidationAdvanced {
+        table_id:       u64,
+        column_id:      u64,
+        rows_confirmed: u64,
+        new_status:     ValidationStatus,
+    },
+    StaleValidationReceipt {
+        table_id:       u64,
+        column_id:      u64,
+        stored_epoch:   u64,
+        current_epoch:  u64,
+    },
+    MissingIndexEntry {
+        index_id:       u64,
+        row_key:        Vec<u8>,
+    },
+    CryptoFailure {
+        pgno:           u64,
+        kind:           CryptoFailureKind,   // AeadTag | HeaderMac | ChecksumMismatch
+    },
+    LsnRegression {
+        stored_lsn:     u64,
+        expected_min:   u64,
+    },
+}
+```
+
+`CryptoFailure` and `LsnRegression` findings are always surfaced regardless of `RepairMode`. They are never acted on silently.
+
+### 33.5 Repair constraints
+
+Every repair that modifies data must satisfy all five properties:
+
+**Bounded** — a repair touches only the page or column segment it found the problem in. It does not cascade to unrelated pages.
+
+**Auditable** — the repair is recorded in `_tosumu_audit` as a system-origin entry: `operation = SystemRepair`, `change_id` assigned, `before_hash` and `after_hash` populated. A human reviewing the audit log can see what was changed, why, and when.
+
+**Idempotent** — running the same repair twice produces the same result as running it once. Re-compacting an already-compact page is a no-op.
+
+**Transactional** — repairs are committed via the normal write path. WAL records the before and after state. A crash mid-repair leaves the page unchanged.
+
+**Explainable** — the repair kind is identified in the audit entry. There is no "miscellaneous fix" category.
+
+If a candidate repair cannot satisfy all five, it is demoted to `RepairFinding` only and must be applied explicitly by the caller or by `tosumu repair`.
+
+### 33.6 Interaction with column validation
+
+Opportunistic repair and column validation receipts (§31.4) compose naturally:
+
+1. A write to column `age` with logical type `Int64` parses the new value inline — the parse succeeds.
+2. The engine records this confirmation against the column's dirty-page bitmap.
+3. Once all pages in the column have been touched and confirmed, the engine promotes `ValidationStatus` from `Dirty` → `Complete` and advances `validation_epoch`.
+4. This promotion is itself a repair, recorded in the audit log, subject to the five constraints above.
+
+The result: a column left `Dirty` after a bulk load gradually heals to `Complete` through normal read/write traffic without a dedicated re-validation scan.
+
+### 33.7 `tosumu repair` CLI command
+
+```
+tosumu repair <path> [--dry-run] [--mode <on-write|read-repair>] [--findings-only]
+```
+
+`--dry-run` runs with `ReportOnly` mode, emits all findings as JSON, exits non-zero if any `CryptoFailure` or `LsnRegression` findings are present.
+
+`--findings-only` is equivalent to `--dry-run` but exits zero if only safe repair findings are present (no crypto or integrity issues).
+
+Normal invocation opens the database with `OpportunisticReadRepair`, performs a full scan of all pages, then closes. Repairs are committed incrementally in bounded transactions. Progress is emitted to stdout in JSON if `--json` is set.
+
+### 33.8 Design principle
+
+> Maintenance should accumulate through normal use. Every repair is bounded, auditable, idempotent, transactional, and explainable. If it cannot satisfy all five, it is a finding — not a fix.
