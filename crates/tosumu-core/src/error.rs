@@ -62,6 +62,19 @@ pub enum TosumuError {
     /// we even attempted to decrypt any data pages."
     #[error("wrong passphrase or key — could not unlock any keyslot")]
     WrongKey,
+
+    /// The transaction was successfully committed to the WAL (data is safe and
+    /// will be replayed on next open), but writing the dirty pages back to the
+    /// main `.tsm` file failed.
+    ///
+    /// **The handle is now unusable.**  The caller must close and reopen the
+    /// database; WAL recovery will apply the committed transaction automatically.
+    /// Do *not* treat this as a rollback — the transaction IS committed.
+    #[error("transaction committed to WAL but flush to .tsm failed: {source}")]
+    CommittedButFlushFailed {
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, TosumuError>;

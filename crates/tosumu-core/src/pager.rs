@@ -52,7 +52,7 @@ pub struct Pager {
     root_page: u64,
     // ── WAL / transaction state ───────────────────────────────────────────
     /// WAL writer, open for the lifetime of this Pager.
-    wal: Option<WalWriter>,
+    wal: WalWriter,
     /// Whether a transaction is currently active.
     txn_active: bool,
     /// txn_id of the current open transaction.
@@ -62,6 +62,14 @@ pub struct Pager {
     /// Dirty page frames buffered during the current transaction.
     /// Entries are (pgno, encrypted_frame). Latest write wins for the same pgno.
     dirty_pages: Vec<(u64, Box<[u8; PAGE_SIZE]>)>,
+    /// Set when `flush_header()` is deferred during a transaction.
+    /// Cleared (and the real write performed) at commit or rollback.
+    pending_header_flush: bool,
+    /// Snapshot of page_count / root_page / freelist_head taken at begin_txn.
+    /// Used to restore in-memory state on rollback.
+    txn_saved_page_count: u64,
+    txn_saved_root_page: u64,
+    txn_saved_freelist_head: u64,
 }
 
 impl Pager {
@@ -97,8 +105,9 @@ impl Pager {
         file.write_all(&page0)?;
         file.sync_data()?;
 
-        // Open/create WAL sidecar.
-        let wal = WalWriter::open_or_create(&wal_path(path)).ok();
+        // Open/create WAL sidecar.  Failure is fatal: we must not advertise
+        // transaction semantics while WAL is unavailable.
+        let wal = WalWriter::open_or_create(&wal_path(path))?;
 
         Ok(Pager {
             file,
@@ -112,6 +121,10 @@ impl Pager {
             txn_id: 0,
             next_txn_id: 1,
             dirty_pages: Vec::new(),
+            pending_header_flush: false,
+            txn_saved_page_count: 0,
+            txn_saved_root_page: 0,
+            txn_saved_freelist_head: 0,
         })
     }
 
@@ -216,8 +229,8 @@ impl Pager {
         file.write_all(&page0)?;
         file.sync_data()?;
 
-        // Open/create WAL sidecar.
-        let wal = WalWriter::open_or_create(&wal_path(path)).ok();
+        // Open/create WAL sidecar.  Failure is fatal.
+        let wal = WalWriter::open_or_create(&wal_path(path))?;
 
         Ok(Pager {
             file,
@@ -231,6 +244,10 @@ impl Pager {
             txn_id: 0,
             next_txn_id: 1,
             dirty_pages: Vec::new(),
+            pending_header_flush: false,
+            txn_saved_page_count: 0,
+            txn_saved_root_page: 0,
+            txn_saved_freelist_head: 0,
         })
     }
 
@@ -541,13 +558,11 @@ impl Pager {
         if self.txn_active {
             // WAL path: buffer the frame, append PageWrite.
             let txn_id = self.txn_id;
-            if let Some(ref mut wal) = self.wal {
-                wal.append(&WalRecord::PageWrite {
+            self.wal.append(&WalRecord::PageWrite {
                     pgno,
                     page_version: version + 1,
                     frame: Box::new(new_frame),
                 })?;
-            }
             // Update dirty buffer (replace existing entry for same pgno).
             if let Some(pos) = self.dirty_pages.iter().position(|(p, _)| *p == pgno) {
                 self.dirty_pages[pos].1 = Box::new(new_frame);
@@ -564,10 +579,13 @@ impl Pager {
 
     /// Allocate and initialise a new page. Returns its page number.
     ///
-    /// The page frame is written to disk *before* `page_count` is incremented
-    /// and the header is flushed. A crash after the frame write but before the
-    /// header flush leaves `page_count` unchanged, so the new page is simply
-    /// unreachable on recovery — no partial state is visible.
+    /// Outside a transaction: the frame is written to disk *before* incrementing
+    /// `page_count` and flushing the header, so a crash leaves an unreachable
+    /// trailing page rather than a stale `page_count`.
+    ///
+    /// Inside a transaction: the frame is buffered in the dirty-page list and the
+    /// header flush is deferred until `commit_txn`. Rollback restores `page_count`
+    /// and discards the buffered frame — no orphaned pages are written to .tsm.
     ///
     /// For MVP+1 the freelist is not yet checked; pages grow monotonically.
     pub fn allocate(&mut self, page_type: u8) -> Result<u64> {
@@ -580,7 +598,8 @@ impl Pager {
         Ok(pgno)
     }
 
-    /// Initialize a newly allocated page and write it to disk.
+    /// Initialize a newly allocated page and write it to disk (or buffer in WAL
+    /// if a transaction is active).
     ///
     /// `pgno` must be > 0 and <= `page_count` (i.e. the next page to be
     /// allocated, or an existing page being re-initialised).
@@ -597,7 +616,22 @@ impl Pager {
         write_u16_buf(&mut plaintext, PAGE_OFF_FREE_END, PAGE_PLAINTEXT_SIZE as u16);
         // fragmented_bytes=0, reserved=0, next_leaf=0 — already zero
         let frame = encrypt_page(&self.page_key, pgno, 1, page_type, &plaintext)?;
-        self.write_frame(pgno, &frame)?;
+        if self.txn_active {
+            // Buffer through WAL so rollback discards the page and recovery can replay it.
+            self.wal.append(&WalRecord::PageWrite {
+                pgno,
+                page_version: 1,
+                frame: Box::new(frame),
+            })?;
+            // Insert or replace in dirty buffer.
+            if let Some(pos) = self.dirty_pages.iter().position(|(p, _)| *p == pgno) {
+                self.dirty_pages[pos].1 = Box::new(frame);
+            } else {
+                self.dirty_pages.push((pgno, Box::new(frame)));
+            }
+        } else {
+            self.write_frame(pgno, &frame)?;
+        }
         Ok(())
     }
 
@@ -613,31 +647,82 @@ impl Pager {
         self.txn_id = self.next_txn_id;
         self.next_txn_id += 1;
         self.txn_active = true;
-        if let Some(ref mut wal) = self.wal {
-            wal.append(&WalRecord::Begin { txn_id: self.txn_id })?;
-        }
+        // Snapshot header fields so rollback can restore them.
+        self.txn_saved_page_count = self.page_count;
+        self.txn_saved_root_page = self.root_page;
+        self.txn_saved_freelist_head = self.freelist_head;
+        self.wal.append(&WalRecord::Begin { txn_id: self.txn_id })?;
         Ok(())
     }
 
     /// Commit the current transaction: write Commit record, fsync WAL, flush dirty pages to .tsm.
+    ///
+    /// Two-phase semantics:
+    /// - **Phase 1** (WAL write + fsync): if this fails the transaction is un-committed;
+    ///   roll back as normal.
+    /// - **Phase 2** (.tsm flush): by this point the transaction is durable in the WAL.
+    ///   A failure here returns [`TosumuError::CommittedButFlushFailed`].  The handle is
+    ///   marked idle so subsequent calls do not panic, but the caller must reopen — WAL
+    ///   recovery will replay the committed transaction automatically.
     pub fn commit_txn(&mut self) -> Result<()> {
         assert!(self.txn_active, "commit_txn called with no active transaction");
-        if let Some(ref mut wal) = self.wal {
-            wal.append(&WalRecord::Commit { txn_id: self.txn_id })?;
-            wal.sync()?;
+
+        // Phase 1: make the transaction durable in the WAL.
+        // If flush_header was deferred, include a PageWrite for page 0 so recovery
+        // can restore page_count/root_page even if the .tsm flush below is interrupted.
+        if self.pending_header_flush {
+            let page0 = self.build_updated_page0()?;
+            self.wal.append(&WalRecord::PageWrite {
+                pgno: 0,
+                page_version: 0,
+                frame: Box::new(page0),
+            })?;
         }
-        // Flush dirty pages to .tsm.
-        let pages: Vec<(u64, Box<[u8; PAGE_SIZE]>)> = self.dirty_pages.drain(..).collect();
-        for (pgno, frame) in pages {
-            self.write_frame(pgno, &frame)?;
-        }
+        self.wal.append(&WalRecord::Commit { txn_id: self.txn_id })?;
+        self.wal.sync()?;
+
+        // Transaction is now committed.  Clear txn_active *before* the .tsm flush so
+        // the handle is never left stuck in txn_active=true even if the flush fails.
         self.txn_active = false;
+        let had_header_flush = self.pending_header_flush;
+        self.pending_header_flush = false;
+        let pages: Vec<(u64, Box<[u8; PAGE_SIZE]>)> = self.dirty_pages.drain(..).collect();
+
+        // Phase 2: write pages to .tsm (WAL recovery covers crashes, so this is
+        // opportunistic).  A failure here means the data is safe in the WAL but
+        // the handle's caches no longer reflect .tsm — caller must reopen.
+        for (pgno, frame) in pages {
+            if let Err(e) = self.write_frame(pgno, &frame) {
+                // Extract the underlying io::Error (write_frame only returns Io variants).
+                let io_err = match e {
+                    TosumuError::Io(io) => io,
+                    other => return Err(other),
+                };
+                return Err(TosumuError::CommittedButFlushFailed { source: io_err });
+            }
+        }
+        // Flush the updated header (page 0) to .tsm after all data pages are written.
+        // txn_active is already false so flush_header() will perform the actual write.
+        if had_header_flush {
+            if let Err(e) = self.flush_header() {
+                let io_err = match e {
+                    TosumuError::Io(io) => io,
+                    other => return Err(other),
+                };
+                return Err(TosumuError::CommittedButFlushFailed { source: io_err });
+            }
+        }
         Ok(())
     }
 
-    /// Roll back the current transaction: discard dirty pages (no commit in WAL).
+    /// Roll back the current transaction: discard dirty pages and restore
+    /// header fields (page_count, root_page) to the values at begin_txn.
     pub fn rollback_txn(&mut self) {
         self.dirty_pages.clear();
+        self.pending_header_flush = false;
+        self.page_count = self.txn_saved_page_count;
+        self.root_page = self.txn_saved_root_page;
+        self.freelist_head = self.txn_saved_freelist_head;
         self.txn_active = false;
     }
 
@@ -656,27 +741,35 @@ impl Pager {
 
     /// Write updated page_count, freelist_head and root_page back to page 0.
     ///
-    /// For passphrase-protected databases the header MAC is recomputed over the
-    /// updated page 0 so it remains valid after every header mutation.
+    /// Inside a transaction, the write is deferred: `pending_header_flush` is
+    /// set to `true` and the actual write is performed at `commit_txn` time
+    /// (included in the WAL and then flushed to .tsm with the other dirty pages).
+    /// On rollback the saved snapshot values are restored instead.
     pub fn flush_header(&mut self) -> Result<()> {
-        // Read current page 0, update the mutable fields, recompute MAC if needed.
-        let mut page0 = [0u8; PAGE_SIZE];
-        self.file.seek(SeekFrom::Start(0))?;
-        self.file.read_exact(&mut page0)?;
-
-        write_u64(&mut page0, OFF_PAGE_COUNT, self.page_count);
-        write_u64(&mut page0, OFF_FREELIST_HEAD, self.freelist_head);
-        write_u64(&mut page0, OFF_ROOT_PAGE, self.root_page);
-
-        if let Some(ref hmk) = self.header_mac_key {
-            let mac = compute_header_mac(hmk, &page0, MAX_KEYSLOTS);
-            page0[OFF_HEADER_MAC..OFF_HEADER_MAC + 32].copy_from_slice(&mac);
+        if self.txn_active {
+            self.pending_header_flush = true;
+            return Ok(());
         }
-
+        let page0 = self.build_updated_page0()?;
         self.file.seek(SeekFrom::Start(0))?;
         self.file.write_all(&page0)?;
         self.file.sync_data()?;
         Ok(())
+    }
+
+    /// Build the updated page-0 bytes (header fields + MAC) without writing to disk.
+    fn build_updated_page0(&mut self) -> Result<[u8; PAGE_SIZE]> {
+        let mut page0 = [0u8; PAGE_SIZE];
+        self.file.seek(SeekFrom::Start(0))?;
+        self.file.read_exact(&mut page0)?;
+        write_u64(&mut page0, OFF_PAGE_COUNT, self.page_count);
+        write_u64(&mut page0, OFF_FREELIST_HEAD, self.freelist_head);
+        write_u64(&mut page0, OFF_ROOT_PAGE, self.root_page);
+        if let Some(ref hmk) = self.header_mac_key {
+            let mac = compute_header_mac(hmk, &page0, MAX_KEYSLOTS);
+            page0[OFF_HEADER_MAC..OFF_HEADER_MAC + 32].copy_from_slice(&mac);
+        }
+        Ok(page0)
     }
 
     // ── private ──────────────────────────────────────────────────────────────
@@ -952,18 +1045,20 @@ fn finish_open(
         let page_count = read_u64(&refreshed, OFF_PAGE_COUNT);
         let freelist_head = read_u64(&refreshed, OFF_FREELIST_HEAD);
         let root_page = read_u64(&refreshed, OFF_ROOT_PAGE);
-        let wal = WalWriter::open_or_create(&wp).ok();
+        let wal = WalWriter::open_or_create(&wp)?;
         return Ok(Pager {
             file, page_key, header_mac_key,
             page_count, freelist_head, root_page,
             wal, txn_active: false, txn_id: 0, next_txn_id: 1, dirty_pages: Vec::new(),
+            pending_header_flush: false, txn_saved_page_count: 0, txn_saved_root_page: 0, txn_saved_freelist_head: 0,
         });
     }
-    let wal = WalWriter::open_or_create(&wp).ok();
+    let wal = WalWriter::open_or_create(&wp)?;
     Ok(Pager {
         file, page_key, header_mac_key,
         page_count, freelist_head, root_page,
         wal, txn_active: false, txn_id: 0, next_txn_id: 1, dirty_pages: Vec::new(),
+        pending_header_flush: false, txn_saved_page_count: 0, txn_saved_root_page: 0, txn_saved_freelist_head: 0,
     })
 }
 
