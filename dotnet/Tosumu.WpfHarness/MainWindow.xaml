@@ -52,8 +52,10 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -61,7 +63,7 @@
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0"
-                           Grid.ColumnSpan="4"
+                           Grid.ColumnSpan="5"
                            Margin="0,0,0,10"
                            FontSize="13"
                            Foreground="{StaticResource MutedTextBrush}"
@@ -102,8 +104,16 @@
                         Click="VerifyButton_OnClick"
                         Content="Verify" />
 
+                <Button x:Name="InspectProtectorsButton"
+                    Grid.Row="1"
+                    Grid.Column="4"
+                    Margin="12,0,0,0"
+                    Padding="16,10"
+                    Click="InspectProtectorsButton_OnClick"
+                    Content="Protectors" />
+
                 <Grid Grid.Row="2"
-                      Grid.ColumnSpan="4"
+                      Grid.ColumnSpan="5"
                       Margin="0,14,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
@@ -169,7 +179,7 @@
                 </Grid>
 
                 <Grid Grid.Row="3"
-                      Grid.ColumnSpan="4"
+                        Grid.ColumnSpan="5"
                       Margin="0,14,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
@@ -207,6 +217,29 @@
                                TextWrapping="Wrap"
                                Foreground="{StaticResource MutedTextBrush}"
                                Text="Use the same unlock mode as verify when inspecting encrypted pages." />
+                </Grid>
+
+                <Grid Grid.Row="4"
+                        Grid.ColumnSpan="5"
+                      Margin="0,14,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0"
+                               Margin="0,0,12,0"
+                               VerticalAlignment="Center"
+                               FontSize="13"
+                               Foreground="{StaticResource MutedTextBrush}"
+                               Text="Recent databases" />
+
+                    <ComboBox x:Name="RecentDatabasesComboBox"
+                              Grid.Column="1"
+                              MinWidth="480"
+                              Padding="8,6"
+                              ItemsSource="{Binding RecentDatabasePaths}"
+                              SelectionChanged="RecentDatabasesComboBox_OnSelectionChanged" />
                 </Grid>
             </Grid>
         </Border>
@@ -297,6 +330,23 @@
                                TextWrapping="Wrap"
                                FontSize="15"
                                Text="{Binding VerifySummaryText}" />
+                    <TextBlock Margin="0,18,0,0"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               Text="Protectors" />
+                    <ListView ItemsSource="{Binding ProtectorSlots}"
+                              Margin="0,10,0,0"
+                              BorderThickness="0"
+                              Background="Transparent"
+                              Height="180">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Width="80" Header="Slot" DisplayMemberBinding="{Binding Slot}" />
+                                <GridViewColumn Width="180" Header="Kind" DisplayMemberBinding="{Binding Kind}" />
+                                <GridViewColumn Width="100" Header="Kind Byte" DisplayMemberBinding="{Binding KindByte}" />
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
                 </StackPanel>
             </Border>
 

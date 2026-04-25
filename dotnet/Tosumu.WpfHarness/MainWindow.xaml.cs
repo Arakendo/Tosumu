@@ -1,5 +1,6 @@
 ﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -10,17 +11,25 @@ namespace Tosumu.WpfHarness;
 
 public partial class MainWindow : Window, INotifyPropertyChanged
 {
+    private const int MaxRecentDatabaseCount = 8;
+
     private string databasePath = string.Empty;
     private string executableStateText = "Packaged CLI will be resolved on first command.";
     private string pageNumberText = "1";
     private string pageSummaryText = "No page loaded yet.";
     private string statusText = "Choose a .tsm file, then inspect the header or run verification.";
     private string verifySummaryText = "No verification run yet.";
+    private readonly string sessionStatePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Tosumu",
+        "WpfHarness",
+        "session.json");
     private TosumuCliTool? cli;
 
     public MainWindow()
     {
         InitializeComponent();
+        Closing += MainWindow_OnClosing;
         DataContext = this;
         UnlockModeComboBox.SelectedIndex = 0;
         UpdateUnlockInputs();
@@ -28,6 +37,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         VerifyIssues.Add(new VerifyIssueRow("-", "No verification run yet."));
         PageResults.Add(new PageVerifyRow("-", "-", "-", "No verification run yet."));
         PageRecords.Add(new PageRecordRow("-", "-", "-", "No page loaded yet.", "-", "-", "-"));
+        ProtectorSlots.Add(new ProtectorSlotRow("-", "No protector data loaded yet.", "-"));
+        LoadSessionState();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -39,6 +50,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public ObservableCollection<PageVerifyRow> PageResults { get; } = [];
 
     public ObservableCollection<PageRecordRow> PageRecords { get; } = [];
+
+    public ObservableCollection<ProtectorSlotRow> ProtectorSlots { get; } = [];
+
+    public ObservableCollection<string> RecentDatabasePaths { get; } = [];
 
     public string DatabasePath
     {
@@ -86,6 +101,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         await RunBusyActionAsync(async () =>
         {
             StatusText = "Loading header...";
+            AddRecentDatabasePath(path);
             var header = await GetCli().GetHeaderAsync(path);
 
             HeaderRows.Clear();
@@ -122,6 +138,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         await RunUnlockableInspectActionAsync(unlockSelection, async unlock =>
         {
             StatusText = "Running verification...";
+            AddRecentDatabasePath(path);
             var verify = await GetCli().GetVerifyAsync(path, unlock);
 
             VerifySummaryText =
@@ -174,6 +191,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         await RunUnlockableInspectActionAsync(unlockSelection, async unlock =>
         {
             StatusText = $"Inspecting page {pageNumber}...";
+            AddRecentDatabasePath(path);
             var page = await GetCli().GetPageAsync(path, pageNumber, unlock);
 
             PageSummaryText =
@@ -207,6 +225,36 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         });
     }
 
+    private async void InspectProtectorsButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetValidDatabasePath(out var path))
+        {
+            return;
+        }
+
+        await RunBusyActionAsync(async () =>
+        {
+            StatusText = "Loading protectors...";
+            AddRecentDatabasePath(path);
+            var protectors = await GetCli().GetProtectorsAsync(path);
+
+            ProtectorSlots.Clear();
+            if (protectors.Slots.Count == 0)
+            {
+                ProtectorSlots.Add(new ProtectorSlotRow("-", "No protectors reported.", "-"));
+            }
+            else
+            {
+                foreach (var slot in protectors.Slots)
+                {
+                    ProtectorSlots.Add(new ProtectorSlotRow(slot.Slot.ToString(), slot.Kind, slot.KindByte.ToString()));
+                }
+            }
+
+            StatusText = $"Loaded protectors for {System.IO.Path.GetFileName(path)}.";
+        });
+    }
+
     private void BrowseButton_OnClick(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog
@@ -220,8 +268,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (dialog.ShowDialog(this) == true)
         {
             DatabasePath = dialog.FileName;
+            AddRecentDatabasePath(dialog.FileName);
             StatusText = $"Selected {System.IO.Path.GetFileName(dialog.FileName)}.";
         }
+    }
+
+    private void RecentDatabasesComboBox_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (RecentDatabasesComboBox.SelectedItem is not string path || string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        DatabasePath = path;
+        StatusText = $"Selected recent database {System.IO.Path.GetFileName(path)}.";
     }
 
     private async Task RunUnlockableInspectActionAsync(
@@ -282,6 +342,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
+    private void MainWindow_OnClosing(object? sender, CancelEventArgs e)
+    {
+        SaveSessionState();
+    }
+
     private void UnlockModeComboBox_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         UpdateUnlockInputs();
@@ -311,6 +376,83 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
 
         return true;
+    }
+
+    private void LoadSessionState()
+    {
+        var sessionState = HarnessSessionState.Load(sessionStatePath);
+
+        RecentDatabasePaths.Clear();
+        foreach (var path in sessionState.RecentDatabasePaths.Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            RecentDatabasePaths.Add(path);
+        }
+
+        if (!string.IsNullOrWhiteSpace(sessionState.LastDatabasePath))
+        {
+            DatabasePath = sessionState.LastDatabasePath;
+            AddRecentDatabasePath(sessionState.LastDatabasePath);
+            StatusText = $"Restored last database {System.IO.Path.GetFileName(sessionState.LastDatabasePath)}.";
+        }
+
+        if (!string.IsNullOrWhiteSpace(sessionState.LastPageNumber))
+        {
+            PageNumberText = sessionState.LastPageNumber;
+        }
+
+        if (!string.IsNullOrWhiteSpace(sessionState.UnlockMode))
+        {
+            SelectUnlockMode(sessionState.UnlockMode);
+        }
+
+        if (!string.IsNullOrWhiteSpace(sessionState.KeyfilePath))
+        {
+            KeyfilePathTextBox.Text = sessionState.KeyfilePath;
+        }
+    }
+
+    private void SaveSessionState()
+    {
+        var sessionState = new HarnessSessionState
+        {
+            LastDatabasePath = string.IsNullOrWhiteSpace(DatabasePath) ? null : DatabasePath.Trim(),
+            LastPageNumber = string.IsNullOrWhiteSpace(PageNumberText) ? null : PageNumberText.Trim(),
+            UnlockMode = GetSelectedUnlockMode(),
+            KeyfilePath = string.IsNullOrWhiteSpace(KeyfilePathTextBox.Text) ? null : KeyfilePathTextBox.Text.Trim(),
+            RecentDatabasePaths = RecentDatabasePaths.ToList(),
+        };
+
+        HarnessSessionState.Save(sessionStatePath, sessionState);
+    }
+
+    private void AddRecentDatabasePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        var normalizedPath = path.Trim();
+        var existingIndex = RecentDatabasePaths
+            .Select((item, index) => new { item, index })
+            .FirstOrDefault(entry => string.Equals(entry.item, normalizedPath, StringComparison.OrdinalIgnoreCase))
+            ?.index;
+
+        if (existingIndex is int index)
+        {
+            RecentDatabasePaths.RemoveAt(index);
+        }
+
+        RecentDatabasePaths.Insert(0, normalizedPath);
+        while (RecentDatabasePaths.Count > MaxRecentDatabaseCount)
+        {
+            RecentDatabasePaths.RemoveAt(RecentDatabasePaths.Count - 1);
+        }
+
+        if (RecentDatabasesComboBox is not null)
+        {
+            RecentDatabasesComboBox.SelectedItem = normalizedPath;
+        }
     }
 
     private bool TryGetPageNumber(out ulong pageNumber)
@@ -347,6 +489,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         BrowseButton.IsEnabled = !isBusy;
         BrowseKeyfileButton.IsEnabled = !isBusy;
+        InspectProtectorsButton.IsEnabled = !isBusy;
         InspectPageButton.IsEnabled = !isBusy;
         LoadHeaderButton.IsEnabled = !isBusy;
         VerifyButton.IsEnabled = !isBusy;
@@ -536,3 +679,5 @@ public sealed record VerifyIssueRow(string Pgno, string Description);
 public sealed record PageVerifyRow(string Pgno, string AuthOkLabel, string PageVersionLabel, string Issue);
 
 public sealed record PageRecordRow(string Kind, string Slot, string RecordType, string KeyPreview, string KeyHex, string ValuePreview, string ValueHex);
+
+public sealed record ProtectorSlotRow(string Slot, string Kind, string KindByte);

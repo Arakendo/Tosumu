@@ -180,6 +180,25 @@ public sealed class TosumuCliTool
         return envelope.Payload;
     }
 
+    public async Task<TosumuInspectProtectorsPayload> GetProtectorsAsync(string path, CancellationToken cancellationToken = default)
+    {
+        var result = await RunAsync(new[] { "inspect", "protectors", "--json", path }, cancellationToken).ConfigureAwait(false);
+        var envelope = DeserializeEnvelope<TosumuInspectProtectorsPayload>(result, "inspect.protectors");
+
+        if (result.ExitCode != 0)
+        {
+            throw CreateInspectCommandException("inspect.protectors", result, envelope.Error);
+        }
+
+        if (envelope.Payload is null)
+        {
+            throw new InvalidOperationException(
+                $"tosumu inspect protectors returned no payload. stderr:{Environment.NewLine}{result.StandardError}");
+        }
+
+        return envelope.Payload;
+    }
+
     public Task<TosumuCommandResult> RunAsync(params string[] arguments) =>
         RunAsync((IEnumerable<string>)arguments, CancellationToken.None);
 
@@ -374,6 +393,15 @@ public sealed record TosumuInspectPagePayload(
     [property: JsonPropertyName("free_start")] ushort FreeStart,
     [property: JsonPropertyName("free_end")] ushort FreeEnd,
     [property: JsonPropertyName("records")] IReadOnlyList<TosumuInspectRecordPayload> Records);
+
+public sealed record TosumuInspectProtectorsPayload(
+    [property: JsonPropertyName("slot_count")] int SlotCount,
+    [property: JsonPropertyName("slots")] IReadOnlyList<TosumuInspectProtectorSlotPayload> Slots);
+
+public sealed record TosumuInspectProtectorSlotPayload(
+    [property: JsonPropertyName("slot")] ushort Slot,
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("kind_byte")] byte KindByte);
 
 public sealed record TosumuInspectRecordPayload(
     [property: JsonPropertyName("kind")] string Kind,

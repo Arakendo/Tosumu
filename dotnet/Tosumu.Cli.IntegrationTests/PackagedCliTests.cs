@@ -98,6 +98,19 @@ public sealed class PackagedCliTests : IDisposable
     }
 
     [Fact]
+    public async Task PackagedCli_can_read_structured_protectors_through_wrapper()
+    {
+        var dbPath = Path.Combine(rootDirectory, "protectors-json.tsm");
+
+        (await cli.RunAsync("init", dbPath)).EnsureSuccess();
+
+        var protectors = await cli.GetProtectorsAsync(dbPath);
+
+        Assert.Equal(0, protectors.SlotCount);
+        Assert.Empty(protectors.Slots);
+    }
+
+    [Fact]
     public async Task PackagedCli_can_hammer_many_put_get_cycles()
     {
         var dbPath = Path.Combine(rootDirectory, "hammer.tsm");

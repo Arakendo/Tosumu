@@ -58,6 +58,9 @@ impl Cli {
             Command::Inspect {
                 action: InspectAction::Page { json: true, .. },
             } => Some("inspect.page"),
+            Command::Inspect {
+                action: InspectAction::Protectors { json: true, .. },
+            } => Some("inspect.protectors"),
             _ => None,
         }
     }
@@ -177,6 +180,13 @@ enum InspectAction {
         #[command(flatten)]
         unlock: InspectUnlockArgs,
     },
+    /// Inspect configured protectors / keyslots.
+    Protectors {
+        path: PathBuf,
+        /// Emit a structured JSON envelope.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Serialize)]
@@ -229,6 +239,12 @@ struct InspectPagePayload {
 }
 
 #[derive(Serialize)]
+struct InspectProtectorsPayload {
+    slot_count: usize,
+    slots: Vec<InspectProtectorSlotPayload>,
+}
+
+#[derive(Serialize)]
 struct InspectRecordPayload {
     kind: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -253,6 +269,13 @@ struct InspectPageVerifyPayload {
     page_version: Option<u64>,
     auth_ok: bool,
     issue: Option<String>,
+}
+
+#[derive(Serialize)]
+struct InspectProtectorSlotPayload {
+    slot: u16,
+    kind: &'static str,
+    kind_byte: u8,
 }
 
 #[derive(Serialize)]
@@ -757,6 +780,24 @@ fn cmd_inspect_page_json(path: &Path, pgno: u64, unlock: Option<UnlockSecret>, n
     })
 }
 
+fn cmd_inspect_protectors_json(path: &Path) -> Result<String, TosumuError> {
+    let slots = PageStore::list_keyslots(path)?;
+    render_json(&InspectEnvelope {
+        schema_version: 1,
+        command: "inspect.protectors",
+        ok: true,
+        payload: Some(InspectProtectorsPayload {
+            slot_count: slots.len(),
+            slots: slots.into_iter().map(|(slot, kind)| InspectProtectorSlotPayload {
+                slot,
+                kind: keyslot_kind_name(kind),
+                kind_byte: kind,
+            }).collect(),
+        }),
+        error: None,
+    })
+}
+
 fn run(cli: Cli) -> Result<(), TosumuError> {
     match cli.command {
         Command::Init { path, encrypt } => {
@@ -835,6 +876,13 @@ fn run(cli: Cli) -> Result<(), TosumuError> {
                     println!("{}", cmd_inspect_page_json(&path, page, unlock, no_prompt)?);
                 } else {
                     cmd_dump(&path, Some(page), unlock, no_prompt)?;
+                }
+            }
+            InspectAction::Protectors { path, json } => {
+                if json {
+                    println!("{}", cmd_inspect_protectors_json(&path)?);
+                } else {
+                    cmd_dump(&path, None, None, false)?;
                 }
             }
         },
@@ -1470,6 +1518,27 @@ mod tests {
     }
 
     #[test]
+    fn cli_parses_inspect_protectors_json_subcommand() {
+        let cli = Cli::try_parse_from([
+            "tosumu",
+            "inspect",
+            "protectors",
+            "--json",
+            "db.tsm",
+        ]).unwrap();
+
+        match cli.command {
+            Command::Inspect {
+                action: InspectAction::Protectors { path, json },
+            } => {
+                assert_eq!(path, PathBuf::from("db.tsm"));
+                assert!(json);
+            }
+            _ => panic!("unexpected command variant"),
+        }
+    }
+
+    #[test]
     fn cli_parses_inspect_verify_with_stdin_passphrase() {
         let cli = Cli::try_parse_from([
             "tosumu",
@@ -1596,6 +1665,25 @@ mod tests {
             .any(|record| record["kind"] == "Live"
                 && record["key_hex"] == "616c706861"
                 && record["value_hex"] == "6f6e65"));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn inspect_protectors_json_uses_structured_success_envelope() {
+        let path = temp_path("inspect_protectors_json_success");
+        let _ = std::fs::remove_file(&path);
+        PageStore::create_encrypted(&path, "correct-horse").unwrap();
+
+        let rendered = cmd_inspect_protectors_json(&path).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&rendered).unwrap();
+
+        assert_eq!(json["schema_version"], 1);
+        assert_eq!(json["command"], "inspect.protectors");
+        assert_eq!(json["ok"], true);
+        assert_eq!(json["payload"]["slot_count"], 1);
+        assert_eq!(json["payload"]["slots"][0]["slot"], 0);
+        assert_eq!(json["payload"]["slots"][0]["kind"], "Passphrase");
 
         let _ = std::fs::remove_file(&path);
     }
