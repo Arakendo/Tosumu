@@ -125,6 +125,12 @@
       opacity: 0.85;
     }
 
+    .link--focus-path {
+      stroke: #b36a28;
+      stroke-width: 3.5;
+      opacity: 1;
+    }
+
     .node rect {
       stroke: rgba(23, 50, 58, 0.14);
       stroke-width: 1;
@@ -143,6 +149,11 @@
       stroke-width: 1.5;
     }
 
+    .node--focus-path rect {
+      stroke: rgba(179, 106, 40, 0.88);
+      stroke-width: 2.2;
+    }
+
     .label {
       font-size: 13px;
       font-weight: 700;
@@ -158,7 +169,7 @@
 <body>
   <div id="app">
     <div id="summary"></div>
-    <div id="caption">Tree topology from inspect-tree JSON. Click a node to sync the page field, double-click to inspect it, and hover for page details. Drag to pan and use the mouse wheel to zoom.</div>
+    <div id="caption">Tree topology from inspect-tree JSON. The view recenters on the focused page after inspect. Click a node to sync the page field, double-click to inspect it, and hover for page details. Drag to pan and use the mouse wheel to zoom.</div>
     <div id="viewport"></div>
     <div id="tooltip"></div>
   </div>
@@ -272,8 +283,23 @@
       const layoutHeight = (maxX - minX) + nodeHeight + padding.top + padding.bottom;
       const fitScale = Math.min((width - 24) / layoutWidth, (height - 24) / layoutHeight);
       const initialScale = Math.max(0.85, Math.min(1.2, fitScale));
-      const initialTranslateX = Math.max(12, (width - layoutWidth * initialScale) / 2);
-      const initialTranslateY = Math.max(12, (height - layoutHeight * initialScale) / 2);
+      const defaultTranslateX = Math.max(12, (width - layoutWidth * initialScale) / 2);
+      const defaultTranslateY = Math.max(12, (height - layoutHeight * initialScale) / 2);
+      const focusNode = payload.focusPageNumber
+        ? nodes.find(node => node.data.pageNumber === payload.focusPageNumber)
+        : null;
+
+      let initialTranslateX = defaultTranslateX;
+      let initialTranslateY = defaultTranslateY;
+
+      if (focusNode) {
+        const focusCenterX = padding.left + focusNode.y + (nodeWidth / 2) - 2;
+        const focusCenterY = padding.top - minX + focusNode.x + (nodeHeight / 2) - 22;
+        initialTranslateX = (width / 2) - (focusCenterX * initialScale);
+        initialTranslateY = (height / 2) - (focusCenterY * initialScale);
+      }
+
+      const focusAncestors = new Set(focusNode ? focusNode.ancestors() : []);
 
       const svg = d3.create('svg')
         .attr('viewBox', [0, 0, width, height])
@@ -288,14 +314,25 @@
         .selectAll('path')
         .data(links)
         .join('path')
-        .attr('class', 'link')
+        .attr('class', link => focusAncestors.has(link.target) ? 'link link--focus-path' : 'link')
         .attr('d', d3.linkHorizontal().x(link => link.y).y(link => link.x));
 
       const node = g.append('g')
         .selectAll('g')
         .data(nodes)
         .join('g')
-        .attr('class', data => data.data.pageNumber ? 'node node--page' : 'node')
+        .attr('class', data => {
+          const classes = ['node'];
+          if (data.data.pageNumber) {
+            classes.push('node--page');
+          }
+
+          if (focusAncestors.has(data)) {
+            classes.push('node--focus-path');
+          }
+
+          return classes.join(' ');
+        })
         .attr('transform', data => `translate(${data.y},${data.x})`)
         .on('click', (_, data) => postPageSelection(data.data.pageNumber))
         .on('dblclick', (_, data) => postPageInspect(data.data.pageNumber))
