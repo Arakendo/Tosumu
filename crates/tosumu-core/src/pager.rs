@@ -8,6 +8,23 @@
 //
 // For MVP+1 there is no in-memory cache (every read hits the file).
 // Cache is a Stage 2 concern.
+//
+// ── Validation layering ──────────────────────────────────────────────────────
+//
+// Pager guarantees (before handing bytes to callers):
+//   1. Bytes are authentically decrypted (AEAD tag verified).
+//   2. The page_type field is a known value (LEAF, INTERNAL, OVERFLOW, FREE).
+//   3. For LEAF/INTERNAL: free_start ≤ free_end ≤ PAGE_PLAINTEXT_SIZE.
+//   4. The pgno is within the allocated range (≥ 1, < page_count).
+//
+// What pager does NOT guarantee (higher-layer responsibility):
+//   - Slot array integrity (no overlapping regions, no out-of-bounds offsets).
+//   - Record encoding correctness (key/value lengths, tombstone semantics).
+//   - B-tree structural invariants (sorted keys, chain pointers, height).
+//
+// In practice: btree.rs / PageStore handle semantic correctness; pager
+// handles physical correctness. Debugging hint: if data looks decrypted but
+// logically wrong, the bug is above the pager layer.
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -983,4 +1000,150 @@ fn write_file_header(page0: &mut [u8; PAGE_SIZE], dek: &[u8; 32]) {
     // such as page_count, freelist_head and root_page are not MAC'd in MVP+1;
     // the header MAC is added for encrypted databases only (Passphrase/Recovery slots).
     page0[ks + KS_OFF_WRAPPED_DEK..ks + KS_OFF_WRAPPED_DEK + 32].copy_from_slice(dek);
+}
+
+// ── Pager unit tests ─────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    /// Create a Pager with one allocated data page. Returns (Pager, TempDir, pgno=1).
+    fn setup_one_page() -> (Pager, TempDir) {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.tsm");
+        let mut p = Pager::create(&path).unwrap();
+        p.allocate(PAGE_TYPE_LEAF).unwrap(); // page 1
+        (p, dir)
+    }
+
+    // ── pgno validation ───────────────────────────────────────────────────────
+
+    #[test]
+    fn read_frame_rejects_pgno_zero() {
+        let (p, _dir) = setup_one_page();
+        let err = p.read_raw_frame(0).unwrap_err();
+        assert!(
+            matches!(err, TosumuError::InvalidArgument(_)),
+            "expected InvalidArgument, got {err:?}",
+        );
+    }
+
+    #[test]
+    fn read_frame_rejects_pgno_out_of_range() {
+        let (p, _dir) = setup_one_page();
+        // page_count == 2 (page 0 + page 1); pgno 2 is out of range
+        let err = p.read_raw_frame(2).unwrap_err();
+        assert!(
+            matches!(err, TosumuError::InvalidArgument(_)),
+            "expected InvalidArgument, got {err:?}",
+        );
+    }
+
+    #[test]
+    fn with_page_rejects_pgno_zero() {
+        let (p, _dir) = setup_one_page();
+        let err = p.with_page(0, |_| Ok(())).unwrap_err();
+        assert!(matches!(err, TosumuError::InvalidArgument(_)));
+    }
+
+    // ── validate_plaintext_header (via with_page after raw frame surgery) ─────
+
+    /// Flip byte `offset` in data page `pgno` to `value` by writing directly
+    /// into the *ciphertext* at the position that corresponds to offset within
+    /// the plaintext nonce-XOR stream.  That is: we can't flip plaintext bytes
+    /// without breaking the AEAD tag, so instead we corrupt the *ciphertext*
+    /// byte at CIPHERTEXT_OFFSET + offset to produce an arbitrary tag failure.
+    ///
+    /// The correct way to test plaintext-header validation is to intercept
+    /// *after* decrypt — but since pager hides that internally, the easiest
+    /// approach is to write a synthetic encrypted frame directly.
+    ///
+    /// Here we use a simpler trick: allocate a page, read the raw frame,
+    /// use the pager's `with_page` machinery (which will decrypt correctly),
+    /// then call `validate_plaintext_header` directly as a unit test of the
+    /// free function (it is pub(super) within this test module).
+    #[test]
+    fn validate_plaintext_header_rejects_unknown_page_type() {
+        let mut page = [0u8; PAGE_PLAINTEXT_SIZE];
+        // Set up a well-formed LEAF page first
+        page[PAGE_OFF_TYPE] = PAGE_TYPE_LEAF;
+        let free_start = PAGE_HEADER_SIZE as u16;
+        let free_end = PAGE_PLAINTEXT_SIZE as u16;
+        page[PAGE_OFF_FREE_START..PAGE_OFF_FREE_START + 2].copy_from_slice(&free_start.to_le_bytes());
+        page[PAGE_OFF_FREE_END..PAGE_OFF_FREE_END + 2].copy_from_slice(&free_end.to_le_bytes());
+        assert!(validate_plaintext_header(&page, 1).is_ok());
+
+        // Flip to an unknown type
+        page[PAGE_OFF_TYPE] = 0xFF;
+        let err = validate_plaintext_header(&page, 1).unwrap_err();
+        assert!(
+            matches!(err, TosumuError::Corrupt { pgno: 1, .. }),
+            "expected Corrupt {{ pgno: 1 }}, got {err:?}",
+        );
+    }
+
+    #[test]
+    fn validate_plaintext_header_rejects_free_start_gt_free_end() {
+        let mut page = [0u8; PAGE_PLAINTEXT_SIZE];
+        page[PAGE_OFF_TYPE] = PAGE_TYPE_LEAF;
+        // free_start > free_end
+        page[PAGE_OFF_FREE_START..PAGE_OFF_FREE_START + 2].copy_from_slice(&200u16.to_le_bytes());
+        page[PAGE_OFF_FREE_END..PAGE_OFF_FREE_END + 2].copy_from_slice(&100u16.to_le_bytes());
+        let err = validate_plaintext_header(&page, 1).unwrap_err();
+        assert!(matches!(err, TosumuError::Corrupt { pgno: 1, .. }));
+    }
+
+    #[test]
+    fn validate_plaintext_header_rejects_free_end_overflow() {
+        let mut page = [0u8; PAGE_PLAINTEXT_SIZE];
+        page[PAGE_OFF_TYPE] = PAGE_TYPE_INTERNAL;
+        // free_end > PAGE_PLAINTEXT_SIZE
+        let too_big = (PAGE_PLAINTEXT_SIZE + 1) as u16;
+        page[PAGE_OFF_FREE_START..PAGE_OFF_FREE_START + 2].copy_from_slice(&0u16.to_le_bytes());
+        page[PAGE_OFF_FREE_END..PAGE_OFF_FREE_END + 2].copy_from_slice(&too_big.to_le_bytes());
+        let err = validate_plaintext_header(&page, 1).unwrap_err();
+        assert!(matches!(err, TosumuError::Corrupt { pgno: 1, .. }));
+    }
+
+    #[test]
+    fn validate_plaintext_header_accepts_overflow_and_free_page_types() {
+        // OVERFLOW and FREE pages don't carry free-space pointers; validator
+        // must not reject them even when those bytes are zero.
+        for &pt in &[PAGE_TYPE_OVERFLOW, PAGE_TYPE_FREE] {
+            let mut page = [0u8; PAGE_PLAINTEXT_SIZE];
+            page[PAGE_OFF_TYPE] = pt;
+            // Leave free_start=0, free_end=0 — invalid for btree pages but
+            // must be accepted for OVERFLOW / FREE.
+            assert!(
+                validate_plaintext_header(&page, 1).is_ok(),
+                "page_type {pt} should be accepted",
+            );
+        }
+    }
+
+    // ── truncation detection ──────────────────────────────────────────────────
+
+    #[test]
+    fn open_rejects_truncated_file() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("trunc.tsm");
+        {
+            let mut p = Pager::create(&path).unwrap();
+            p.allocate(PAGE_TYPE_LEAF).unwrap();
+            // page_count == 2; file should be 2 * PAGE_SIZE bytes
+        }
+        // Truncate to less than 2 pages
+        let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_len((PAGE_SIZE as u64) + 1).unwrap(); // one byte short of 2 pages
+        drop(file);
+
+        let result = Pager::open(&path);
+        assert!(
+            matches!(result, Err(TosumuError::FileTruncated { .. })),
+            "expected FileTruncated, got: {:?}",
+            result.err(),
+        );
+    }
 }
