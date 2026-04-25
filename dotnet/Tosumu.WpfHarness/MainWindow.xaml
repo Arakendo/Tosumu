@@ -13,7 +13,11 @@
         Foreground="{StaticResource TextBrush}"
         FontFamily="Bahnschrift"
         PreviewKeyDown="Window_OnPreviewKeyDown">
-    <Grid Margin="24">
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                    HorizontalScrollBarVisibility="Disabled"
+                                    CanContentScroll="False">
+        <Grid Margin="24"
+                    MinWidth="1050">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -152,7 +156,8 @@
                         Margin="12,0,0,0"
                         Padding="16,10"
                         Click="LoadHeaderButton_OnClick"
-                    Content="Reload Header" />
+                    Content="Reload"
+                    ToolTip="Re-read the header after an external change without rerunning verification." />
 
                 <Button x:Name="VerifyButton"
                         Grid.Row="1"
@@ -205,7 +210,7 @@
                               Margin="0,0,12,0"
                               VerticalContentAlignment="Center"
                               SelectionChanged="UnlockModeComboBox_OnSelectionChanged">
-                           <ComboBoxItem Tag="Auto" Content="Auto when needed" />
+                        <ComboBoxItem Tag="Auto" Content="Prompt if required" />
                         <ComboBoxItem Tag="Passphrase" Content="Passphrase" />
                         <ComboBoxItem Tag="RecoveryKey" Content="Recovery key" />
                         <ComboBoxItem Tag="Keyfile" Content="Keyfile" />
@@ -289,23 +294,23 @@
                             Click="InspectPageButton_OnClick"
                             Content="Inspect Page" />
 
-                                        <Button x:Name="InspectRootPageButton"
+                              <Button x:Name="InspectRootPageButton"
                             Grid.Column="3"
                             Margin="12,0,0,0"
                             Padding="16,10"
                             Click="InspectRootPageButton_OnClick"
                             Content="Inspect Root Page" />
 
-                                        <TextBlock Grid.Column="4"
+                              <TextBlock Grid.Column="4"
                                Margin="16,0,0,0"
                                VerticalAlignment="Center"
                                TextWrapping="Wrap"
                                Foreground="{StaticResource MutedTextBrush}"
-                                                             Text="Select a page or jump straight to root. Root page inspection reloads the header first so the page number stays aligned with the current file." />
+                                     Text="Select a page or jump straight to root. Root page inspection reloads the header first so the page number stays aligned with the current file." />
                 </Grid>
 
-                                <Grid Grid.Row="5"
-                                            Grid.ColumnSpan="6"
+                            <Grid Grid.Row="5"
+                                Grid.ColumnSpan="6"
                       Margin="0,14,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
@@ -343,7 +348,7 @@
                 <StackPanel>
                     <TextBlock FontSize="13"
                                Foreground="{StaticResource MutedTextBrush}"
-                               Text="Status" />
+                               Text="Activity" />
                     <TextBlock Margin="0,4,0,0"
                                FontSize="15"
                                FontWeight="SemiBold"
@@ -627,4 +632,5 @@
             </Border>
         </Grid>
     </Grid>
+    </ScrollViewer>
 </Window>

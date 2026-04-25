@@ -27,8 +27,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private string selectedRecordHeadlineText = "No record selected";
     private string pageSummaryText = "Select a page or inspect root to decode the current page.";
     private bool showHexColumns;
-    private string statusText = "Open a .tsm file to enter inspection mode.";
-    private string unlockModeHintText = "Auto is the normal path. Switch modes only when the current database requires an explicit passphrase, recovery key, or keyfile.";
+    private string statusText = "Activity updates appear here while you browse, verify, and inspect pages.";
+    private string unlockModeHintText = "You will be prompted only if the current database actually requires credentials.";
     private Brush verifyIssueSummaryBrush = Brushes.Transparent;
     private string verifyIssueSummaryText = string.Empty;
     private Visibility verifyIssueSummaryVisibility = Visibility.Collapsed;
@@ -592,17 +592,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (verify.IssueCount == 0 && verify.Btree.Ok)
         {
             VerificationBadgeText = "Verified clean";
-            VerificationBadgeBrush = Brushes.Honeydew;
+            VerificationBadgeBrush = ResolveThemeBrush("SuccessBrush", Brushes.Honeydew);
             VerifyIssueSummaryVisibility = Visibility.Visible;
-            VerifyIssueSummaryBrush = Brushes.Honeydew;
+            VerifyIssueSummaryBrush = ResolveThemeBrush("SuccessSoftBrush", Brushes.Honeydew);
             VerifyIssueSummaryText = $"Verified clean across {verify.PagesChecked} pages. No integrity or auth failures were reported.";
         }
         else
         {
             VerificationBadgeText = verify.IssueCount == 1 ? "1 issue found" : $"{verify.IssueCount} issues found";
-            VerificationBadgeBrush = Brushes.MistyRose;
+            VerificationBadgeBrush = ResolveThemeBrush("DangerBrush", Brushes.MistyRose);
             VerifyIssueSummaryVisibility = Visibility.Visible;
-            VerifyIssueSummaryBrush = Brushes.MistyRose;
+            VerifyIssueSummaryBrush = ResolveThemeBrush("DangerSoftBrush", Brushes.MistyRose);
 
             var firstIssue = verify.Issues.FirstOrDefault();
             VerifyIssueSummaryText = firstIssue is null
@@ -800,7 +800,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         CurrentDatabaseTitleText = Path.GetFileName(path);
         CurrentDatabaseDetailText = "Loading header and resetting stale pane state for the selected database...";
         VerificationBadgeText = "Verify pending";
-        VerificationBadgeBrush = Brushes.Khaki;
+        VerificationBadgeBrush = ResolveThemeBrush("WarningBrush", Brushes.Khaki);
         VerifyIssueSummaryVisibility = Visibility.Collapsed;
         VerifyIssueSummaryText = string.Empty;
         VerifyIssueSummaryBrush = Brushes.Transparent;
@@ -820,8 +820,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         VerifySummaryText = "Run verification to check page auth and B-tree integrity.";
         VerifyIssueSummaryVisibility = Visibility.Visible;
-        VerifyIssueSummaryBrush = Brushes.Khaki;
-        VerifyIssueSummaryText = "Verification has not run yet. Use Verify to surface auth failures and the first integrity problem immediately.";
+        VerifyIssueSummaryBrush = ResolveThemeBrush("WarningSoftBrush", Brushes.Khaki);
+        VerifyIssueSummaryText = "Verification has not run yet. You will be prompted only if credentials are required, then the first auth or integrity problem will surface here.";
         VerifyIssues.Clear();
         VerifyIssues.Add(new VerifyIssueRow("-", "Run verification to surface integrity or auth problems.", HasIssue: false, IsPlaceholder: true));
         PageResults.Clear();
@@ -884,6 +884,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         KeyHexColumn.Width = ShowHexColumns ? KeyHexColumnVisibleWidth : 0;
         ValueHexColumn.Width = ShowHexColumns ? ValueHexColumnVisibleWidth : 0;
+    }
+
+    private Brush ResolveThemeBrush(string resourceKey, Brush fallback)
+    {
+        return TryFindResource(resourceKey) as Brush ?? fallback;
     }
 
     private void SelectPageRecord(PageRecordRow? record)
@@ -1098,7 +1103,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         SecretLabelTextBlock.Text = selectedMode == HarnessUnlockModes.RecoveryKey ? "Recovery key" : "Passphrase";
         UnlockModeHintText = selectedMode switch
         {
-            HarnessUnlockModes.Auto => "Auto is the normal path. The harness only asks for credentials when an inspect action needs them.",
+            HarnessUnlockModes.Auto => "You will be prompted only if the current inspect action actually requires credentials.",
             HarnessUnlockModes.Passphrase => "Use this when the database should unlock with a passphrase piped to the CLI.",
             HarnessUnlockModes.RecoveryKey => "Use this when you need the recovery key instead of a passphrase.",
             HarnessUnlockModes.Keyfile => "Use this when the database should unlock from a keyfile path instead of typed secret input.",
