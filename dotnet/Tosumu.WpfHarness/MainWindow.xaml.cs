@@ -29,6 +29,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private bool showHexColumns;
     private string statusText = "Open a .tsm file to enter inspection mode.";
     private string unlockModeHintText = "Auto is the normal path. Switch modes only when the current database requires an explicit passphrase, recovery key, or keyfile.";
+    private Brush verifyIssueSummaryBrush = Brushes.Transparent;
+    private string verifyIssueSummaryText = string.Empty;
+    private Visibility verifyIssueSummaryVisibility = Visibility.Collapsed;
     private Brush verificationBadgeBrush = Brushes.Khaki;
     private string verificationBadgeText = "Verify pending";
     private string verifySummaryText = "Run verification to check page auth and B-tree integrity.";
@@ -134,6 +137,24 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         get => unlockModeHintText;
         set => SetProperty(ref unlockModeHintText, value);
+    }
+
+    public Brush VerifyIssueSummaryBrush
+    {
+        get => verifyIssueSummaryBrush;
+        set => SetProperty(ref verifyIssueSummaryBrush, value);
+    }
+
+    public string VerifyIssueSummaryText
+    {
+        get => verifyIssueSummaryText;
+        set => SetProperty(ref verifyIssueSummaryText, value);
+    }
+
+    public Visibility VerifyIssueSummaryVisibility
+    {
+        get => verifyIssueSummaryVisibility;
+        set => SetProperty(ref verifyIssueSummaryVisibility, value);
     }
 
     public Brush VerificationBadgeBrush
@@ -332,12 +353,50 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         UpdateHexColumnVisibility();
     }
 
+    private void Window_OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.F5 || (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.R))
+        {
+            RefreshAllButton_OnClick(RefreshAllButton, e);
+            e.Handled = true;
+            return;
+        }
+
+        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Enter)
+        {
+            InspectRootPageButton_OnClick(InspectRootPageButton, e);
+            e.Handled = true;
+        }
+    }
+
+    private void PageNumberTextBox_OnKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter)
+        {
+            return;
+        }
+
+        InspectPageButton_OnClick(InspectPageButton, e);
+        e.Handled = true;
+    }
+
     private void VerifyIssuesListView_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (VerifyIssuesListView.SelectedItem is VerifyIssueRow row)
         {
             SelectPageNumberFromRow(row.Pgno, "issue");
         }
+    }
+
+    private async void VerifyIssuesListView_OnKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || VerifyIssuesListView.SelectedItem is not VerifyIssueRow row)
+        {
+            return;
+        }
+
+        await InspectSelectedPageFromRowAsync(row.Pgno, "verification issue");
+        e.Handled = true;
     }
 
     private async void VerifyIssuesListView_OnMouseDoubleClick(object sender, MouseButtonEventArgs e)
@@ -354,6 +413,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             SelectPageNumberFromRow(row.Pgno, "page result");
         }
+    }
+
+    private async void PageResultsListView_OnKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || PageResultsListView.SelectedItem is not PageVerifyRow row)
+        {
+            return;
+        }
+
+        await InspectSelectedPageFromRowAsync(row.Pgno, "page result");
+        e.Handled = true;
     }
 
     private async void PageResultsListView_OnMouseDoubleClick(object sender, MouseButtonEventArgs e)
@@ -523,11 +593,21 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             VerificationBadgeText = "Verified clean";
             VerificationBadgeBrush = Brushes.Honeydew;
+            VerifyIssueSummaryVisibility = Visibility.Visible;
+            VerifyIssueSummaryBrush = Brushes.Honeydew;
+            VerifyIssueSummaryText = $"Verified clean across {verify.PagesChecked} pages. No integrity or auth failures were reported.";
         }
         else
         {
             VerificationBadgeText = verify.IssueCount == 1 ? "1 issue found" : $"{verify.IssueCount} issues found";
             VerificationBadgeBrush = Brushes.MistyRose;
+            VerifyIssueSummaryVisibility = Visibility.Visible;
+            VerifyIssueSummaryBrush = Brushes.MistyRose;
+
+            var firstIssue = verify.Issues.FirstOrDefault();
+            VerifyIssueSummaryText = firstIssue is null
+                ? $"Verification reported {verify.IssueCount} issue(s). Review the page results below for detail."
+                : $"First issue on page {firstIssue.Pgno}: {firstIssue.Description}";
         }
 
         return verify;
@@ -721,6 +801,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         CurrentDatabaseDetailText = "Loading header and resetting stale pane state for the selected database...";
         VerificationBadgeText = "Verify pending";
         VerificationBadgeBrush = Brushes.Khaki;
+        VerifyIssueSummaryVisibility = Visibility.Collapsed;
+        VerifyIssueSummaryText = string.Empty;
+        VerifyIssueSummaryBrush = Brushes.Transparent;
         ResetHeaderState("Loading header for the selected database...");
         ResetVerifyState();
         ResetPageState();
@@ -736,6 +819,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void ResetVerifyState()
     {
         VerifySummaryText = "Run verification to check page auth and B-tree integrity.";
+        VerifyIssueSummaryVisibility = Visibility.Visible;
+        VerifyIssueSummaryBrush = Brushes.Khaki;
+        VerifyIssueSummaryText = "Verification has not run yet. Use Verify to surface auth failures and the first integrity problem immediately.";
         VerifyIssues.Clear();
         VerifyIssues.Add(new VerifyIssueRow("-", "Run verification to surface integrity or auth problems.", HasIssue: false, IsPlaceholder: true));
         PageResults.Clear();

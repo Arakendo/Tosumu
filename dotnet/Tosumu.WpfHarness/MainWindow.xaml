@@ -11,7 +11,8 @@
         MinHeight="760"
         Background="{StaticResource WindowBackgroundBrush}"
         Foreground="{StaticResource TextBrush}"
-        FontFamily="Bahnschrift">
+        FontFamily="Bahnschrift"
+        PreviewKeyDown="Window_OnPreviewKeyDown">
     <Grid Margin="24">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -59,6 +60,23 @@
                                            TextWrapping="Wrap"
                                            Foreground="#E6F0F3"
                                            Text="{Binding CurrentDatabaseDetailText}" />
+
+                                <Border Margin="0,12,0,0"
+                                        Padding="10,8"
+                                        Background="{Binding VerifyIssueSummaryBrush}"
+                                        CornerRadius="10"
+                                        Visibility="{Binding VerifyIssueSummaryVisibility}">
+                                    <StackPanel>
+                                        <TextBlock FontSize="12"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextBrush}"
+                                                   Text="Verify focus" />
+                                        <TextBlock Margin="0,4,0,0"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{StaticResource TextBrush}"
+                                                   Text="{Binding VerifyIssueSummaryText}" />
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
 
                             <Border Grid.Column="1"
@@ -261,6 +279,7 @@
                              Background="White"
                              BorderBrush="{StaticResource BorderBrush}"
                              BorderThickness="1"
+                             KeyDown="PageNumberTextBox_OnKeyDown"
                              Text="{Binding PageNumberText, UpdateSourceTrigger=PropertyChanged}" />
 
                     <Button x:Name="InspectPageButton"
@@ -434,6 +453,7 @@
                               x:Name="VerifyIssuesListView"
                               BorderThickness="0"
                               Background="Transparent"
+                              KeyDown="VerifyIssuesListView_OnKeyDown"
                               SelectionChanged="VerifyIssuesListView_OnSelectionChanged"
                               MouseDoubleClick="VerifyIssuesListView_OnMouseDoubleClick">
                         <ListView.ItemContainerStyle>
@@ -480,6 +500,7 @@
                               x:Name="PageResultsListView"
                               BorderThickness="0"
                               Background="Transparent"
+                              KeyDown="PageResultsListView_OnKeyDown"
                               SelectionChanged="PageResultsListView_OnSelectionChanged"
                               MouseDoubleClick="PageResultsListView_OnMouseDoubleClick">
                         <ListView.ItemContainerStyle>
