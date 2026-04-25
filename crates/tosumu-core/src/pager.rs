@@ -1254,7 +1254,20 @@ fn finish_open(
         file.seek(SeekFrom::Start(0))?;
         let mut refreshed = [0u8; PAGE_SIZE];
         file.read_exact(&mut refreshed)?;
+        validate_header(&refreshed)?;
+        if let Some(ref hmk) = header_mac_key {
+            let keyslot_count = keyslot_count(&refreshed);
+            let stored_mac: [u8; 32] = refreshed[OFF_HEADER_MAC..OFF_HEADER_MAC + 32].try_into().unwrap();
+            verify_header_mac(hmk, &refreshed, keyslot_count, &stored_mac)?;
+        }
         let page_count = read_u64(&refreshed, OFF_PAGE_COUNT);
+        let refreshed_file_len = file.metadata()?.len();
+        let expected_len = page_count
+            .checked_mul(PAGE_SIZE as u64)
+            .ok_or(TosumuError::Corrupt { pgno: 0, reason: "page_count overflow" })?;
+        if refreshed_file_len < expected_len {
+            return Err(TosumuError::FileTruncated { expected: expected_len, found: refreshed_file_len });
+        }
         let freelist_head = read_u64(&refreshed, OFF_FREELIST_HEAD);
         let root_page = read_u64(&refreshed, OFF_ROOT_PAGE);
         let wal = WalWriter::open_or_create(&wp)?;

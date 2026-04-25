@@ -29,3 +29,10 @@ Thumbs.db
 # Env / local config
 .env
 .env.local
+
+
+#audit files
+/Audits/
+
+# Notes
+/Notes/

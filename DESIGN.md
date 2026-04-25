@@ -227,7 +227,7 @@ Everything after page 0 and the **keyslot region** uses the page frame in §5.3.
 
 > **Nonce strategy — future option.** `random 96-bit` is simple and safe for our write volumes. If operational reasoning becomes annoying (e.g. during crash/WAL replay analysis), the migration target is `random_prefix (64 bits) || monotonic_counter (32 bits)` per key. Documented here so we don't rediscover it at 2am.
 
-Every database is always encrypted. There is no unencrypted mode. A database opened without a user-supplied passphrase uses the `Sentinel` protector (§8.6) — a machine-generated key stored in keyslot 0 that provides AEAD integrity even before the user has configured a passphrase. The user can rotate the sentinel out at any time by adding a `Passphrase` or `RecoveryKey` protector and removing slot 0.
+Every database always uses authenticated page encryption on disk. There is no unencrypted mode. A database opened without a user-supplied passphrase uses the `Sentinel` protector (§8.6) — a machine-generated key stored in keyslot 0 that provides AEAD integrity from byte one. With only the Sentinel protector configured, this guarantees integrity but not confidentiality against local file readers; the user can rotate the sentinel out at any time by adding a `Passphrase` or `RecoveryKey` protector and removing slot 0.
 
 ### 5.4 Slotted page (leaf data pages)
 
@@ -267,7 +267,7 @@ Policy:
 - A page is **eligible for compaction** when `fragmented_bytes >= page_body_size / 4`.
 - Compaction is triggered **lazily on write**: before an insert/update that would otherwise fail with `OutOfSpace`, the pager tries compacting the target page first. No background sweeper.
 - Compaction is a full heap rewrite: copy live records to a scratch buffer in slot order, reset `free_end`, rewrite slots, zero `fragmented_bytes`.
-- Stage 1 may **skip `fragmented_bytes` entirely** and recompute live/dead bytes on demand during compaction. Tracking it in the header is a Stage 2+ optimization, not a Stage 1 requirement. (See §12.2.)
+- Stage 1 may **skip live `fragmented_bytes` bookkeeping entirely** and recompute live/dead bytes on demand during compaction. The 2-byte header field still exists in the on-disk format and is written as zero in Stage 1; only the running counter is deferred to Stage 2+. (See §12.2.)
 
 #### 5.4.2 Value size cap (Stage 1)
 
@@ -507,7 +507,7 @@ The engine does **not** auto-checkpoint at arbitrary points. Checkpointing is ei
 
 ### 8.1 Threat model
 
-**Invariant:** every database is always encrypted. There is no opt-out. A database without a user-configured protector uses the `Sentinel` protector (machine-generated key, stored in keyslot 0). The sentinel provides full AEAD integrity from byte one; it is not a placeholder or a CRC substitute.
+**Invariant:** every database always uses authenticated page encryption on disk. There is no opt-out. A database without a user-configured protector uses the `Sentinel` protector (machine-generated key, stored in keyslot 0). The sentinel provides full AEAD integrity from byte one; it is not a placeholder or a CRC substitute. Confidentiality against local file readers requires adding a non-Sentinel protector.
 
 > **Sentinel means always-authenticated, not always-secret.** This distinction is important and must not be blurred. AEAD provides two properties: *integrity* (tampering is detectable) and *confidentiality* (contents are unreadable without the key). Sentinel provides both — *for an attacker who does not have keyslot 0*. Since the Sentinel key is stored in keyslot 0 on the same file, a local attacker who can read the file can read keyslot 0, derive the KEK, unwrap the DEK, and decrypt the database. Sentinel protects against external attackers, file corruption, and bitflip attacks. It does not protect against a local user with read access to the file. **Do not document Sentinel as providing data confidentiality in any user-facing context.** The correct statement: "Tosumu is always authenticated; if you require data confidentiality, add a Passphrase or RecoveryKey protector." This must be stated at `tosumu init` time in the CLI output.
 
@@ -605,7 +605,7 @@ Protectors live behind a trait object; the storage engine never sees protector-s
 
 The keyslot region is a contiguous run of `keyslot_region_pages` pages immediately after page 0. It is a flat array of fixed-size **keyslots**. Non-populated slots are zeroed and marked `Empty`.
 
-One keyslot (256 bytes, exact layout TBD during Stage 4a):
+One keyslot (256 bytes, format v1 finalized layout):
 
 | Size | Field | Notes |
 |---|---|---|
@@ -620,9 +620,12 @@ One keyslot (256 bytes, exact layout TBD during Stage 4a):
 | 12 | `wrap_nonce` | ChaCha20-Poly1305 nonce for wrapping the DEK |
 | 48 | `wrapped_dek` | 32-byte DEK ciphertext + 16-byte tag |
 | 32 | `kek_kcv` | AEAD tag over a fixed known-plaintext under this KEK; enables "is this the right passphrase" without touching the DEK |
-| 68 | reserved | zero-filled; accommodates future protector fields without a format bump |
+| 32 | `sentinel_kek` | Sentinel only: raw 32-byte KEK plaintext. All other protectors zero-fill this field. |
+| 36 | reserved | zero-filled; accommodates future protector fields without a format bump |
 
 AAD for DEK wrapping: `"tosumu/v1/wrap" || slot_index (u16 LE) || dek_id (u64 LE) || kind (u8)`. This binds each wrapped DEK to its slot and generation so an attacker cannot swap wrapped blobs between slots or replay an old slot from a previous rotation.
+
+For `Sentinel`, `sentinel_kek` stores the raw KEK and `wrapped_dek` / `kek_kcv` are still populated normally; KDF-specific fields remain zero.
 
 #### 8.7.1 Policy metadata
 
@@ -1281,11 +1284,12 @@ The debug tooling from §12.3. Without it, debugging MVP+3 onward is guesswork.
 - `tosumu dump <path> [--page N]` — pretty-print header and page contents.
 - `tosumu hex <path> --page N` — raw hex+ASCII dump with annotations.
 - `tosumu verify <path>` — walk every page, report anomalies, exit non-zero on any.
+- `tosumu get <path> <key> --explain` — in debug mode, return the value plus basic cost counters (`pages_scanned`, `records_examined`, `bytes_read`) for the lookup.
 - Fuzz target: `fuzz_page_decode` — arbitrary 4 KB blobs must not panic.
 
 **Proves:** "no silent corruption" principle (§2.4) works end-to-end.
 **Demo:** Hand-edit a byte in a page with a hex editor → `tosumu verify` reports it.
-**Explicitly not there:** no interactive viewer (that's MVP+8).
+**Explicitly not there:** no interactive viewer (that's MVP+8), no query-planner `EXPLAIN` (that's Stage 5+).
 
 #### MVP +3 — "It scales past linear scan" *(Stage 2 B+ tree)*
 
@@ -1499,11 +1503,12 @@ Multi-reader concurrency without blocking writes.
 
 - MVCC snapshot by LSN (read transactions see a fixed point-in-time view).
 - Single writer, multiple concurrent readers.
+- Conditional-write helpers: `get_with_version()`, `put_if_absent()`, and `put_if_version()` / compare-and-set semantics built on stable version visibility.
 - Secondary indexes (additional B+ trees mapping `(secondary_key, primary_key)`).
 - `VACUUM` command — reclaim space from deleted records.
 - Benchmarks vs SQLite on toy workloads (§11.11).
 
-**Proves:** real concurrency works. Read-heavy workloads don't block writers.
+**Proves:** real concurrency works. Read-heavy workloads don't block writers, and callers no longer have to open-code basic optimistic-concurrency races.
 **Demo:** 10 reader threads scanning while 1 writer inserts — no contention, no stale errors.
 **Explicitly not there:** no multi-writer, no distributed concurrency.
 
@@ -1539,7 +1544,7 @@ Deploy the three-server witness model (§23.4) and local observer model (§23.6)
 |-----|-------|--------|---------------|--------|
 | 0 | Append-only log, in-memory index | I/O works, binary runs | pre-Stage 1 | ✅ done |
 | +1 | Slotted pages, file header, freelist | On-disk format works | Stage 1 storage | ✅ done |
-| +2 | `dump` / `hex` / `verify`, fuzz page decode | No silent corruption | Stage 1 debug | ✅ done |
+| +2 | `dump` / `hex` / `verify`, basic KV `get --explain` counters, fuzz page decode | No silent corruption; point reads can justify their cost | Stage 1 debug | ✅ done |
 | +3 | B+ tree, range scans | Real DB lookups | Stage 2 | ✅ done |
 | +4 | Transactions, WAL, recovery, retry-on-lock | Durability | Stage 3 | ✅ done |
 | +5 | `CrashWriter`, `check_invariants`, proptest, crash-boundary fuzz | No partial transactions under crash | Stage 3 correctness | ✅ done |
@@ -1547,7 +1552,7 @@ Deploy the three-server witness model (§23.4) and local observer model (§23.6)
 | +7 | Multiple protectors (up to 8), RecoveryKey (Base32), `rekey-kek`, CLI `protector` subcommand; 9 new KATs, 8 new integration tests incl. protector-swap attack | Key management works | Stage 4b | ✅ done |
 | +8 | TUI viewer (`tosumu view`) | Interactive inspection | Stage 2–4 crosscut | |
 | +9 | Toy SQL (`CREATE TABLE`, `SELECT`) | Real query foundation | Stage 5 | |
-| +10 | MVCC readers, secondary indexes, `VACUUM` | Concurrency | Stage 6 | |
+| +10 | MVCC readers, conditional writes, secondary indexes, `VACUUM` | Concurrency and optimistic write safety | Stage 6 | |
 | +11 | iOS/Android FFI, Keychain/Keystore | Mobile portability | Stage 7 | |
 | +12 | K3s cluster: server + witnesses + observer sidecar | Audit/witness in real deployment | Stage 8 | |
 
@@ -1577,7 +1582,7 @@ Stages are the broader framing: each stage ends with a tagged release and a shor
 
 To keep Stage 1 actually finishable, the following are **deliberately not built** and must not be smuggled in:
 
-- `fragmented_bytes` is not tracked — recompute on demand if a compaction is ever triggered.
+- `fragmented_bytes` is not tracked live — the on-disk header field remains present but Stage 1 writes `0` and recomputes fragmentation on demand if a compaction is ever triggered.
 - No overflow pages. Records exceeding the §5.4.2 cap are rejected.
 - No readers-plural — `open` takes an exclusive lock on the file.
 - No varint debate: **LEB128**, unsigned, for both `key_len` and `value_len`. Decision closed.
@@ -2004,7 +2009,7 @@ Additionally:
 
 ### 13.12 Migration history
 
-The database stores a migration log on a **system metadata page** (Page 1, once system pages exist in Stage 3+). Not just `format_version` — a full record of what ran, when, and by which engine.
+The database stores a migration log in the **system metadata area** rooted from page 1 once system pages exist in Stage 3+. It is part of the system catalog / metadata region, not a claim that page 1 is dedicated solely to migration history. Not just `format_version` — a full record of what ran, when, and by which engine.
 
 ```
 migration_history
@@ -2101,7 +2106,7 @@ These are tracked here, not silently deferred.
 4. ~~**Checksum vs MAC for unencrypted mode.**~~ **Closed.** There is no unencrypted mode. All pages use AEAD. The `Sentinel` protector (§8.6) covers Stages 1–3 before user-configured protectors exist. CRC32C is not needed.
 5. **WAL in separate file vs embedded.** Starting with a separate `tosumu.wal` file. Embedded WAL (SQLite-style) is possible later but adds complexity.
 6. **Free page zeroing.** Do we zero freed pages on disk? *Tentative: yes (always encrypted, always cheap).*
-7. **Pager API shape.** References-with-lifetimes vs. closure/handle-based. Default is references; escape hatch documented in §6.2. Decision deferred to Stage 2.
+7. ~~**Pager API shape.**~~ **Closed.** Closure-based. References-with-lifetimes were rejected because multi-page B+ tree operations make the borrowing model brittle; see §6.2.
 8. **Global LSN in AEAD AAD.** Would close the consistent-multi-page-rollback gap in §5.3. Cost: every write bumps a global counter that must be durable before the write lands. Deferred to Stage 6.
 9. **Keyslot count default.** 8 slots = 1 page at 256 B/slot + header overhead, which is plenty. Bigger means wasted space; smaller means rotation is annoying. *Tentative: 8 slots, fixed at init.*
 10. **TPM library choice.** `tss-esapi` (cross-platform but Linux-centric) vs. platform-native (`windows` crate TBS bindings on Windows). *Tentative: `tss-esapi` for portability; revisit in Stage 4c.*
@@ -3020,7 +3025,66 @@ Instead of "run this arbitrary trigger and pray," extensions are:
 
 **Why not now:** Stage 7+ at earliest. Sandboxed execution is a project in itself. Name it, don't build it yet.
 
-### 20.3 What is explicitly off the table
+#### 20.2.5 Conditional write primitives
+
+Application code constantly reinvents "read, compare, then maybe write" and gets races for free.
+
+**The opportunity:** Expose the small set of write primitives that let callers express intent directly instead of open-coding concurrency footguns.
+
+```
+put_if_absent(key, value)
+compare_and_set(key, expected, new)
+get_with_version(key) -> (value, version)
+put_if_version(key, version, new_value)
+```
+
+These are not a substitute for transactions. They are the minimum optimistic-concurrency toolkit that removes a surprising amount of glue code from applications.
+
+**Implementation path:**
+
+- Stage 1-5: keep API surface small; no pretend-CAS over a storage model that cannot actually defend the claim.
+- Stage 6+ (MVCC snapshots / stable version visibility): expose versioned reads and conditional writes as first-class APIs.
+- Stage 7+: surface the same semantics through `tosumu-server` so local and remote access do not diverge.
+
+**Why it matters for this codebase specifically:** It matches the existing "make the safe path shorter than the dangerous path" rule (§10). If the engine can already track version visibility, forcing every caller to write `get(); if old == expected { put(); }` is just outsourcing race conditions.
+
+#### 20.2.6 KV-level explainability and cost counters
+
+`EXPLAIN` at the query layer is useful. Explaining plain key/value operations is rarer and, for this project, arguably more valuable.
+
+**The opportunity:** Let reads explain *why* they were cheap or expensive without making users read the source.
+
+```
+tosumu get customer:123 --explain
+→ pages_scanned: 12
+→ records_examined: 340
+→ bytes_read: 49152
+→ winner: tombstone at LSN 1044
+```
+
+This is not a profiler. It is per-operation observability for the storage behavior users actually touch.
+
+**Implementation path:**
+
+- Stage 1-2: expose counters from `inspect` / debug APIs and teach `get` / `scan` to report them in debug mode.
+- Stage 5+: align the KV view with SQL `EXPLAIN` so the same engine can justify both `get key` and `SELECT ...`.
+- Stage 6+: include snapshot / pinned-WAL context where it materially affects cost.
+
+**Why it matters for this codebase specifically:** Tosumu's differentiator is explainability, not raw speed. "Why was this read slow?" is the storage-engine sibling of "why does this value exist?" and belongs in the same family of tools.
+
+### 20.3 Consider later
+
+These ideas are plausible and some may become useful, but they should remain explicitly non-committed until a real use case forces them.
+
+- **Portable snapshot export as a named UX affordance.** This is mostly the existing `backup` / copy-and-fsync path (§13.5, §22), but the UX may eventually want a clearer "export a self-contained snapshot" command name.
+- **Typed convenience helpers (`put_json`, `get_json`).** Useful for reducing glue code, but easy to slide from storage engine into application framework.
+- **TTL / expiry semantics.** Tempting, but it leaks into auditability, MVCC visibility, sync, and deletion semantics fast.
+- **Namespaces / keyspaces as first-class API objects.** Potentially useful for stats and policy boundaries, but string-prefix discipline already covers the simple case.
+- **Preset durability modes (`safe` / `fast` / `dangerous`).** Attractive UX shorthand, but risks collapsing distinct guarantees into one fuzzy switch.
+- **Optional bitmap-backed RowSets for OR-heavy query paths.** Worth revisiting only after the normal RowSet / planner story has real pain behind it; do not optimize speculative SQL workloads first.
+- **Automatic compression / page transforms.** Powerful, but dangerous to invariants, repairability, and explainability. Keep out until the core format and tooling are boringly solid.
+
+### 20.4 What is explicitly off the table
 
 Some ideas from the landscape that are **not** tosumu's direction, even if they sound appealing:
 
@@ -3029,7 +3093,7 @@ Some ideas from the landscape that are **not** tosumu's direction, even if they 
 - **Distributed / replicated storage.** Single-process, single-file. Replication is an application-layer concern.
 - **ML/AI pipeline integration.** Vector search, embedding storage, nearest-neighbor indexes — out of scope per §18. Use a specialized tool.
 
-### 20.4 Design principle summary
+### 20.5 Design principle summary
 
 Across all of the above, the common thread is:
 
@@ -3541,7 +3605,7 @@ These are different tools for different questions.
 
 The WAL is internal storage infrastructure. The audit log is externally verifiable evidence. They are stored separately. Neither replaces the other.
 
-> **Do not conflate these.** The WAL tells you how to recover storage state. The audit log tells you what happened and whether the sequence makes sense. Writing audit events into the WAL ("WAL with vibes") loses the independence property: the WAL is checkpointed and truncated; the audit log must be append-only and independently verifiable. The `audit_key` being a separate HKDF subkey (§8.3) exists precisely to enforce this independence — the audit log can be verified by a party who does not hold the DEK, because the chain runs over ciphertexts. Keep them separate at every level: storage, key material, crate, and API.
+> **Do not conflate these.** The WAL tells you how to recover storage state. The audit log tells you what happened and whether the sequence makes sense. Writing audit events into the WAL ("WAL with vibes") loses the independence property: the WAL is checkpointed and truncated; the audit log must be append-only and independently verifiable. The audit log uses separate audit key material (§8.3, §27.3), and the chain runs over ciphertexts so it can be verified for integrity by a party who does not hold the DEK. Keep them separate at every level: storage, key material, crate, and API.
 
 ### 23.2 Audit event types
 
@@ -3635,7 +3699,7 @@ If any event is deleted, reordered, or modified — even a single ciphertext byt
 
 **What the chain proves and does not prove:**
 
-The chain proves the sequence of ciphertexts is internally consistent and unmodified since it was written. AEAD additionally proves each event was written by a process holding the DEK. A witness without the DEK can verify chain integrity; an auditor with the DEK can verify both chain integrity and event authenticity. Neither can be fooled without leaving evidence.
+The chain proves the sequence of ciphertexts is internally consistent and unmodified since it was written. AEAD additionally proves each event was written by a process holding the active audit encryption key. A witness without that key can verify chain integrity; a principal holding the audit key (via the DEK by default, or via `AuditProtector` when configured) can also decrypt events and verify their authenticity. Neither can be fooled without leaving evidence.
 
 ### 23.4 Three-server witness model
 
@@ -3860,7 +3924,7 @@ Parity. No differentiation here.
 | CRC / checksum | optional (`PRAGMA integrity_check`) | per-page AEAD tag |
 | AEAD per page | ❌ | ✅ |
 | Tamper detection | weak (CRC only) | strong (AEAD — any bit flip is caught) |
-| Cross-DB page swap detection | ❌ | ✅ (AAD includes `db_id`) |
+| Cross-DB page swap detection | ❌ | partial (different DEKs usually fail; page AAD does not yet include `db_id`) |
 | Wrong-key detection | ❌ | ✅ (tag fails on wrong key) |
 
 SQLite with CRC detects accidental corruption. Tosumu detects accidental corruption and intentional manipulation.
@@ -4623,12 +4687,12 @@ Three orthogonal failure dimensions cover all state misrepresentation:
 | Dimension | Question | Mechanism | Current status |
 |---|---|---|---|
 | **Integrity** | Is this the page we wrote? | AEAD authentication | Stage 1 — implemented |
-| **Freshness** | Is this the most recent state? | LSN / witness chain | Stage 6 — deferred |
+| **Freshness** | Is this the most recent state? | LSN / witness or observer anchor | Stage 7+ — deferred |
 | **Epistemic correctness** | Is the system claiming only what it can verify? | Design constraints at each layer | Continuous |
 
 These are independent. A page can be integral but stale (§5.3 rollback vector: AEAD passes, but it is a faithful copy of an old frame). A system can be neither integral nor fresh if AEAD is skipped and staleness is undetected. The three dimensions must be tracked separately because the mitigations are separate.
 
-**The rollback gap.** Per-page `page_version` closes the single-page rollback case. It does not close the consistent multi-page rollback case. An attacker who replaces all pages with a mutually consistent earlier snapshot will have every page pass AEAD — freshness is the dimension that catches this, not integrity. Until Stage 6, Tosumu can only report freshness as `unanchored`, not as `ok`. Reporting it as `ok` before the witness chain exists would itself be a tofeka claim.
+**The rollback gap.** Per-page `page_version` closes the single-page rollback case. It does not close the consistent multi-page rollback case. An attacker who replaces all pages with a mutually consistent earlier snapshot will have every page pass AEAD — freshness is the dimension that catches this, not integrity. Until Stage 7+, Tosumu can only report freshness as `unanchored`, not as `ok`. Reporting it as `ok` before a witness or observer anchor exists would itself be a tofeka claim.
 
 ### 29.3 Tofeka violations in storage systems
 
@@ -4650,9 +4714,9 @@ The `--explain` flag on `tosumu verify` reports per-page status across all three
 verifying example.tsm (4 data pages) ...
 
 page 1:
-  integrity:   OK     — AEAD tag verified (this is the page we wrote)
-  freshness:   unanchored — LSN witness not configured (§23, Stage 6)
-  epistemic:   OK     — no overclaiming
+    integrity:   OK     — AEAD tag verified (this is the page we wrote)
+    freshness:   unanchored — no witness or observer anchor configured (§23, Stage 7+)
+    epistemic:   OK     — no overclaiming
 
 page 2:
   integrity:   FAIL   — AEAD tag mismatch (page corrupted or tampered)
@@ -4662,7 +4726,7 @@ page 2:
 FAILED: 3/4 pages ok, 1 issue(s)
 ```
 
-The `freshness: unanchored` status persists until Stage 6. This is intentional honest reporting: we know exactly what we can verify at this stage and what we cannot. Saying `freshness: OK` before the witness chain is implemented would be a tofeka claim in the output of the tool whose purpose is to detect tofeka claims.
+The `freshness: unanchored` status persists until Stage 7+. This is intentional honest reporting: we know exactly what we can verify at this stage and what we cannot. Saying `freshness: OK` before the witness or observer anchor is implemented would be a tofeka claim in the output of the tool whose purpose is to detect tofeka claims.
 
 ### 29.5 Implications for the audit system
 

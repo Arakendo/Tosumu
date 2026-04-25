@@ -127,29 +127,37 @@ where
 /// prevent the fault counter from bleeding into parallel tests.
 #[cfg(test)]
 pub(crate) mod fault_injection {
-    use std::sync::{
-        Mutex,
-        atomic::{AtomicU32, Ordering},
-    };
+    use std::cell::Cell;
+    use std::sync::Mutex;
 
     /// Serialises all fault-injection tests.
     pub static LOCK: Mutex<()> = Mutex::new(());
-    static FAULTS: AtomicU32 = AtomicU32::new(0);
+    thread_local! {
+        static FAULTS: Cell<u32> = const { Cell::new(0) };
+    }
 
     /// Set the number of lock faults to inject.
-    pub fn arm(n: u32) { FAULTS.store(n, Ordering::SeqCst); }
+    pub fn arm(n: u32) {
+        FAULTS.with(|faults| faults.set(n));
+    }
 
     /// Clear all pending faults (called by `FaultGuard` on drop).
-    pub fn disarm() { FAULTS.store(0, Ordering::SeqCst); }
+    pub fn disarm() {
+        FAULTS.with(|faults| faults.set(0));
+    }
 
     /// Atomically consume one fault ticket.  Returns `true` iff a fault should
     /// be injected (counter was > 0 and was decremented).
     pub fn should_inject() -> bool {
-        FAULTS
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
-                if v > 0 { Some(v - 1) } else { None }
-            })
-            .is_ok()
+        FAULTS.with(|faults| {
+            let remaining = faults.get();
+            if remaining == 0 {
+                false
+            } else {
+                faults.set(remaining - 1);
+                true
+            }
+        })
     }
 }
 
@@ -167,6 +175,11 @@ const RT_BEGIN:      u8 = 0x01;
 const RT_PAGE_WRITE: u8 = 0x02;
 const RT_COMMIT:     u8 = 0x03;
 const RT_CHECKPOINT: u8 = 0x04;
+
+/// Largest payload any valid WAL record can carry.
+///
+/// PageWrite stores: pgno(u64) + page_version(u64) + full page frame.
+const MAX_WAL_PAYLOAD_LEN: usize = 16 + PAGE_SIZE;
 
 // ── Header sizes ─────────────────────────────────────────────────────────────
 
@@ -255,17 +268,23 @@ impl WalWriter {
 
     /// Open an existing WAL file for appending.
     ///
-    /// Scans all existing records to determine `next_lsn`.
+    /// Scans all validated existing records to determine `next_lsn` and trims
+    /// any torn partial tail before appending.
     pub fn open(path: &Path) -> Result<Self> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .open(path)?;
-        // Determine next LSN by scanning existing records.
-        let next_lsn = scan_max_lsn(&file)? + 1;
+        let (max_lsn, append_offset) = scan_append_state(&file)?;
+        let next_lsn = max_lsn.checked_add(1).ok_or(TosumuError::CorruptRecord {
+            offset: append_offset,
+            reason: "WAL LSN overflow",
+        })?;
+        if file.metadata()?.len() > append_offset {
+            file.set_len(append_offset)?;
+        }
         let mut w = WalWriter { file, next_lsn };
-        // Seek to end for appending.
-        w.file.seek(SeekFrom::End(0))?;
+        w.file.seek(SeekFrom::Start(append_offset))?;
         Ok(w)
     }
 
@@ -341,6 +360,7 @@ impl WalReader {
         let lsn         = u64::from_le_bytes(hdr[0..8].try_into().unwrap());
         let record_type = hdr[8];
         let payload_len = u32::from_le_bytes(hdr[9..13].try_into().unwrap()) as usize;
+        validate_payload_len(payload_len, record_start)?;
 
         let mut payload = vec![0u8; payload_len];
         self.reader.read_exact(&mut payload).map_err(|e| {
@@ -384,8 +404,15 @@ impl WalReader {
             match rdr.next_record() {
                 Ok(Some(r)) => out.push(r),
                 Ok(None) => break,
-                // Stop on corruption — the tail may be a partial write.
-                Err(TosumuError::CorruptRecord { .. }) => break,
+                // Ignore only torn tail records; complete-record corruption must surface.
+                Err(TosumuError::CorruptRecord {
+                    reason: "WAL record truncated in payload",
+                    ..
+                }) => break,
+                Err(TosumuError::CorruptRecord {
+                    reason: "WAL record truncated in CRC",
+                    ..
+                }) => break,
                 Err(e) => return Err(e),
             }
         }
@@ -465,7 +492,9 @@ fn apply_committed_writes(
             WalRecord::PageWrite { pgno, frame, .. } => {
                 if let Some(tid) = current_txn {
                     if committed.contains(&tid) {
-                        let offset = pgno * PAGE_SIZE as u64;
+                        let offset = pgno.checked_mul(PAGE_SIZE as u64).ok_or(
+                            TosumuError::Corrupt { pgno: *pgno, reason: "WAL page offset overflow" }
+                        )?;
                         db_file.seek(SeekFrom::Start(offset))?;
                         db_file.write_all(frame.as_ref())?;
                     }
@@ -545,11 +574,25 @@ fn decode_payload(record_type: u8, payload: &[u8], offset: u64) -> Result<WalRec
     }
 }
 
-/// Scan the file to find the highest LSN. Used by `WalWriter::open`.
-fn scan_max_lsn(file: &File) -> Result<u64> {
+fn validate_payload_len(payload_len: usize, offset: u64) -> Result<()> {
+    if payload_len > MAX_WAL_PAYLOAD_LEN {
+        return Err(TosumuError::CorruptRecord {
+            offset,
+            reason: "WAL payload_len out of range",
+        });
+    }
+    Ok(())
+}
+
+/// Scan the WAL to find the highest LSN and the byte offset after the last
+/// fully validated record. A truncated tail is ignored; structured corruption
+/// in a complete record is surfaced as an error.
+fn scan_append_state(file: &File) -> Result<(u64, u64)> {
     let mut reader = BufReader::new(file.try_clone()?);
     let mut max_lsn = 0u64;
+    let mut offset = 0u64;
     loop {
+        let record_start = offset;
         let mut hdr = [0u8; 13];
         match reader.read_exact(&mut hdr) {
             Ok(()) => {}
@@ -557,18 +600,41 @@ fn scan_max_lsn(file: &File) -> Result<u64> {
             Err(e) => return Err(e.into()),
         }
         let lsn         = u64::from_le_bytes(hdr[0..8].try_into().unwrap());
+        let record_type = hdr[8];
         let payload_len = u32::from_le_bytes(hdr[9..13].try_into().unwrap()) as usize;
-        max_lsn = max_lsn.max(lsn);
-        // Skip payload + crc.
-        let skip = payload_len + 4;
-        let mut buf = vec![0u8; skip];
-        match reader.read_exact(&mut buf) {
+        validate_payload_len(payload_len, record_start)?;
+
+        let mut payload = vec![0u8; payload_len];
+        match reader.read_exact(&mut payload) {
             Ok(()) => {}
             Err(e) if e.kind() == ErrorKind::UnexpectedEof => break,
             Err(e) => return Err(e.into()),
         }
+
+        let mut crc_bytes = [0u8; 4];
+        match reader.read_exact(&mut crc_bytes) {
+            Ok(()) => {}
+            Err(e) if e.kind() == ErrorKind::UnexpectedEof => break,
+            Err(e) => return Err(e.into()),
+        }
+
+        let stored_crc = u32::from_le_bytes(crc_bytes);
+        let mut covered = Vec::with_capacity(13 + payload_len);
+        covered.extend_from_slice(&hdr);
+        covered.extend_from_slice(&payload);
+        let computed_crc = crc32fast::hash(&covered);
+        if computed_crc != stored_crc {
+            return Err(TosumuError::CorruptRecord {
+                offset: record_start,
+                reason: "WAL record CRC mismatch",
+            });
+        }
+
+        decode_payload(record_type, &payload, record_start)?;
+        offset = record_start + 13 + payload_len as u64 + 4;
+        max_lsn = max_lsn.max(lsn);
     }
-    Ok(max_lsn)
+    Ok((max_lsn, offset))
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -666,7 +732,76 @@ mod tests {
     }
 
     #[test]
-    fn crc_corruption_stops_read() {
+    fn wal_writer_open_truncates_partial_tail_before_append() {
+        let p = tmp("open_truncates_partial_tail");
+        let _ = std::fs::remove_file(&p);
+
+        {
+            let mut w = WalWriter::create(&p).unwrap();
+            w.append(&WalRecord::Begin { txn_id: 1 }).unwrap();
+            w.append(&WalRecord::Commit { txn_id: 1 }).unwrap();
+            w.sync().unwrap();
+        }
+        let safe_len = std::fs::metadata(&p).unwrap().len();
+
+        {
+            let mut w = WalWriter::open(&p).unwrap();
+            let mut frame = Box::new([0u8; PAGE_SIZE]);
+            frame[0] = 0xAA;
+            w.append(&WalRecord::Begin { txn_id: 2 }).unwrap();
+            let last_complete_len = std::fs::metadata(&p).unwrap().len();
+            w.append(&WalRecord::PageWrite { pgno: 9, page_version: 1, frame }).unwrap();
+            w.sync().unwrap();
+            drop(w);
+
+            let f = OpenOptions::new().write(true).open(&p).unwrap();
+            f.set_len(safe_len + 30).unwrap();
+            drop(f);
+
+            let mut w = WalWriter::open(&p).unwrap();
+            assert_eq!(std::fs::metadata(&p).unwrap().len(), last_complete_len);
+            let lsn = w.append(&WalRecord::Begin { txn_id: 3 }).unwrap();
+            assert_eq!(lsn, 4);
+            w.sync().unwrap();
+        }
+
+        let records = WalReader::read_all(&p).unwrap();
+        assert_eq!(records.len(), 4);
+        assert!(matches!(records[2].1, WalRecord::Begin { txn_id: 2 }));
+        assert!(matches!(records[3].1, WalRecord::Begin { txn_id: 3 }));
+
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn wal_writer_open_rejects_crc_corruption_before_append() {
+        let p = tmp("open_crc_corrupt");
+        let _ = std::fs::remove_file(&p);
+
+        let mut w = WalWriter::create(&p).unwrap();
+        w.append(&WalRecord::Begin { txn_id: 1 }).unwrap();
+        w.append(&WalRecord::Commit { txn_id: 1 }).unwrap();
+        w.sync().unwrap();
+
+        let mut raw = std::fs::read(&p).unwrap();
+        let second_record_start = RECORD_HEADER_SIZE + 8;
+        raw[second_record_start + 5] ^= 0xFF;
+        std::fs::write(&p, &raw).unwrap();
+
+        let err = match WalWriter::open(&p) {
+            Ok(_) => panic!("expected CRC-corrupt WAL open to fail"),
+            Err(err) => err,
+        };
+        assert!(matches!(
+            err,
+            TosumuError::CorruptRecord { offset, reason: "WAL record CRC mismatch" } if offset > 0
+        ));
+
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn crc_corruption_is_reported() {
         let p = tmp("crc");
         let _ = std::fs::remove_file(&p);
 
@@ -683,11 +818,132 @@ mod tests {
         }
         std::fs::write(&p, &raw).unwrap();
 
-        // read_all stops at the corruption (first record still valid).
-        let records = WalReader::read_all(&p).unwrap();
-        assert_eq!(records.len(), 1);
+        let err = WalReader::read_all(&p).unwrap_err();
+        assert!(matches!(
+            err,
+            TosumuError::CorruptRecord { offset, reason: "WAL record CRC mismatch" } if offset > 0
+        ));
 
         let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn recover_reports_mid_log_crc_corruption() {
+        let wal_p = tmp("recover_crc_corrupt_wal");
+        let db_p  = tmp_db("recover_crc_corrupt_db");
+        let _ = std::fs::remove_file(&wal_p);
+        let _ = std::fs::remove_file(&db_p);
+
+        std::fs::write(&db_p, vec![0u8; PAGE_SIZE]).unwrap();
+
+        let mut w = WalWriter::create(&wal_p).unwrap();
+        w.append(&WalRecord::Begin { txn_id: 1 }).unwrap();
+        w.append(&WalRecord::Commit { txn_id: 1 }).unwrap();
+        w.append(&WalRecord::Begin { txn_id: 2 }).unwrap();
+        w.append(&WalRecord::Commit { txn_id: 2 }).unwrap();
+        w.sync().unwrap();
+
+        let mut raw = std::fs::read(&wal_p).unwrap();
+        let second_record_start = RECORD_HEADER_SIZE + 8;
+        raw[second_record_start + 5] ^= 0xFF;
+        std::fs::write(&wal_p, &raw).unwrap();
+
+        let err = recover(&db_p, &wal_p).unwrap_err();
+        assert!(matches!(
+            err,
+            TosumuError::CorruptRecord { offset, reason: "WAL record CRC mismatch" } if offset > 0
+        ));
+
+        let _ = std::fs::remove_file(&wal_p);
+        let _ = std::fs::remove_file(&db_p);
+    }
+
+    #[test]
+    fn next_record_rejects_oversized_payload_len_before_allocation() {
+        let p = tmp("oversized_payload_reader");
+        let _ = std::fs::remove_file(&p);
+
+        let mut raw = Vec::new();
+        raw.extend_from_slice(&1u64.to_le_bytes());
+        raw.push(RT_BEGIN);
+        raw.extend_from_slice(&u32::MAX.to_le_bytes());
+        std::fs::write(&p, raw).unwrap();
+
+        let mut rdr = WalReader::open(&p).unwrap();
+        let err = rdr.next_record().unwrap_err();
+        assert!(matches!(
+            err,
+            TosumuError::CorruptRecord { offset: 0, reason: "WAL payload_len out of range" }
+        ));
+
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn wal_writer_open_rejects_oversized_payload_len_before_allocation() {
+        let p = tmp("oversized_payload_open");
+        let _ = std::fs::remove_file(&p);
+
+        let mut raw = Vec::new();
+        raw.extend_from_slice(&1u64.to_le_bytes());
+        raw.push(RT_BEGIN);
+        raw.extend_from_slice(&u32::MAX.to_le_bytes());
+        std::fs::write(&p, raw).unwrap();
+
+        let err = match WalWriter::open(&p) {
+            Ok(_) => panic!("expected oversized payload_len to be rejected"),
+            Err(err) => err,
+        };
+        assert!(matches!(
+            err,
+            TosumuError::CorruptRecord { offset: 0, reason: "WAL payload_len out of range" }
+        ));
+
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn writable_open_revalidates_page0_after_recovery() {
+        use crate::btree::BTree;
+        use crate::format::{write_u16, OFF_KEYSLOT_COUNT};
+
+        let db_p = tmp_db("revalidate_page0_after_recovery");
+        let wal_p = wal_path(&db_p);
+        let _ = std::fs::remove_file(&db_p);
+        let _ = std::fs::remove_file(&wal_p);
+
+        {
+            let _t = BTree::create(&db_p).unwrap();
+        }
+        let _ = std::fs::remove_file(&wal_p);
+
+        let mut page0 = [0u8; PAGE_SIZE];
+        page0.copy_from_slice(&std::fs::read(&db_p).unwrap()[..PAGE_SIZE]);
+        write_u16(&mut page0, OFF_KEYSLOT_COUNT, 0);
+
+        {
+            let mut w = WalWriter::create(&wal_p).unwrap();
+            w.append(&WalRecord::Begin { txn_id: 1 }).unwrap();
+            w.append(&WalRecord::PageWrite {
+                pgno: 0,
+                page_version: 0,
+                frame: Box::new(page0),
+            }).unwrap();
+            w.append(&WalRecord::Commit { txn_id: 1 }).unwrap();
+            w.sync().unwrap();
+        }
+
+        let err = match BTree::open(&db_p) {
+            Ok(_) => panic!("expected corrupt recovered page0 to be rejected"),
+            Err(err) => err,
+        };
+        assert!(matches!(
+            err,
+            TosumuError::Corrupt { pgno: 0, reason: "keyslot_count in header is out of valid range" }
+        ));
+
+        let _ = std::fs::remove_file(&db_p);
+        let _ = std::fs::remove_file(&wal_p);
     }
 
     #[test]
@@ -716,6 +972,35 @@ mod tests {
         let raw = std::fs::read(&db_p).unwrap();
         assert_eq!(raw[PAGE_SIZE * 2], 0xBE);
         assert_eq!(raw[PAGE_SIZE * 2 + 1], 0xEF);
+
+        let _ = std::fs::remove_file(&wal_p);
+        let _ = std::fs::remove_file(&db_p);
+    }
+
+    #[test]
+    fn recover_rejects_overflowing_page_offset() {
+        let wal_p = tmp("recover_offset_overflow_wal");
+        let db_p  = tmp_db("recover_offset_overflow_db");
+        let _ = std::fs::remove_file(&wal_p);
+        let _ = std::fs::remove_file(&db_p);
+
+        std::fs::write(&db_p, vec![0u8; PAGE_SIZE]).unwrap();
+
+        let mut w = WalWriter::create(&wal_p).unwrap();
+        w.append(&WalRecord::Begin { txn_id: 1 }).unwrap();
+        w.append(&WalRecord::PageWrite {
+            pgno: u64::MAX,
+            page_version: 1,
+            frame: Box::new([0u8; PAGE_SIZE]),
+        }).unwrap();
+        w.append(&WalRecord::Commit { txn_id: 1 }).unwrap();
+        w.sync().unwrap();
+
+        let err = recover(&db_p, &wal_p).unwrap_err();
+        assert!(matches!(
+            err,
+            TosumuError::Corrupt { pgno, reason: "WAL page offset overflow" } if pgno == u64::MAX
+        ));
 
         let _ = std::fs::remove_file(&wal_p);
         let _ = std::fs::remove_file(&db_p);
