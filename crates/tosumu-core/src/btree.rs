@@ -197,16 +197,24 @@ impl BTree {
 
     /// Return all live key-value pairs where `start <= key <= end`, sorted by key.
     ///
-    /// Uses the leaf chain starting from `find_leaf(start)`.
+    /// Descends to the leaf containing `start`, then walks the leaf chain forward.
+    /// Stops as soon as any key on the current page exceeds `end`: the B+ tree
+    /// invariant guarantees that all keys on subsequent pages in the chain are
+    /// >= the page-separator between the current and next page, which is > any
+    /// key on the current page, so those pages cannot contain in-range keys.
     pub fn scan_by_key(&self, start: &[u8], end: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         let first_leaf = self.find_leaf(start)?;
         let mut map: std::collections::BTreeMap<Vec<u8>, Option<Vec<u8>>> = Default::default();
         let mut cursor = first_leaf;
 
         loop {
-            let next = self.pager.with_page(cursor, |page| {
+            // Returns (next_pgno, past_end).
+            // past_end = true when any key on this page exceeded `end`, meaning
+            // the next page in the chain is entirely beyond the range.
+            let (next, past_end) = self.pager.with_page(cursor, |page| {
                 let next_pgno = read_u64(page, HDR_LEFTMOST);
                 let slot_count = read_u16(page, HDR_SLOT_COUNT) as usize;
+                let mut past_end = false;
                 for i in 0..slot_count {
                     let slot_pos = PAGE_HEADER_SIZE + i * SLOT_SIZE;
                     let off = read_u16(page, slot_pos) as usize;
@@ -220,7 +228,9 @@ impl BTree {
                             let vl = u16::from_le_bytes([rec[3], rec[4]]) as usize;
                             if 5 + kl + vl <= rec.len() {
                                 let k = &rec[5..5 + kl];
-                                if k >= start && k <= end {
+                                if k > end {
+                                    past_end = true;
+                                } else if k >= start {
                                     map.insert(k.to_vec(), Some(rec[5 + kl..5 + kl + vl].to_vec()));
                                 }
                             }
@@ -229,7 +239,9 @@ impl BTree {
                             let kl = u16::from_le_bytes([rec[1], rec[2]]) as usize;
                             if 3 + kl <= rec.len() {
                                 let k = &rec[3..3 + kl];
-                                if k >= start && k <= end {
+                                if k > end {
+                                    past_end = true;
+                                } else if k >= start {
                                     map.insert(k.to_vec(), None);
                                 }
                             }
@@ -237,9 +249,9 @@ impl BTree {
                         _ => {}
                     }
                 }
-                Ok(next_pgno)
+                Ok((next_pgno, past_end))
             })?;
-            if next == 0 { break; }
+            if next == 0 || past_end { break; }
             cursor = next;
         }
 
