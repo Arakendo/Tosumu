@@ -54,6 +54,15 @@ impl Pager {
     ///
     /// Generates a DEK, writes the file header (page 0) with a Sentinel
     /// keyslot, and returns a ready-to-use Pager.
+    ///
+    /// # Security: Sentinel provides NO confidentiality
+    ///
+    /// The DEK is stored in plaintext in the Sentinel keyslot. Anyone with
+    /// read access to the file can decrypt all pages. The AEAD layer provides
+    /// *integrity only* until a passphrase or recovery-key protector is added
+    /// via `create_encrypted` / `add_passphrase_protector`.
+    ///
+    /// Do NOT use `create()` for user-facing databases that require secrecy.
     pub fn create(path: &Path) -> Result<Self> {
         let mut file = OpenOptions::new()
             .read(true)
@@ -92,6 +101,13 @@ impl Pager {
     /// Open an existing database file at `path`.
     ///
     /// Reads the Sentinel keyslot to recover the DEK, verifies the header.
+    ///
+    /// # Security: Sentinel provides NO confidentiality
+    ///
+    /// If the file was created with `create()` (Sentinel keyslot), the DEK is
+    /// read from plaintext — this path offers integrity checks but **zero
+    /// confidentiality**. Use `open_with_passphrase()` or
+    /// `open_with_recovery_key()` for databases that require secrecy.
     pub fn open(path: &Path) -> Result<Self> {
         let mut file = OpenOptions::new()
             .read(true)
@@ -468,6 +484,7 @@ impl Pager {
             self.read_frame(pgno)?
         };
         let (plaintext, _version) = decrypt_page(&self.page_key, pgno, &frame)?;
+        validate_plaintext_header(&plaintext, pgno)?;
         f(&plaintext)
     }
 
@@ -494,10 +511,15 @@ impl Pager {
         };
 
         let (mut plaintext, version) = decrypt_page(&self.page_key, pgno, &frame)?;
+        validate_plaintext_header(&plaintext, pgno)?;
 
         f(&mut plaintext)?;
 
-        let new_frame = encrypt_page(&self.page_key, pgno, version + 1, plaintext[PAGE_OFF_TYPE], &plaintext)?;
+        let new_version = version.checked_add(1).ok_or_else(|| TosumuError::Corrupt {
+            pgno,
+            reason: "page_version overflow: page has been written u64::MAX times",
+        })?;
+        let new_frame = encrypt_page(&self.page_key, pgno, new_version, plaintext[PAGE_OFF_TYPE], &plaintext)?;
 
         if self.txn_active {
             // WAL path: buffer the frame, append PageWrite.
@@ -644,7 +666,6 @@ impl Pager {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    /// Validate that `pgno` is a data page: non-zero and within the allocated range.
     fn validate_data_pgno(&self, pgno: u64) -> Result<()> {
         if pgno == 0 {
             return Err(TosumuError::InvalidArgument("page 0 is the file header, not a data page"));
@@ -663,8 +684,10 @@ impl Pager {
     fn read_frame(&self, pgno: u64) -> Result<[u8; PAGE_SIZE]> {
         let mut frame = [0u8; PAGE_SIZE];
         let offset = pgno * PAGE_SIZE as u64;
-        // File::seek needs &mut File. For MVP+1, clone the handle for reads
-        // instead of adding interior mutability or a page cache.
+        // PERF TODO: try_clone() issues a syscall and creates a new OS file handle per read.
+        // This is acceptable for MVP+1 (no page cache) but should be replaced in Stage 2
+        // with either a page cache (preferred) or interior mutability (RefCell<File>).
+        // Tracking: remove try_clone when page cache is introduced.
         let mut f = self.file.try_clone()?;
         f.seek(SeekFrom::Start(offset))?;
         f.read_exact(&mut frame)?;
@@ -684,6 +707,35 @@ impl Pager {
 
 fn write_u16_buf(buf: &mut [u8], offset: usize, v: u16) {
     buf[offset..offset + 2].copy_from_slice(&v.to_le_bytes());
+}
+
+/// Sanity-check the plaintext page header after decryption.
+///
+/// Catches cases where an attacker (or corrupted file) flips page_type or
+/// free_start/free_end to values that would cause higher layers to misbehave.
+fn validate_plaintext_header(page: &[u8; PAGE_PLAINTEXT_SIZE], pgno: u64) -> Result<()> {
+    let page_type = page[PAGE_OFF_TYPE];
+    if page_type != PAGE_TYPE_LEAF && page_type != PAGE_TYPE_INTERNAL {
+        return Err(TosumuError::Corrupt {
+            pgno,
+            reason: "decrypted page has unknown page_type",
+        });
+    }
+    let free_start = u16::from_le_bytes([page[PAGE_OFF_FREE_START], page[PAGE_OFF_FREE_START + 1]]) as usize;
+    let free_end   = u16::from_le_bytes([page[PAGE_OFF_FREE_END],   page[PAGE_OFF_FREE_END   + 1]]) as usize;
+    if free_start > free_end {
+        return Err(TosumuError::Corrupt {
+            pgno,
+            reason: "decrypted page: free_start > free_end",
+        });
+    }
+    if free_end > PAGE_PLAINTEXT_SIZE {
+        return Err(TosumuError::Corrupt {
+            pgno,
+            reason: "decrypted page: free_end > PAGE_PLAINTEXT_SIZE",
+        });
+    }
+    Ok(())
 }
 
 // ── Keyslot helpers ───────────────────────────────────────────────────────────
