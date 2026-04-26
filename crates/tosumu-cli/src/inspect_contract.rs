@@ -289,6 +289,7 @@ fn inspect_error_value(value: &ErrorValue) -> Value {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn render_inspect_error_json(command: &'static str, error: &TosumuError) -> String {
     render_inspect_error_report_json(command, &error.error_report())
 }

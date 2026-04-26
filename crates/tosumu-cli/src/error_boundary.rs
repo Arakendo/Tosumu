@@ -4,6 +4,7 @@ pub(crate) mod codes {
     pub const CLI_ARGUMENT_INVALID: &str = "CLI_ARGUMENT_INVALID";
     pub const CLI_KEY_NOT_FOUND: &str = "CLI_KEY_NOT_FOUND";
 
+    #[cfg(test)]
     pub const PUBLIC_CODES: &[&str] = &[CLI_ARGUMENT_INVALID, CLI_KEY_NOT_FOUND];
 }
 

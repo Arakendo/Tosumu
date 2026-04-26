@@ -695,7 +695,6 @@ mod tests {
     fn kat_recovery_kek_ignores_dashes_and_case() {
         let with_dashes = "AAAAAAAAAAAAAAAA-AAAAAAAAAAAAAAAA";
         let without = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-        let _lower = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; // won't parse — wrong length
         let kek1 = derive_recovery_kek(with_dashes).unwrap();
         let kek2 = derive_recovery_kek(without).unwrap();
         assert_eq!(kek1, kek2, "dashes must be stripped before decoding");

@@ -1828,7 +1828,7 @@ mod tests {
 
     /// Assert recovery leaves old state intact (base_key visible, new_key absent)
     /// and that structural invariants pass.
-    fn assert_old_state(db_p: &PathBuf) {
+    fn assert_old_state(db_p: &Path) {
         use crate::btree::BTree;
         let t = BTree::open(db_p).unwrap();
         assert_eq!(

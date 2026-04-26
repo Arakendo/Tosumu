@@ -1385,7 +1385,7 @@ mod tests {
         for i in 0..=7u16 {
             let pass = format!("p{i}");
             PageStore::open_with_passphrase(&path, &pass)
-                .expect(&format!("slot {i} passphrase failed"));
+                .unwrap_or_else(|_| panic!("slot {i} passphrase failed"));
         }
 
         let _ = std::fs::remove_file(&path);
@@ -1760,7 +1760,7 @@ mod tests {
                     drop(store);
                     store = PageStore::open_with_passphrase(&path, "diff-pass").unwrap();
                 }
-                1 | 2 | 3 | 4 | 5 => {
+                1..=5 => {
                     let key_index = (step * 7) % 41;
                     let key = diff_key(key_index);
                     let value = diff_value(step, key_index);
@@ -2519,6 +2519,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::permissions_set_readonly_false)]
     fn open_readonly_works_on_readonly_file() {
         let path = temp_path("readonly_file_open");
         let _ = std::fs::remove_file(&path);
@@ -2537,9 +2538,12 @@ mod tests {
         assert_eq!(store.scan().unwrap(), vec![(b"k".to_vec(), b"v".to_vec())]);
         assert_eq!(store.stat().unwrap().page_count, 2);
 
-        let mut perms = std::fs::metadata(&path).unwrap().permissions();
-        perms.set_readonly(false);
-        std::fs::set_permissions(&path, perms).unwrap();
+        #[cfg(windows)]
+        {
+            let mut perms = std::fs::metadata(&path).unwrap().permissions();
+            perms.set_readonly(false);
+            std::fs::set_permissions(&path, perms).unwrap();
+        }
         let _ = std::fs::remove_file(&path);
     }
 

@@ -1340,7 +1340,7 @@ mod tests {
         let rec = encode_live(b"key", b"val");
         let mut page = make_leaf_page(&[&rec]);
         // Point the slot into the slot-array area (below free_end) — overlaps free area.
-        let free_end = read_u16(&page, HDR_FREE_END) as u16;
+        let free_end = read_u16(&page, HDR_FREE_END);
         write_u16(&mut page, PAGE_HEADER_SIZE, free_end - 2); // off < free_end
         write_u16(&mut page, PAGE_HEADER_SIZE + 2, 2u16);
         let err = inv_check_slots(&page, 1).unwrap_err();
