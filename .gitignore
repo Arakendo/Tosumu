@@ -29,6 +29,11 @@ Thumbs.db
 # Env / local config
 .env
 .env.local
+.venv/
+__pycache__/
+
+# MkDocs build output
+/site/
 
 # .NET local packaging / build outputs
 /dotnet/.artifacts/

@@ -1,0 +1,47 @@
+site_name: Tosumu
+site_description: Experimental local database engine focused on inspectability and explicit failure reporting.
+site_url: https://tosumu.org/
+repo_url: https://github.com/Arakendo/Tosumu
+repo_name: Arakendo/Tosumu
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Concepts: concepts.md
+  - Architecture: architecture.md
+  - File Format: file-format.md
+  - Error Model: error-model.md
+  - Inspect API: inspect-api.md
+  - CLI Reference: cli-reference.md
+  - Safety and Limits: safety-and-limits.md
+  - Roadmap: roadmap.md
+  - Development: development.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - tables
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+
+extra:
+  generator: false
