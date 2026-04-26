@@ -326,6 +326,39 @@ impl WalWriter {
     }
 }
 
+trait WalCheckpointTruncateFile: Seek {
+    fn set_len(&mut self, size: u64) -> std::io::Result<()>;
+    fn sync_data(&mut self) -> std::io::Result<()>;
+}
+
+impl WalCheckpointTruncateFile for File {
+    fn set_len(&mut self, size: u64) -> std::io::Result<()> {
+        File::set_len(self, size)
+    }
+
+    fn sync_data(&mut self) -> std::io::Result<()> {
+        File::sync_data(self)
+    }
+}
+
+#[cfg(test)]
+impl WalCheckpointTruncateFile for crate::test_helpers::CrashFile {
+    fn set_len(&mut self, size: u64) -> std::io::Result<()> {
+        crate::test_helpers::CrashFile::set_len(self, size)
+    }
+
+    fn sync_data(&mut self) -> std::io::Result<()> {
+        crate::test_helpers::CrashFile::sync_data(self)
+    }
+}
+
+fn truncate_wal_after_checkpoint<T: WalCheckpointTruncateFile>(file: &mut T) -> Result<()> {
+    file.seek(SeekFrom::Start(0))?;
+    file.set_len(0)?;
+    file.sync_data()?;
+    Ok(())
+}
+
 // ── WalReader ────────────────────────────────────────────────────────────────
 
 /// Reads WAL records sequentially from a `.wal` file.
@@ -520,14 +553,12 @@ fn apply_committed_writes(
 pub fn checkpoint(db_path: &Path, wal_path: &Path) -> Result<()> {
     recover(db_path, wal_path)?;
     // Truncate WAL — only reached if recovery succeeded, so safe to overwrite.
-    let file = open_file_retrying(
+    let mut file = open_file_retrying(
         wal_path,
         || OpenOptions::new().write(true).open(wal_path),
         "truncating WAL during checkpoint",
     )?;
-    file.set_len(0)?;
-    file.sync_data()?;
-    Ok(())
+    truncate_wal_after_checkpoint(&mut file)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -642,6 +673,7 @@ fn scan_append_state(file: &File) -> Result<(u64, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::{CrashFile, CrashPhase};
     use std::path::PathBuf;
 
     fn tmp(name: &str) -> PathBuf {
@@ -1713,6 +1745,58 @@ mod tests {
         let wal_size_after = std::fs::metadata(&wal_p).unwrap().len();
         assert_eq!(wal_size_before, wal_size_after,
             "WAL must not be truncated when recover() failed");
+        let _ = std::fs::remove_file(&wal_p);
+    }
+
+    #[test]
+    fn checkpoint_truncate_crash_preserves_recovered_db_and_leaves_wal_intact() {
+        use crate::btree::BTree;
+
+        let db_p = tmp_db("ckpt_truncate_crash");
+        let wal_p = wal_path(&db_p);
+        baseline_btree(&db_p, &wal_p);
+
+        let real_frame = {
+            let t = BTree::open(&db_p).unwrap();
+            t.pager.read_raw_frame(1).unwrap()
+        };
+        let _ = std::fs::remove_file(&wal_p);
+
+        {
+            let mut raw = std::fs::read(&db_p).unwrap();
+            for b in &mut raw[PAGE_SIZE..PAGE_SIZE * 2] { *b = 0; }
+            std::fs::write(&db_p, &raw).unwrap();
+        }
+
+        {
+            let mut w = WalWriter::create(&wal_p).unwrap();
+            w.append(&WalRecord::Begin { txn_id: 1 }).unwrap();
+            w.append(&WalRecord::PageWrite {
+                pgno: 1,
+                page_version: 1,
+                frame: Box::new(real_frame),
+            }).unwrap();
+            w.append(&WalRecord::Commit { txn_id: 1 }).unwrap();
+            w.sync().unwrap();
+        }
+
+        let wal_size_before = std::fs::metadata(&wal_p).unwrap().len();
+
+        recover(&db_p, &wal_p).unwrap();
+
+        let file = OpenOptions::new().read(true).write(true).open(&wal_p).unwrap();
+        let mut crash_file = CrashFile::new(file, CrashPhase::DuringTruncate);
+        let err = truncate_wal_after_checkpoint(&mut crash_file).unwrap_err();
+        assert!(matches!(err, TosumuError::Io(io) if io.kind() == ErrorKind::BrokenPipe));
+
+        let wal_size_after = std::fs::metadata(&wal_p).unwrap().len();
+        assert_eq!(wal_size_before, wal_size_after,
+            "WAL must remain intact when truncate crashes after recovery succeeded");
+
+        let t = BTree::open(&db_p).unwrap();
+        assert_eq!(t.get(b"base_key").unwrap(), Some(b"base_val".to_vec()));
+
+        let _ = std::fs::remove_file(&db_p);
         let _ = std::fs::remove_file(&wal_p);
     }
 }
