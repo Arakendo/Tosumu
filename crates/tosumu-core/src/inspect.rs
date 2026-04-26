@@ -227,7 +227,10 @@ pub fn inspect_page_from_pager(pager: &Pager, pgno: u64) -> Result<PageSummary> 
     }
 
     if pgno >= pager.page_count() {
-        return Err(TosumuError::InvalidArgument("page number out of range"));
+        return Err(TosumuError::InspectPageOutOfRange {
+            pgno,
+            page_count: pager.page_count(),
+        });
     }
 
     let (plaintext, page_version) = pager.read_page(pgno)?;
@@ -375,7 +378,7 @@ fn inspect_tree_node_from_pager(
     }
 
     if pgno == 0 || pgno >= pager.page_count() {
-        return Err(TosumuError::InvalidArgument("tree node page number out of range"));
+        return Err(TosumuError::Corrupt { pgno, reason: "tree node page number out of range" });
     }
 
     if !visited.insert(pgno) {
@@ -467,8 +470,16 @@ fn inspect_internal_slot(page: &[u8; PAGE_PLAINTEXT_SIZE], pgno: u64, index: usi
 // ── Verification ─────────────────────────────────────────────────────────────
 
 /// A single integrity problem found during `verify_file`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VerifyIssueKind {
+    AuthFailed,
+    Corrupt,
+    Io,
+}
+
 pub struct VerifyIssue {
     pub pgno: u64,
+    pub kind: VerifyIssueKind,
     pub description: String,
 }
 
@@ -478,6 +489,7 @@ pub struct PageVerifyResult {
     /// `Some(v)` when AEAD passed, `None` when it failed.
     pub page_version: Option<u64>,
     pub auth_ok: bool,
+    pub issue_kind: Option<VerifyIssueKind>,
     /// Human-readable description of any failure, or `None` when clean.
     pub issue: Option<String>,
 }
@@ -518,37 +530,53 @@ pub fn verify_pager(pager: &Pager) -> Result<VerifyReport> {
                     pgno,
                     page_version: Some(version),
                     auth_ok: true,
+                    issue_kind: None,
                     issue: None,
                 });
             }
             Err(TosumuError::AuthFailed { .. }) => {
                 let desc = "authentication tag mismatch (page corrupted or tampered)"
                     .to_owned();
-                issues.push(VerifyIssue { pgno, description: desc.clone() });
+                issues.push(VerifyIssue {
+                    pgno,
+                    kind: VerifyIssueKind::AuthFailed,
+                    description: desc.clone(),
+                });
                 page_results.push(PageVerifyResult {
                     pgno,
                     page_version: None,
                     auth_ok: false,
+                    issue_kind: Some(VerifyIssueKind::AuthFailed),
                     issue: Some(desc),
                 });
             }
             Err(TosumuError::Corrupt { reason, .. }) => {
                 let desc = format!("corrupt: {reason}");
-                issues.push(VerifyIssue { pgno, description: desc.clone() });
+                issues.push(VerifyIssue {
+                    pgno,
+                    kind: VerifyIssueKind::Corrupt,
+                    description: desc.clone(),
+                });
                 page_results.push(PageVerifyResult {
                     pgno,
                     page_version: None,
                     auth_ok: false,
+                    issue_kind: Some(VerifyIssueKind::Corrupt),
                     issue: Some(desc),
                 });
             }
             Err(e) => {
                 let desc = format!("I/O error: {e}");
-                issues.push(VerifyIssue { pgno, description: desc.clone() });
+                issues.push(VerifyIssue {
+                    pgno,
+                    kind: VerifyIssueKind::Io,
+                    description: desc.clone(),
+                });
                 page_results.push(PageVerifyResult {
                     pgno,
                     page_version: None,
                     auth_ok: false,
+                    issue_kind: Some(VerifyIssueKind::Io),
                     issue: Some(desc),
                 });
             }
@@ -556,4 +584,40 @@ pub fn verify_pager(pager: &Pager) -> Result<VerifyReport> {
     }
 
     Ok(VerifyReport { pages_checked: pages_to_check, pages_ok, issues, page_results })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::inspect_tree_node_from_pager;
+    use crate::pager::Pager;
+    use crate::page_store::PageStore;
+    use crate::error::TosumuError;
+
+    #[test]
+    fn inspect_tree_node_out_of_range_is_corrupt() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("tosumu_inspect_tree_out_of_range_{nanos}.tsm"));
+        let _ = std::fs::remove_file(&path);
+
+        PageStore::create(&path).unwrap();
+        let pager = Pager::open_readonly(&path).unwrap();
+        match inspect_tree_node_from_pager(
+            &pager,
+            pager.page_count(),
+            &mut std::collections::HashSet::new(),
+            1,
+        ) {
+            Err(TosumuError::Corrupt {
+                pgno,
+                reason: "tree node page number out of range",
+            }) => assert_eq!(pgno, pager.page_count()),
+            Err(other) => panic!("unexpected error: {other}"),
+            Ok(_) => panic!("expected corruption error"),
+        }
+
+        let _ = std::fs::remove_file(&path);
+    }
 }

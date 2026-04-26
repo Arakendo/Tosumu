@@ -10,14 +10,15 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Terminal;
-use tosumu_core::error::{Result, TosumuError};
+use tosumu_core::error::TosumuError;
 use tosumu_core::format::{PAGE_TYPE_FREE, PAGE_TYPE_INTERNAL, PAGE_TYPE_LEAF, PAGE_TYPE_OVERFLOW};
 use tosumu_core::inspect::{inspect_page_from_pager, read_header_info, verify_pager, HeaderInfo, PageSummary, RecordInfo, VerifyReport};
 use tosumu_core::pager::Pager;
 
+use crate::error_boundary::CliError;
 use crate::unlock::open_pager;
 
-pub fn run(path: &Path) -> Result<()> {
+pub fn run(path: &Path) -> Result<(), CliError> {
     let header = read_header_info(path)?;
     let (pager, _) = open_pager(path)?;
     let verify = verify_pager(&pager)?;
@@ -46,7 +47,7 @@ pub fn run(path: &Path) -> Result<()> {
 
     match (run_result, restore_error) {
         (Err(error), _) => Err(error),
-        (Ok(()), Some(error)) => Err(error),
+        (Ok(()), Some(error)) => Err(error.into()),
         (Ok(()), None) => Ok(()),
     }
 }
@@ -55,7 +56,7 @@ fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     pager: &Pager,
     app: &mut ViewApp,
-) -> Result<()> {
+) -> Result<(), CliError> {
     loop {
         terminal.draw(|frame| draw(frame, app)).map_err(TosumuError::Io)?;
 
@@ -217,7 +218,7 @@ fn help_widget() -> Paragraph<'static> {
         .block(Block::default().borders(Borders::ALL))
 }
 
-fn load_page_rows(pager: &Pager) -> Result<Vec<PageRow>> {
+fn load_page_rows(pager: &Pager) -> Result<Vec<PageRow>, CliError> {
     let mut rows = Vec::new();
     for pgno in 1..pager.page_count() {
         let summary = inspect_page_from_pager(pager, pgno)?;
@@ -322,7 +323,7 @@ impl<'a> ViewApp<'a> {
         state
     }
 
-    fn select_first(&mut self, pager: &Pager) -> Result<()> {
+    fn select_first(&mut self, pager: &Pager) -> Result<(), CliError> {
         if self.pages.is_empty() {
             return Ok(());
         }
@@ -330,7 +331,7 @@ impl<'a> ViewApp<'a> {
         self.refresh_selected_detail(pager)
     }
 
-    fn select_last(&mut self, pager: &Pager) -> Result<()> {
+    fn select_last(&mut self, pager: &Pager) -> Result<(), CliError> {
         if self.pages.is_empty() {
             return Ok(());
         }
@@ -338,7 +339,7 @@ impl<'a> ViewApp<'a> {
         self.refresh_selected_detail(pager)
     }
 
-    fn select_next(&mut self, pager: &Pager) -> Result<()> {
+    fn select_next(&mut self, pager: &Pager) -> Result<(), CliError> {
         if self.pages.is_empty() {
             return Ok(());
         }
@@ -349,7 +350,7 @@ impl<'a> ViewApp<'a> {
         self.refresh_selected_detail(pager)
     }
 
-    fn select_previous(&mut self, pager: &Pager) -> Result<()> {
+    fn select_previous(&mut self, pager: &Pager) -> Result<(), CliError> {
         if self.pages.is_empty() {
             return Ok(());
         }
@@ -360,7 +361,7 @@ impl<'a> ViewApp<'a> {
         self.refresh_selected_detail(pager)
     }
 
-    fn refresh_selected_detail(&mut self, pager: &Pager) -> Result<()> {
+    fn refresh_selected_detail(&mut self, pager: &Pager) -> Result<(), CliError> {
         self.selected_detail = match self.selected.and_then(|index| self.pages.get(index).copied()) {
             Some(page) => Some(inspect_page_from_pager(pager, page.pgno)?),
             None => None,

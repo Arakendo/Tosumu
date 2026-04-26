@@ -3,6 +3,7 @@ use std::path::Path;
 use tosumu_core::error::TosumuError;
 use tosumu_core::page_store::PageStore;
 
+use crate::error_boundary::CliError;
 use crate::unlock::{prompt_keyfile_path, prompt_line, prompt_passphrase};
 use crate::ProtectorAction;
 
@@ -21,20 +22,20 @@ pub(crate) fn format_recovery_key_for_display(secret: &str) -> String {
     recovery_words(secret).join("-")
 }
 
-pub(crate) fn confirm_recovery_words(secret: &str, word3: &str, word7: &str) -> Result<(), TosumuError> {
+pub(crate) fn confirm_recovery_words(secret: &str, word3: &str, word7: &str) -> Result<(), CliError> {
     let words = recovery_words(secret);
     if words.len() < 7 {
-        return Err(TosumuError::InvalidArgument("recovery key format is invalid"));
+        return Err(CliError::recovery_key_format_invalid());
     }
 
     if word3.trim().to_ascii_uppercase() != words[2] || word7.trim().to_ascii_uppercase() != words[6] {
-        return Err(TosumuError::InvalidArgument("recovery key confirmation failed"));
+        return Err(CliError::recovery_key_confirmation_failed());
     }
 
     Ok(())
 }
 
-fn confirm_recovery_key_saved(secret: &str) -> Result<(), TosumuError> {
+fn confirm_recovery_key_saved(secret: &str) -> Result<(), CliError> {
     println!();
     println!("=== RECOVERY KEY — save this somewhere safe ===");
     println!();
@@ -48,13 +49,13 @@ fn confirm_recovery_key_saved(secret: &str) -> Result<(), TosumuError> {
     confirm_recovery_words(secret, &word3, &word7)
 }
 
-pub(crate) fn run_protector_action(action: ProtectorAction) -> Result<(), TosumuError> {
+pub(crate) fn run_protector_action(action: ProtectorAction) -> Result<(), CliError> {
     match action {
         ProtectorAction::AddPassphrase { path } => {
             let unlock = prompt_passphrase("current passphrase: ")?;
             let new1 = prompt_passphrase("new passphrase: ")?;
             let new2 = prompt_passphrase("confirm new passphrase: ")?;
-            ensure_matching_passphrases(&new1, &new2);
+            ensure_matching_passphrases(&new1, &new2)?;
 
             let slot = match PageStore::add_passphrase_protector(&path, &unlock, &new1) {
                 Ok(slot) => slot,
@@ -62,7 +63,7 @@ pub(crate) fn run_protector_action(action: ProtectorAction) -> Result<(), Tosumu
                     let recovery = prompt_passphrase("recovery key: ")?;
                     PageStore::add_passphrase_protector_with_recovery_key(&path, &recovery, &new1)?
                 }
-                Err(error) => return Err(error),
+                Err(error) => return Err(error.into()),
             };
             println!("protector added at slot {slot}");
         }
@@ -80,10 +81,10 @@ pub(crate) fn run_protector_action(action: ProtectorAction) -> Result<(), Tosumu
                             let current_keyfile = prompt_keyfile_path("current keyfile path: ")?;
                             PageStore::add_recovery_key_protector_with_keyfile_and_secret(&path, &current_keyfile, &key)?;
                         }
-                        Err(error) => return Err(error),
+                        Err(error) => return Err(error.into()),
                     }
                 }
-                Err(error) => return Err(error),
+                Err(error) => return Err(error.into()),
             }
             println!("recovery protector added");
         }
@@ -99,10 +100,10 @@ pub(crate) fn run_protector_action(action: ProtectorAction) -> Result<(), Tosumu
                             let current_keyfile = prompt_keyfile_path("current keyfile path: ")?;
                             PageStore::add_keyfile_protector_with_keyfile(&path, &current_keyfile, &keyfile)?
                         }
-                        Err(error) => return Err(error),
+                        Err(error) => return Err(error.into()),
                     }
                 }
-                Err(error) => return Err(error),
+                Err(error) => return Err(error.into()),
             };
             println!("protector added at slot {slot}");
         }
@@ -118,10 +119,10 @@ pub(crate) fn run_protector_action(action: ProtectorAction) -> Result<(), Tosumu
                             let keyfile = prompt_keyfile_path("keyfile path: ")?;
                             PageStore::remove_keyslot_with_keyfile(&path, &keyfile, slot)?;
                         }
-                        Err(error) => return Err(error),
+                        Err(error) => return Err(error.into()),
                     }
                 }
-                Err(error) => return Err(error),
+                Err(error) => return Err(error.into()),
             }
             println!("slot {slot} removed");
         }
@@ -154,11 +155,11 @@ pub(crate) fn run_protector_action(action: ProtectorAction) -> Result<(), Tosumu
     Ok(())
 }
 
-pub(crate) fn run_rekey_kek(path: &Path, slot: u16) -> Result<(), TosumuError> {
+pub(crate) fn run_rekey_kek(path: &Path, slot: u16) -> Result<(), CliError> {
     let old_pass = prompt_passphrase("old passphrase: ")?;
     let new1 = prompt_passphrase("new passphrase: ")?;
     let new2 = prompt_passphrase("confirm new passphrase: ")?;
-    ensure_matching_passphrases(&new1, &new2);
+    ensure_matching_passphrases(&new1, &new2)?;
 
     match PageStore::rekey_kek(path, slot, &old_pass, &new1) {
         Ok(()) => {}
@@ -170,19 +171,20 @@ pub(crate) fn run_rekey_kek(path: &Path, slot: u16) -> Result<(), TosumuError> {
                     let keyfile = prompt_keyfile_path("keyfile path: ")?;
                     PageStore::rekey_kek_with_keyfile(path, slot, &keyfile, &new1)?;
                 }
-                Err(error) => return Err(error),
+                Err(error) => return Err(error.into()),
             }
         }
-        Err(error) => return Err(error),
+        Err(error) => return Err(error.into()),
     }
 
     println!("slot {slot} KEK rotated");
     Ok(())
 }
 
-fn ensure_matching_passphrases(first: &str, second: &str) {
+fn ensure_matching_passphrases(first: &str, second: &str) -> Result<(), CliError> {
     if first != second {
-        eprintln!("passphrases do not match");
-        std::process::exit(1);
+        return Err(CliError::passphrases_do_not_match());
     }
+
+    Ok(())
 }

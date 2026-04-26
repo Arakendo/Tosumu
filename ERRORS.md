@@ -54,6 +54,14 @@ KEYSLOT_REGION_TAMPERED
 
 Codes must be stable, searchable, and safe to expose in logs and machine-readable envelopes.
 
+## Code Ownership
+
+Each error code should have a clear owning module or subsystem. New codes should be introduced by the module that understands the failure, not at arbitrary call sites. Avoid reusing one code across unrelated failure modes just because the surface wording looks similar.
+
+## Code Granularity
+
+Do not introduce a new error code unless the failure needs to be distinguished for handling, logging, or user-facing behavior. Prefer adding structured details to an existing code over creating near-duplicate codes.
+
 ### Error Statuses
 
 Statuses stay intentionally small and boring:
@@ -81,7 +89,7 @@ Repository-specific guidance:
 
 ## Canonical Rust Shape
 
-Internal modules may keep focused local error enums with `thiserror`. The structured boundary error should be a small shared shape used when the failure is understood and needs to travel across module or process boundaries.
+Internal modules may keep focused local error enums with `thiserror`. In this repository, the durable boundary-facing shape is `ErrorReport`, produced either directly or from `TosumuError::error_report()`. The important part is the structured report shape, not a specific type name like `AppError`.
 
 Suggested minimal shape:
 
@@ -115,7 +123,7 @@ pub struct ErrorDetail {
 }
 
 #[derive(Debug)]
-pub struct AppError {
+pub struct ErrorReport {
     pub code: &'static str,
     pub status: ErrorStatus,
     pub message: Cow<'static, str>,
@@ -123,9 +131,7 @@ pub struct AppError {
     pub source: Option<anyhow::Error>,
 }
 
-pub type AppResult<T> = Result<T, AppError>;
-
-impl AppError {
+impl ErrorReport {
     pub fn new(
         code: &'static str,
         status: ErrorStatus,
@@ -154,9 +160,13 @@ impl AppError {
 
 The important design choice here is `details`. Do not collapse structured context back into the message string. A message is for humans; `details` are for logs, JSON, tests, and tooling.
 
+## Details Usage
+
+Details should capture stable, machine-meaningful context such as identifiers, page numbers, offsets, slot indices, or operation names. Avoid placing large or unstructured data in details, and do not duplicate message text in detail fields.
+
 ## Internal Errors vs Boundary Errors
 
-Do not force every function in the repository to return `AppError`.
+Do not force every function in the repository to return one shared boundary type everywhere.
 
 The preferred shape is:
 
@@ -180,21 +190,21 @@ pub enum OpenPageError {
 }
 
 impl OpenPageError {
-    pub fn into_app_error(self, pgno: u64) -> AppError {
+    pub fn into_error_report(self, pgno: u64) -> ErrorReport {
         match self {
-            OpenPageError::AuthFailed => AppError::new(
+            OpenPageError::AuthFailed => ErrorReport::new(
                 codes::PAGE_AUTH_TAG_FAILED,
                 ErrorStatus::IntegrityFailure,
                 "page authentication failed",
             )
             .with_detail("pgno", ErrorValue::U64(pgno)),
-            OpenPageError::Corrupt => AppError::new(
+            OpenPageError::Corrupt => ErrorReport::new(
                 codes::PAGE_DECODE_CORRUPT,
                 ErrorStatus::IntegrityFailure,
                 "page decode failed",
             )
             .with_detail("pgno", ErrorValue::U64(pgno)),
-            OpenPageError::Io(err) => AppError::new(
+            OpenPageError::Io(err) => ErrorReport::new(
                 codes::FILE_READ_FAILED,
                 ErrorStatus::ExternalFailure,
                 "page read failed",
@@ -205,6 +215,10 @@ impl OpenPageError {
     }
 }
 ```
+
+## Error Conversion
+
+When converting local errors into a boundary `ErrorReport`, preserve the original cause whenever possible. Do not discard underlying errors or replace them with generic failures without attaching the source unless there is genuinely no useful underlying cause to preserve.
 
 ## Source of Truth for Codes
 
@@ -226,7 +240,7 @@ Suggested first implementation:
 
 ```txt
 crates/tosumu-core/src/error/
-  mod.rs           // AppError, ErrorStatus, ErrorDetail, AppResult
+    mod.rs           // ErrorReport, ErrorStatus, ErrorDetail, TosumuError::error_report()
   codes.rs         // shared engine and inspect-facing codes
 
 crates/tosumu-cli/src/error_boundary.rs
@@ -245,30 +259,70 @@ Do not introduce `crates/tosumu-errors` unless at least one additional Rust crat
 
 ## Inspect JSON Compatibility Plan
 
-The current inspect contract already has a structured error envelope in [INSPECT_API.md](INSPECT_API.md), but it only exposes a coarse `kind` plus a message.
+The current inspect contract in [INSPECT_API.md](INSPECT_API.md) should stay on one baseline shape with the structured fields that already carry the meaning.
 
 Current shape:
 
 ```json
 {
-  "kind": "invalid_argument",
+    "code": "ARGUMENT_INVALID",
+    "status": "invalid_input",
   "message": "invalid argument: page number out of range",
   "pgno": null
 }
 ```
 
-Recommended migration path:
+Recommended baseline:
 
-1. Keep schema version `1` stable.
-2. Internally map failures to `AppError` first.
-3. Preserve the current `error.kind` field as a compatibility alias.
-4. Add richer fields only in a deliberate schema bump.
+1. Use one structured inspect schema as the current baseline.
+2. Internally map failures to a structured `ErrorReport` first.
+3. Emit one canonical error shape with `code`, `status`, `message`, and relevant details.
+4. Introduce a new schema version only when a real incompatibility is necessary.
 
-Suggested schema version `2` shape:
+## Inspect Verify Errors
+
+Verification findings should remain in the inspect payload when the command can complete and report them. Use the top-level error envelope only when inspect cannot produce a meaningful result. For machine-stable handling, add structured issue codes inside the verify payload before promoting findings to boundary errors.
+
+## Inspect Verify Incomplete States
+
+Incomplete verify states should remain in the inspect payload when verify can still return a meaningful partial report. Promote them to a top-level inspect error only when the command cannot produce a reliable report envelope. Prefer structured payload issue codes for machine handling before changing the top-level error contract.
+
+## Inspect Payload Issue Codes
+
+When inspect returns a meaningful payload with findings, prefer stable payload issue codes over promoting those states to the top-level error envelope. Payload issue codes should be owned by the reporting payload that understands the state being classified.
+
+For `inspect verify`, use payload codes to classify page findings and B-tree follow-up states. Keep these codes small and state-oriented.
+
+Suggested current shape:
+
+```txt
+VERIFY_PAGE_AUTH_FAILED
+VERIFY_PAGE_CORRUPT
+VERIFY_PAGE_IO
+VERIFY_BTREE_INVALID
+VERIFY_BTREE_INCOMPLETE
+```
+
+Use these to represent reportable verify states such as authenticated page failure, corruption, I/O failure during page verification, invalid B-tree invariants after page verification, or incomplete B-tree verification because earlier findings or follow-up inspection could not complete.
+
+## Plain-Text Verify Errors
+
+Plain-text verify failures should return structured CLI boundary errors when verification cannot complete. Verification results that complete successfully but report invalid content should remain payload or output data. Avoid direct process exits inside command logic except for top-level CLI framework behavior such as help or version handling.
+
+## Outcomes vs Errors
+
+Use a boundary error when the command cannot complete the contract it advertises. Use a reported outcome when the command completes and the primary result is a finding, absence, or diagnostic state rather than a transport failure.
+
+Examples:
+
+- plain-text `verify` findings should remain reported output with exit policy decided at the top-level CLI boundary
+- `inspect verify` findings and incomplete states should remain payload data while a meaningful report envelope can still be produced
+- `get` for a missing key may return a structured `NotFound` boundary error because the command's contract is to retrieve one value and it cannot do so
+
+Current inspect error shape:
 
 ```json
 {
-  "kind": "wrong_key",
   "code": "PROTECTOR_UNLOCK_WRONG_KEY",
   "status": "permission_denied",
   "message": "database unlock failed with the provided protector material",
@@ -278,8 +332,6 @@ Suggested schema version `2` shape:
   }
 }
 ```
-
-The legacy `kind` field should remain until all known consumers have moved to `code` and `status`.
 
 ## Status and Exit Code Mapping
 
@@ -322,9 +374,13 @@ source="aead tag mismatch"
 
 The message should stay readable on its own, but `code`, `status`, and `details` are the stable fields downstream tools should rely on.
 
+## Logging Consistency
+
+Structured logs should include at minimum `code`, `status`, and `message`. When available, include relevant detail fields. Logs should remain machine-queryable without parsing free-form text.
+
 ## Suggested First Rollout
 
-1. Introduce `ErrorStatus`, `AppError`, and `codes.rs` in `tosumu-core`.
+1. Introduce `ErrorStatus`, `ErrorReport`, and `codes.rs` in `tosumu-core`.
 2. Convert the inspect/open/verify paths that already cross the CLI boundary.
 3. Add CLI boundary mapping for:
    - human-readable stderr
@@ -332,26 +388,46 @@ The message should stay readable on its own, but `code`, `status`, and `details`
    - exit code selection
 4. Lock the emitted values with focused tests.
 5. Keep the WPF harness and future TUI consuming the inspect JSON contract rather than Rust internals.
-6. Only after that, decide whether the inspect API needs schema version `2` richer error fields.
+6. Keep one structured inspect baseline until a real incompatible change forces a new schema version.
 
-## Initial Code Set to Introduce First
+## Implemented Public Code Sets
 
-Start with the errors already visible in the current inspect contract and engine failure modes:
+The implemented code catalog is currently split between shared core codes in `tosumu-core` and a small number of CLI-local boundary codes in `tosumu-cli`.
 
+Implemented core public codes:
+
+<!-- BEGIN_CORE_PUBLIC_CODES -->
+```txt
+FILE_IO_FAILED
+RECORD_CORRUPT
+PAGE_DECODE_CORRUPT
+PAGE_AUTH_TAG_FAILED
+PAGE_ENCRYPT_FAILED
+RNG_UNAVAILABLE
+FILE_TRUNCATED
+HANDLE_POISONED
+FORMAT_NOT_TOSUMU
+FORMAT_VERSION_UNSUPPORTED
+PAGE_SIZE_MISMATCH
+STORAGE_OUT_OF_SPACE
+ARGUMENT_INVALID
+INSPECT_PAGE_OUT_OF_RANGE
+FILE_OPEN_BUSY
+PROTECTOR_UNLOCK_WRONG_KEY
+COMMITTED_FLUSH_FAILED
+```
+<!-- END_CORE_PUBLIC_CODES -->
+
+Current CLI-local boundary codes:
+
+<!-- BEGIN_CLI_PUBLIC_CODES -->
 ```txt
 CLI_ARGUMENT_INVALID
-FILE_OPEN_BUSY
-FILE_READ_FAILED
-FORMAT_VERSION_UNSUPPORTED
-INSPECT_PAGE_OUT_OF_RANGE
-KEYSLOT_REGION_TAMPERED
-PAGE_AUTH_TAG_FAILED
-PAGE_DECODE_CORRUPT
-PROTECTOR_UNLOCK_WRONG_KEY
-VERIFY_BTREE_INVARIANT_FAILED
+CLI_KEY_NOT_FOUND
 ```
+<!-- END_CLI_PUBLIC_CODES -->
 
-That is enough to prove the design without trying to catalog the entire repository on day one.
+Keep aspirational or not-yet-implemented codes out of these lists until they are actually emitted by code or claimed by a concrete rollout step.
 
 ## Rules to Keep This Small
 

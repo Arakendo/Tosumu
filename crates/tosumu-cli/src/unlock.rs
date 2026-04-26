@@ -5,6 +5,8 @@ use tosumu_core::error::TosumuError;
 use tosumu_core::pager::Pager;
 use tosumu_core::page_store::PageStore;
 
+use crate::error_boundary::CliError;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum UnlockSecret {
     Passphrase(String),
@@ -34,7 +36,7 @@ fn open_with_unlock_secret<T>(
     }
 }
 
-fn prompt_unlock_secret(kind: UnlockKind) -> Result<UnlockSecret, TosumuError> {
+fn prompt_unlock_secret(kind: UnlockKind) -> Result<UnlockSecret, CliError> {
     match kind {
         UnlockKind::Passphrase => Ok(UnlockSecret::Passphrase(prompt_passphrase("passphrase: ")?)),
         UnlockKind::RecoveryKey => Ok(UnlockSecret::RecoveryKey(prompt_passphrase("recovery key: ")?)),
@@ -42,15 +44,15 @@ fn prompt_unlock_secret(kind: UnlockKind) -> Result<UnlockSecret, TosumuError> {
     }
 }
 
-fn open_with_unlock_fallback<T, F, P>(mut open: F, mut prompt_for_unlock: P) -> Result<(T, Option<UnlockSecret>), TosumuError>
+fn open_with_unlock_fallback<T, F, P>(mut open: F, mut prompt_for_unlock: P) -> Result<(T, Option<UnlockSecret>), CliError>
 where
     F: FnMut(Option<&UnlockSecret>) -> Result<T, TosumuError>,
-    P: FnMut(UnlockKind) -> Result<UnlockSecret, TosumuError>,
+    P: FnMut(UnlockKind) -> Result<UnlockSecret, CliError>,
 {
     match open(None) {
         Ok(value) => return Ok((value, None)),
         Err(TosumuError::WrongKey) => {}
-        Err(error) => return Err(error),
+        Err(error) => return Err(error.into()),
     }
 
     for kind in [UnlockKind::Passphrase, UnlockKind::RecoveryKey, UnlockKind::Keyfile] {
@@ -58,21 +60,21 @@ where
         match open(Some(&unlock)) {
             Ok(value) => return Ok((value, Some(unlock))),
             Err(TosumuError::WrongKey) => continue,
-            Err(error) => return Err(error),
+            Err(error) => return Err(error.into()),
         }
     }
 
-    Err(TosumuError::WrongKey)
+    Err(TosumuError::WrongKey.into())
 }
 
-fn open_with_resolved_unlock<T, F>(mut open: F, unlock: Option<UnlockSecret>, no_prompt: bool) -> Result<(T, Option<UnlockSecret>), TosumuError>
+fn open_with_resolved_unlock<T, F>(mut open: F, unlock: Option<UnlockSecret>, no_prompt: bool) -> Result<(T, Option<UnlockSecret>), CliError>
 where
     F: FnMut(Option<&UnlockSecret>) -> Result<T, TosumuError>,
 {
     match unlock {
-        None if no_prompt => open(None).map(|value| (value, None)),
+        None if no_prompt => open(None).map(|value| (value, None)).map_err(Into::into),
         None => open_with_unlock_fallback(open, prompt_unlock_secret),
-        Some(unlock) => open(Some(&unlock)).map(|value| (value, Some(unlock))),
+        Some(unlock) => open(Some(&unlock)).map(|value| (value, Some(unlock))).map_err(Into::into),
     }
 }
 
@@ -106,17 +108,17 @@ fn open_pager_readonly(path: &Path, unlock: Option<&UnlockSecret>) -> Result<Pag
     )
 }
 
-pub(crate) fn open_store_readonly(path: &Path) -> Result<PageStore, TosumuError> {
+pub(crate) fn open_store_readonly(path: &Path) -> Result<PageStore, CliError> {
     open_with_unlock_fallback(|unlock| open_page_store_readonly(path, unlock), prompt_unlock_secret)
         .map(|(store, _)| store)
 }
 
-pub(crate) fn open_store_writable(path: &Path) -> Result<PageStore, TosumuError> {
+pub(crate) fn open_store_writable(path: &Path) -> Result<PageStore, CliError> {
     open_with_unlock_fallback(|unlock| open_page_store_writable(path, unlock), prompt_unlock_secret)
         .map(|(store, _)| store)
 }
 
-pub(crate) fn open_pager(path: &Path) -> Result<(Pager, Option<UnlockSecret>), TosumuError> {
+pub(crate) fn open_pager(path: &Path) -> Result<(Pager, Option<UnlockSecret>), CliError> {
     open_with_unlock_fallback(|unlock| open_pager_readonly(path, unlock), prompt_unlock_secret)
 }
 
@@ -130,7 +132,7 @@ pub(crate) fn open_btree_with_unlock(path: &Path, unlock: Option<&UnlockSecret>)
     )
 }
 
-pub(crate) fn open_pager_with_unlock(path: &Path, unlock: Option<UnlockSecret>, no_prompt: bool) -> Result<(Pager, Option<UnlockSecret>), TosumuError> {
+pub(crate) fn open_pager_with_unlock(path: &Path, unlock: Option<UnlockSecret>, no_prompt: bool) -> Result<(Pager, Option<UnlockSecret>), CliError> {
     open_with_resolved_unlock(|resolved_unlock| open_pager_readonly(path, resolved_unlock), unlock, no_prompt)
 }
 
@@ -150,10 +152,10 @@ pub(crate) fn prompt_line(prompt: &str) -> Result<String, TosumuError> {
     Ok(input.trim().to_string())
 }
 
-pub(crate) fn prompt_keyfile_path(prompt: &str) -> Result<PathBuf, TosumuError> {
+pub(crate) fn prompt_keyfile_path(prompt: &str) -> Result<PathBuf, CliError> {
     let input = prompt_line(prompt)?;
     if input.is_empty() {
-        return Err(TosumuError::InvalidArgument("keyfile path must not be empty"));
+        return Err(CliError::keyfile_path_empty());
     }
     Ok(PathBuf::from(input))
 }

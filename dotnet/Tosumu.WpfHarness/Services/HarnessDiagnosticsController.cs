@@ -60,7 +60,7 @@ internal sealed class HarnessDiagnosticsController
     public void LogInspectFailure(string operationName, TosumuInspectCommandException ex)
     {
         var pgnoText = ex.Pgno is ulong pgno ? $", pgno={pgno}" : string.Empty;
-        LogDebug($"{operationName} failed: command={ex.Command}, kind={ex.ErrorKind ?? "unknown"}, exit={ex.ExitCode}{pgnoText}, message={FlattenForLog(ex.Message)}");
+        LogDebug($"{operationName} failed: command={ex.Command}, code={ex.ErrorCode ?? "unknown"}, status={ex.ErrorStatus ?? "unknown"}, exit={ex.ExitCode}{pgnoText}, message={FlattenForLog(ex.Message)}");
 
         if (!string.IsNullOrWhiteSpace(ex.StandardError))
         {

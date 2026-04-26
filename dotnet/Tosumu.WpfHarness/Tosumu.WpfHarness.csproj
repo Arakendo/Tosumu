@@ -6,13 +6,15 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <RestoreAdditionalProjectSources>$(MSBuildThisFileDirectory)..\.artifacts\packages</RestoreAdditionalProjectSources>
     <RestorePackagesPath>$(MSBuildThisFileDirectory)..\.artifacts\nuget-cache</RestorePackagesPath>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3912.50" />
-    <PackageReference Include="Tosumu.Cli" Version="0.0.0-local.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tosumu.Cli\Tosumu.Cli.csproj" />
   </ItemGroup>
 
   <ItemGroup>

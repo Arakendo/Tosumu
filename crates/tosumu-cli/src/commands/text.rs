@@ -3,9 +3,16 @@ use std::path::{Path, PathBuf};
 use tosumu_core::error::TosumuError;
 
 use super::inspect::collect_verify_snapshot;
+use crate::error_boundary::CliError;
+use crate::inspect_contract::InspectBtreeVerifyPayload;
 use crate::unlock::{open_pager_with_unlock, UnlockSecret};
 
-pub(crate) fn cmd_dump(path: &Path, page: Option<u64>, unlock: Option<UnlockSecret>, no_prompt: bool) -> tosumu_core::error::Result<()> {
+pub(crate) enum VerifyCommandOutcome {
+    Clean,
+    IssuesFound,
+}
+
+pub(crate) fn cmd_dump(path: &Path, page: Option<u64>, unlock: Option<UnlockSecret>, no_prompt: bool) -> Result<(), CliError> {
     use tosumu_core::format::{
         KEYSLOT_KIND_EMPTY, KEYSLOT_KIND_KEYFILE, KEYSLOT_KIND_PASSPHRASE,
         KEYSLOT_KIND_RECOVERY_KEY, KEYSLOT_KIND_SENTINEL, PAGE_TYPE_FREE,
@@ -114,9 +121,18 @@ pub(crate) fn cmd_hex(path: &Path, pgno: u64) -> tosumu_core::error::Result<()> 
     Ok(())
 }
 
-pub(crate) fn cmd_verify(path: &Path, explain: bool, unlock: Option<UnlockSecret>, no_prompt: bool) -> tosumu_core::error::Result<()> {
+pub(crate) fn cmd_verify(
+    path: &Path,
+    explain: bool,
+    unlock: Option<UnlockSecret>,
+    no_prompt: bool,
+) -> Result<VerifyCommandOutcome, CliError> {
     let snapshot = collect_verify_snapshot(path, unlock, no_prompt)?;
+    if let Some(error) = snapshot.btree_error {
+        return Err(error);
+    }
     let report = snapshot.report;
+    let outcome = verify_command_outcome(report.issues.len(), &snapshot.btree);
     println!("verifying {} ({} data pages) ...", path.display(), report.pages_checked);
 
     if explain {
@@ -151,7 +167,6 @@ pub(crate) fn cmd_verify(path: &Path, explain: bool, unlock: Option<UnlockSecret
             if snapshot.btree.checked {
                 eprintln!("  btree:       FAIL   — {message}");
                 eprintln!("FAILED: btree structural invariant violated");
-                std::process::exit(1);
             } else if explain {
                 eprintln!("  btree:       SKIP   — {message}");
             }
@@ -163,19 +178,26 @@ pub(crate) fn cmd_verify(path: &Path, explain: bool, unlock: Option<UnlockSecret
         } else {
             println!("FAILED: {}/{} pages ok, {} issue(s)", report.pages_ok, report.pages_checked, report.issues.len());
         }
-        std::process::exit(1);
     }
-    Ok(())
+    Ok(outcome)
 }
 
-pub(crate) fn cmd_backup(src: &Path, dest: &Path) -> tosumu_core::error::Result<()> {
+fn verify_command_outcome(issue_count: usize, btree: &InspectBtreeVerifyPayload) -> VerifyCommandOutcome {
+    if issue_count > 0 || (btree.checked && !btree.ok) {
+        VerifyCommandOutcome::IssuesFound
+    } else {
+        VerifyCommandOutcome::Clean
+    }
+}
+
+pub(crate) fn cmd_backup(src: &Path, dest: &Path) -> Result<(), CliError> {
     use tosumu_core::wal::wal_path;
 
     const MAX_BACKUP_ATTEMPTS: u32 = 5;
 
     let dest_wal = wal_path(dest);
     if dest.exists() || dest_wal.exists() {
-        return Err(TosumuError::InvalidArgument("backup destination already exists; choose a new path"));
+        return Err(CliError::backup_destination_exists(dest));
     }
 
     let staged_main = backup_temp_path(dest, "main");
@@ -229,7 +251,8 @@ pub(crate) fn cmd_backup(src: &Path, dest: &Path) -> tosumu_core::error::Result<
         return Err(TosumuError::FileBusy {
             path: src.to_path_buf(),
             operation: "capturing a stable backup snapshot",
-        });
+        }
+        .into());
     }
 
     if copied_wal {
@@ -334,4 +357,55 @@ fn print_hex_section(label: &str, data: &[u8], base_offset: usize) {
         println!("{offset:04x}: {:<47}  |{ascii}|", hex_col.join(" "));
     }
     println!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{verify_command_outcome, VerifyCommandOutcome};
+    use crate::inspect_contract::InspectBtreeVerifyPayload;
+
+    #[test]
+    fn verify_command_outcome_reports_page_issues_as_findings() {
+        let btree = InspectBtreeVerifyPayload {
+            checked: true,
+            ok: true,
+            code: None,
+            message: None,
+        };
+
+        assert!(matches!(
+            verify_command_outcome(1, &btree),
+            VerifyCommandOutcome::IssuesFound
+        ));
+    }
+
+    #[test]
+    fn verify_command_outcome_reports_btree_failure_as_findings() {
+        let btree = InspectBtreeVerifyPayload {
+            checked: true,
+            ok: false,
+            code: None,
+            message: Some("btree structural invariant violated".to_string()),
+        };
+
+        assert!(matches!(
+            verify_command_outcome(0, &btree),
+            VerifyCommandOutcome::IssuesFound
+        ));
+    }
+
+    #[test]
+    fn verify_command_outcome_reports_clean_verify_as_clean() {
+        let btree = InspectBtreeVerifyPayload {
+            checked: true,
+            ok: true,
+            code: None,
+            message: None,
+        };
+
+        assert!(matches!(
+            verify_command_outcome(0, &btree),
+            VerifyCommandOutcome::Clean
+        ));
+    }
 }

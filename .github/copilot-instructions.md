@@ -24,5 +24,11 @@ When design or organization decisions change, update the nearest durable documen
 ## Dependencies
 Do not add new dependencies unless the existing code cannot reasonably solve the problem. Prefer standard library and existing project dependencies first. Document why any new dependency is needed.
 
+## Error Reporting
+Use structured errors with stable error codes and status categories for failures that cross module boundaries. Create errors where the failure is understood, preserve the original cause, and add context as they propagate. Translate errors to user-facing output, exit codes, or HTTP responses only at system boundaries. Avoid string-based error handling and generic catch-all errors.
+
 ## Local Consistency Check
 When modifying a file, briefly scan surrounding code for violations of the above guidelines. Prefer small, localized improvements (naming, structure, duplication) when they are low-risk and directly adjacent to the change. Avoid large or unrelated refactors. If the file is already large or has organizational issues, note them in the audit tracker and move on to the intended change.
+
+## Versioning and Compatibility (Early Development)
+The project is currently pre-stability. Do not preserve backward compatibility or introduce versioning solely for future-proofing. Make breaking changes freely when they improve correctness or design. Formal compatibility and versioning will be introduced once core behavior stabilizes.

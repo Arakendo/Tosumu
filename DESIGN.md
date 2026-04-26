@@ -680,8 +680,6 @@ One top-level `Error` enum via `thiserror`. Variants include:
 - `KeyslotTampered { slot: u16 }` — header MAC mismatch localized to keyslot region
 - `VersionMismatch { found: u16, expected: u16 }`
 - `NewerFormat { found: u16, supported_max: u16 }` — file is from a newer engine; refuse to open
-- `MigrationRequired { from: u16, to: u16 }` — returned by `open_read_only` and by `open` when `auto_migrate = false`
-- `MigrationFailed { step: &'static str, reason: String }`
 - `OutOfSpace`
 - `TxnConflict`
 - `InvalidArgument(&'static str)`
@@ -711,7 +709,7 @@ The flat variant list above can be classified into five categories. Knowing whic
 | **LogicInvariant** | `InvalidArgument`, `TxnConflict`, `OutOfSpace` | The caller did something the engine cannot satisfy given current state. The database itself is fine. Caller fixes their usage. |
 | **Busy** | `Busy` (from `BusyPolicy::FailFast`) | Another writer holds the gate. Caller should back off or wait with `BusyPolicy::Wait`. |
 
-**Migration errors** (`MigrationRequired`, `MigrationFailed`) straddle Corruption and LogicInvariant. `MigrationRequired` is a LogicInvariant (the caller must choose to migrate). `MigrationFailed` is effectively a Corruption (the file may be in a partial state; treat as unsafe to continue).
+Migration-specific errors are deferred until Tosumu has a real migration system. Until then, incompatible formats fail through the existing version errors rather than a speculative migration API.
 
 ### 9.3 What crashes vs what bubbles
 
@@ -784,9 +782,9 @@ A storage engine's correctness is only half the battle. The other half is preven
 
 | Footgun | Problem | Guardrail |
 |---------|---------|-----------|
-| **Auto-migrating on read-only open** | User inspects a file, accidentally mutates it. Tiny horror show. | `open_read_only()` never migrates. Returns `MigrationRequired { from, to }` error if file is old format. Already designed in §13. |
-| **Silent destructive migration** | Migrations that lose data or change semantics must not be automatic. | Require explicit `db.migrate()` call. Heavy migrations (§13) use copy-and-swap, preserving `.pre-v{N}.bak` backup. Light migrations may be automatic only if lossless and append-only. |
-| **No backup before migration** | User migrates, migration corrupts file, no backup exists. | Heavy migrations (§13) always create `.pre-v{N}.bak` before mutation. Documented in migration output: "Backup saved to data.tsm.pre-v2.bak" |
+| **Silent mutation during inspection** | User inspects a file and the engine quietly rewrites it. Tiny horror show. | `open_read_only()` and inspect-style flows stay non-mutating. Incompatible formats fail loudly rather than silently migrating. |
+| **Silent destructive rewrite** | A future rewrite tool changes bytes or semantics without an explicit user choice. | Keep rewrite tools explicit. No heavy rewrite should hide behind `open()` or a routine read path. |
+| **No backup before rewrite** | User runs a destructive rewrite tool, it goes badly, and there is no recovery point. | If explicit rewrite tooling lands, backups must be user-visible and part of the tool contract rather than an implicit side effect. |
 
 ### 10.5 Encryption and key footguns
 
@@ -1552,12 +1550,12 @@ Deploy the three-server witness model (§23.4) and local observer model (§23.6)
 
 #### MVP +13 — "Entropy bookkeeping" *(crosscut — see §12.5)*
 
-Make database drift a first-class, monitorable metric. Most of the structural metrics are pure read-side and could ship as soon as MVP +9 audit lands; the crypto and operational fields require additive header bookkeeping and a minor format bump, which is why the slice is its own MVP rather than smuggled into +9.
+Make database drift a first-class, monitorable metric. Most of the structural metrics are pure read-side and could ship as soon as MVP +9 audit lands; the crypto and operational fields require explicit header bookkeeping changes, which is why the slice is its own MVP rather than smuggled into +9.
 
 Delivered in three sub-slices to keep each one tractable:
 
 - **MVP +13a — structural entropy (read-side only).** Compute `freelist_ratio`, `fragmentation_ratio`, `avg_leaf_fill`, `tombstone_ratio`, `tree_height_excess`, `overflow_ratio` from existing on-disk structures. Surface via additive `entropy.structural` block on `inspect.audit`. Promote `AuditFinding::FreelistHigh` and `TreeHeightSuspicious` from placeholders to real threshold checks. No format change.
-- **MVP +13b — operational entropy + header bookkeeping.** Add `last_verified_at`, `pages_written_since_rekey`, `crashes_since_clean_open` to the file header (§5.2). Bump on-disk minor version per §13. `inspect.audit` gains `entropy.operational`. `verify` updates `last_verified_at` on success. Recovery increments `crashes_since_clean_open`; clean shutdown clears it.
+- **MVP +13b — operational entropy + header bookkeeping.** Add `last_verified_at`, `pages_written_since_rekey`, `crashes_since_clean_open` to the file header (§5.2). Ship them as one explicit format revision when the feature lands; do not introduce a minor-version scheme just for this slice. `inspect.audit` gains `entropy.operational`. `verify` updates `last_verified_at` on success. Recovery increments `crashes_since_clean_open`; clean shutdown clears it.
 - **MVP +13c — crypto entropy.** Add `kdf_params_set_at` per protector and `recovery_key_consumed_at` per recovery-key protector. Add a startup KAT that exercises the configured AEAD/KDF before any user data is written. Surface via `entropy.crypto` and via new `inspect.protectors` fields. Define `nonce_ceiling` as a hard constant well below 2^32 page-writes per DEK; flag at 50%, refuse at 90% (forces `rekey-dek`).
 
 **Proves:** the engine can describe its own drift — bloat, recovery debt, and crypto-key wear — through the same inspect contract that already exists, and refuses to keep operating past safety ceilings instead of failing surprisingly.
@@ -1793,7 +1791,7 @@ But **not before Stage 6 is complete**. That path leads to "I built a database a
 - `kdf_params_set_at: u64` — unix seconds when the current KDF parameters were chosen, per protector.
 - `recovery_key_consumed_at: Option<u64>` — set the first time a recovery-key protector is used to unlock.
 
-All five are additive trailing fields under §13's compatibility rules; older readers ignore them, the on-disk schema bumps by one minor version. Implementation lives in MVP +13.
+All five should land together as one explicit future format revision. Until the on-disk format stabilizes, do not assume older readers ignore them or introduce a minor-version compatibility scheme just to carry them. Implementation lives in MVP +13.
 
 **Why this matters:**
 
@@ -1910,190 +1908,67 @@ Split into three sub-stages because key management is its own discipline and cra
 
 ## 13. Format evolution and migration policy
 
-Humans are terrible migration engines. The file format will change; the engine’s job is to detect that, do the safe thing automatically, and refuse loudly when the safe thing is not possible. This section is normative: every format change must declare which category it belongs to and which rules apply.
+Humans are terrible migration engines, but speculative migration frameworks are not better. Tosumu is still pre-stability, so the current rule is simpler: keep one baseline on-disk format, refuse incompatible files loudly, and do not add compatibility branches or migration machinery until a real incompatible format change forces the issue.
 
 **Why explicit versioning and a stable primitive set matter: the Wilkins lesson.**  John Wilkins (1668) built *An Essay Towards a Real Character, and a Philosophical Language* — a system where every word encoded its position in a taxonomy of concepts. When the taxonomy changed, all vocabulary had to change with it. The language was obsolete before it was finished.
 
-Tosumu applies the same lesson. The on-disk page layout, AEAD construction, and keyslot format are the primitive roots. Once locked at the end of Stage 2, they are stable by policy. New features grow by composition on top of them: new `KeyProtector` implementations, new index types, new CLI commands, new metadata fields in reserved header space. The `format_version` bump is the signal that a primitive has changed — and the migration system, backup policy, and verifier suite exist to handle those controlled exceptions without discarding everything built on top.
+Tosumu applies the same lesson. The on-disk page layout, AEAD construction, and keyslot format are the primitive roots. While those primitives are still settling, the project should prefer a direct baseline update over preserving speculative compatibility promises. Once the format actually stabilizes, `format_version` becomes the signal that a primitive changed and any migration policy can be designed against that concrete need.
 
 A large format built on an unstable foundation requires wholesale revision. Lock the primitives first; grow the vocabulary forward.
 
 ### 13.1 Version fields
 
-Two distinct `u16`s live in the header:
+Two distinct `u16`s live in the header, but the current engine uses them conservatively:
 
 - **`format_version`** — what the file *is*. Bumped by every on-disk format change.
-- **`min_reader_version`** — the lowest engine `format_version` that is permitted to open this file. A conservative writer sets this equal to `format_version`; a writer that knows a change is backwards-compatible may set it lower.
+- **`min_reader_version`** — currently written equal to `format_version`. Keep the field because it already exists in the header, but do not treat it as a live forward-compatibility contract yet.
 
-The engine itself has a `SUPPORTED_FORMAT` constant. Open rules:
+The engine itself has a `FORMAT_VERSION` constant. Open rules today:
 
-| File's `format_version` | File's `min_reader_version` | Engine behavior |
-|---|---|---|
-| `== SUPPORTED_FORMAT` | any ≤ `SUPPORTED_FORMAT` | Open normally. |
-| `< SUPPORTED_FORMAT` | any | Eligible for migration (§13.3). |
-| `> SUPPORTED_FORMAT` | `≤ SUPPORTED_FORMAT` | Open **read-only**, print warning. |
-| `> SUPPORTED_FORMAT` | `> SUPPORTED_FORMAT` | Refuse with `NewerFormat`. |
+| File's `format_version` | Engine behavior |
+|---|---|
+| `== FORMAT_VERSION` | Open normally. |
+| `> FORMAT_VERSION` | Refuse with `NewerFormat`. |
+| `< FORMAT_VERSION` | No automatic path is promised today; explicit migration support is deferred until a real incompatible format change exists. |
 
-This lets us ship forward-compatible additions (e.g. a new optional header field) without immediately invalidating older binaries.
+This matches the current implementation: pager validation checks `format_version` and rejects newer files outright. `min_reader_version` is recorded in the header, but Tosumu does not currently use it to promise forward-compatible opens or older-reader support.
 
-### 13.2 Migration categories
+### 13.2 Current migration posture
 
-Every migration declares exactly one category. The category determines whether it runs automatically, whether a full rewrite is required, and how crash safety is guaranteed.
+- No automatic migrations on `open()`.
+- `open_read_only()` is not a compatibility escape hatch for newer files.
+- The first real incompatible format change may introduce explicit migration tooling, but that tooling should be designed around the concrete change rather than a generic framework invented in advance.
+- Tests should track the current baseline format directly. Do not accumulate fixture matrices or upgrade paths until the product actually needs them.
 
-| Category | Examples | Auto on open? | Rewrite cost |
-|---|---|---|---|
-| **Metadata-only** | New optional header field with default; reserved flag becomes meaningful. | Yes | O(1) |
-| **Keyslot-metadata** | New protector kind; per-slot field extension within reserved space. | Yes | O(keyslots) |
-| **Page-local rewrite** | Slotted-page header layout tweak; freelist encoding change. | **No** (explicit) | O(pages) |
-| **Index rebuild** | B+ tree node format change; new order or comparator. | **No** (explicit) | O(records), drops+rebuilds tree |
-| **Full logical export/import** | Any change the other categories can’t express. | **No** (explicit) | O(records), new file |
-| **Crypto-structural** | AAD composition change; DEK-wrap scheme change. | **No** (explicit) | Varies; often full rewrite |
+### 13.3 Migration categories (deferred)
 
-Rule of thumb: **if it touches every page, it is not automatic**.
+If Tosumu later needs real format migrations, it can introduce concrete categories such as metadata-only, page-local, index rebuild, or crypto-structural. Until then, these are placeholders, not committed engine behavior.
 
-### 13.3 Policy
+### 13.4 Crash-safety model (deferred)
 
-- **Safe automatic migrations happen on open.** Metadata-only and keyslot-metadata categories upgrade transparently, inside a transaction, and update `format_version` + `min_reader_version` before returning.
-- **Destructive or long-running migrations require an explicit call.** Page-local, index rebuild, logical export/import, and crypto-structural migrations are performed only by `Database::migrate(path, opts)` or `tosumu migrate`.
-- `open_read_only` **never** migrates.
-- Every migration is **idempotent**: detects whether it has already run (via `format_version`) and is safe to re-invoke.
-- Every migration ships with its own test: starting from a checked-in fixture file of the pre-migration format, open/migrate/verify must produce the expected post-migration fixture.
+If explicit migration support lands later, prefer copy-and-swap for heavy rewrites and keep any in-place path narrowly scoped, crash-safe, and fully verified. Do not treat any migration crash-safety scheme as implemented today.
 
-### 13.4 Crash-safety model
+### 13.5 Backups (deferred)
 
-Two implementation strategies are permitted. Each migration declares which it uses.
+Backups should stay explicit and user-visible if destructive rewrite tools ever exist. Do not assume `.pre-v{N}.bak` naming, implicit backup creation, or backup retention behavior as a current engine guarantee.
 
-**A. Copy-and-swap (default for heavy migrations).**
-1. Write new file next to the original: `app.db.migrating`.
-2. fsync the new file and its directory.
-3. Rename `app.db` → `app.db.pre-v{N}.bak` (or delete if `--no-backup`).
-4. Rename `app.db.migrating` → `app.db`.
-5. fsync the directory.
+### 13.6 Migration registry (deferred)
 
-On crash at any step, the original file is intact and an orphan `.migrating` file is cleaned up at next open.
+Do not commit to a migration trait, registry, chain planner, or `plan()/preflight()/apply()/verify()` surface until the first real incompatible format change proves the needed shape.
 
-**B. In-place via WAL (only for metadata-only / keyslot-metadata).**
-1. Begin transaction.
-2. Patch header and/or keyslot region.
-3. Commit (WAL fsync first).
+### 13.7 Library and CLI migration APIs (deferred)
 
-In-place is only permitted for migrations whose entire delta fits in a single transaction and touches no data pages.
-
-### 13.5 Backups
-
-- Automatic migrations **always** write a `.pre-v{N}.bak` next to the file before the first page changes, unless `--no-backup` is passed.
-- `tosumu backup <path>` is a first-class command and is implicitly invoked before any explicit migration.
-- The engine refuses to delete a `.bak` file. That’s the user’s call.
-
-### 13.6 Migration trait and registry
-
-Migrations are explicit structs implementing a common trait. No if-branch soup in `open()`.
-
-A migration is not done when it runs. It is done when it **proves** the result is structurally valid, the expected changes happened, and unrelated data is unchanged.
-
-```rust
-pub trait FormatMigration: Send + Sync {
-    const FROM: u16;
-    const TO: u16;
-    const CATEGORY: MigrationCategory;
-
-    /// Produces a human-readable plan before any data is touched.
-    /// Called by `inspect()` and `--dry-run`; must have no side effects.
-    fn plan(&self, db: &Database) -> MigrationPlan;
-
-    /// Runs precondition checks: exclusive lock held, WAL clean, free space
-    /// sufficient, backup written if required. Returns `PreflightFailed` with
-    /// a structured reason if any check fails.
-    fn preflight(&self, db: &Database) -> Result<()>;
-
-    /// Applies the migration. Called only after `preflight` returns `Ok`.
-    fn apply(&self, ctx: &mut MigrationCtx) -> Result<()>;
-
-    /// Verifies the result. Must check:
-    ///   - structural validity (page MACs, freelist consistency)
-    ///   - expected changes happened (format_version updated, new fields present)
-    ///   - unrelated data is unchanged (spot-check or full verify depending on category)
-    fn verify(&self, db: &Database) -> Result<VerificationReport>;
-}
-
-inventory::collect!(&'static dyn FormatMigration);
-```
-
-The engine builds a migration **chain** at open time: it walks registered migrations and verifies there is exactly one path from `file.format_version` to `SUPPORTED_FORMAT`. Ambiguous or missing links fail fast with a descriptive error.
-
-`VerificationReport` mirrors `MigrationPlan` structure: it is a typed value, not a boolean. It contains counts of pages checked, any anomalies found, whether verification passed, and whether any data was unrecoverable.
-
-### 13.7 Library API
-
-```rust
-impl Database {
-    /// Auto-applies migrations in categories allowed by `opts.auto_migrate_policy`
-    /// (default: metadata-only + keyslot-metadata). Heavier categories return
-    /// `MigrationRequired`.
-    pub fn open(path: &Path, opts: OpenOptions) -> Result<Database>;
-
-    /// Never migrates. Returns `MigrationRequired` if the file is older.
-    pub fn open_read_only(path: &Path) -> Result<Database>;
-
-    /// Explicit migration runner. Applies every queued migration up to
-    /// `SUPPORTED_FORMAT`, with backup and post-validation. No-op if already current.
-    pub fn migrate(path: &Path, opts: MigrateOptions) -> Result<MigrationReport>;
-
-    /// Dry-run: report what migrating this file would do, without touching it.
-    pub fn inspect(path: &Path) -> Result<MigrationPlan>;
-}
-```
-
-`MigrationPlan` includes: current `format_version`, target `format_version`, ordered list of migration steps with category and estimated rewrite cost, whether a backup will be created, and whether unlock (passphrase / TPM) will be required.
-
-`plan.explain()` produces human-readable output. Example for a two-step upgrade:
-
-```
-tosumu migration plan
-
-  Current format: 2
-  Target format:  4
-
-  Steps:
-    2 → 3  Add page_lsn to page header
-           Type:     full rewrite
-           Backup:   required
-           Verifier: page + btree + wal
-
-    3 → 4  Add keyslot flags
-           Type:     metadata-only
-           Backup:   optional
-           Verifier: header_mac
-
-  Safety:
-    exclusive lock required
-    WAL must be clean
-    estimated output size: 48 MB
-    backup: data.tsm.pre-v3.bak
-
-  Can migrate? yes
-```
-
-`--dry-run` calls `plan()` on every pending migration and prints this output without opening the file for write. It explicitly answers:
-- Can migrate? yes/no (with reason if no)
-- What will change?
-- Will it rewrite the file?
-- Is backup required?
-- What validation runs after?
-
-**The plan is a correction-pivot, not an inspection.** `plan().preflight().apply().verify()` does not re-examine the old state and ask "is this still valid?" — it asserts "the previous format is denied; the replacement is format N." The old state is named exactly once, in `plan.explain()` output. After `apply()` succeeds, the pre-migration format version does not exist in this file. `verify()` confirms the replacement, not the original.
-
-This means rollback is not "undo apply" — it is "apply failed," which surfaces as a typed error. If `apply()` returns `Err`, the copy-and-swap strategy (§13.4-A) ensures the original file is intact. There is no partial-migration state where the old format and new format coexist in a single live file.
+`Database::migrate`, migration dry-runs, and `tosumu migrate` should remain uncommitted until the engine actually needs them. When they arrive, keep them explicit, test-backed, and scoped to the concrete migration problem rather than a future-proof framework.
 
 ### 13.8 Key-management migrations
 
-Key-management changes are **keyslot-metadata** migrations almost by construction, because the DEK/KEK split (§8) was designed so rotation rewrites the header, not the pages. Covered operations, all automatic-eligible:
+Key-management changes are not a reason to build automatic format migration on open. Most are explicit header-local operations, because the DEK/KEK split (§8) was designed so rotation rewrites the header, not the pages. Covered operations:
 
 - Rotate a KEK (rewrap DEK under a new protector-derived KEK).
 - Add/remove a protector slot.
 - Extend per-slot reserved bytes when a new protector version lands.
 
-Exceptions that are **not** automatic:
+Exceptions that remain explicit full-rewrite operations:
 
 - Full DEK rotation (§8.8) — crypto-structural, rewrites every page.
 - AAD composition change — crypto-structural.
@@ -2106,7 +1981,7 @@ Crypto operations are exposed as **separate, named commands** rather than buried
 | `rekey-dek` | Crypto-structural | O(pages) | Generate new DEK, rewrite every page |
 | `migrate-crypto` | Crypto-structural | O(pages) | Full crypto migration plan (AAD change, scheme upgrade) |
 
-`rekey-dek` and `migrate-crypto` always require a full migration plan, backup, and post-verification. Neither runs automatically.
+If `rekey-dek` or `migrate-crypto` are exposed, they should require explicit planning, backup, and post-verification. Neither should run automatically.
 
 ### 13.9 Schema migrations (Stage 5+)
 
@@ -2122,16 +1997,16 @@ db.migrate_schema([
 ])?;
 ```
 
-Rules inherited from §13.3:
-- Purely additive steps (new table, new nullable column) are automatic-eligible.
+Pre-stability rules:
+- Keep schema changes explicit until the schema layer has a concrete migration need.
 - Data-transforming steps require an explicit callback and explicit invocation.
-- Destructive steps (drop column/table) refuse to run under `open()` — `migrate_schema` only.
+- Destructive steps (drop column/table) never run under `open()`.
 
 A system catalog page tracks applied schema migration ids (monotonic integers). Re-running is a no-op.
 
 ### 13.10 CLI surface
 
-Added in Stage 1 (even before any migrations exist), so the commands are muscle memory by the time they matter:
+If format migration commands eventually exist, keep the CLI surface explicit:
 
 ```
 tosumu migrate <path>              # apply all pending migrations, with backup
@@ -2145,11 +2020,11 @@ tosumu rekey-dek <path>            # slow: new DEK, rewrite every page
 tosumu migrate-crypto <path>       # full crypto migration plan (AAD/scheme change)
 ```
 
-`rekey-kek` is fast and automatic-eligible. `rekey-dek` and `migrate-crypto` always print a plan first and require explicit confirmation.
+`rekey-kek` should stay a named fast operation. `rekey-dek` and `migrate-crypto` should remain explicit full-rewrite commands rather than hidden side effects.
 
-### 13.11 Formal rule set
+### 13.11 Future migration guardrails
 
-Every migration in Tosumu follows these seven rules without exception:
+When real migration support lands, it should follow these seven rules:
 
 ```
 1. Never auto-migrate read-only opens.
@@ -2272,8 +2147,8 @@ These are tracked here, not silently deferred.
 9. **Keyslot count default.** 8 slots = 1 page at 256 B/slot + header overhead, which is plenty. Bigger means wasted space; smaller means rotation is annoying. *Tentative: 8 slots, fixed at init.*
 10. **TPM library choice.** `tss-esapi` (cross-platform but Linux-centric) vs. platform-native (`windows` crate TBS bindings on Windows). *Tentative: `tss-esapi` for portability; revisit in Stage 4c.*
 11. **`dek_id` in page AAD.** Including it would enable safe incremental rekey but breaks every existing page on DEK rotation. §8.8 currently says no; revisit if online rekey becomes a goal.
-12. **Default `auto_migrate_policy`.** Ship with auto = {metadata-only, keyslot-metadata}. Should page-local rewrite ever be auto under a size threshold (e.g. <1 MB file)? *Tentative: no. Explicit is safer and consistent.*
-13. **Backup retention.** Do we cap the number of `.pre-v{N}.bak` files we leave behind? *Tentative: no. Engine never deletes backups; that’s the user's call per §13.5.*
+12. **First incompatible format change policy.** When the baseline eventually breaks, do we ship an explicit rewrite tool immediately or take one clean break first and add migration support only after a second concrete need appears? *Tentative: prefer one clean break unless a real user dataset needs migration immediately.*
+13. **Backup retention for future rewrite tools.** If explicit rewrite tooling lands later, do we cap the number of backup files it leaves behind? *Tentative: no automatic deletion; backup cleanup stays the user's call.*
 
 ---
 
@@ -3208,6 +3083,32 @@ These are not a substitute for transactions. They are the minimum optimistic-con
 - Stage 7+: surface the same semantics through `tosumu-server` so local and remote access do not diverge.
 
 **Why it matters for this codebase specifically:** It matches the existing "make the safe path shorter than the dangerous path" rule (§10). If the engine can already track version visibility, forcing every caller to write `get(); if old == expected { put(); }` is just outsourcing race conditions.
+
+#### 20.2.5a Parallel write planning, serialized commit
+
+Stage 6+ may optionally split expensive write preparation from commit without introducing multi-writer state.
+
+The safe shape is:
+
+```txt
+request worker
+    ↓
+read snapshot at committed LSN N
+    ↓
+build WritePlan { base_lsn: N, operations, preconditions }
+    ↓
+writer gate
+    ↓
+re-check preconditions at commit time
+    ↓
+persist + publish committed snapshot
+```
+
+This is an internal optimization pattern, not a new transaction model. The planner may parse input, validate constraints, derive index updates, or assemble a batch while reading only immutable snapshot state. The planner does not mutate live database state.
+
+The writer gate remains the source of truth. Before commit it must re-check that the plan's `base_lsn` and explicit preconditions still hold. If they do not, the plan is rejected or rebuilt. A planned write computed from stale state is only a hint until the writer accepts it.
+
+Use this only when validation or write preparation is materially expensive. Tiny writes should go straight through the normal write path; otherwise the engine grows a concurrency tollbooth in front of an empty road.
 
 #### 20.2.6 KV-level explainability and cost counters
 

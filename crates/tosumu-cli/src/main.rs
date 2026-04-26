@@ -5,9 +5,9 @@
 
 use std::path::PathBuf;
 use clap::{ArgGroup, Args, Parser, Subcommand};
-use tosumu_core::error::TosumuError;
 
 mod commands;
+mod error_boundary;
 mod inspect_contract;
 #[cfg(test)]
 mod inspect_cli_tests;
@@ -17,6 +17,7 @@ mod view;
 mod cli_tests;
 
 use commands::run;
+use error_boundary::CliError;
 use inspect_contract::*;
 
 #[derive(Args, Clone, Default)]
@@ -40,6 +41,18 @@ struct InspectUnlockArgs {
     keyfile: Option<PathBuf>,
 }
 
+#[derive(Args, Clone, Default)]
+struct InspectJsonArgs {
+    /// Emit a structured JSON envelope.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Clone, Copy)]
+struct InspectJsonContract {
+    command: &'static str,
+}
+
 #[derive(Parser)]
 #[command(name = tosumu_core::NAME, version, about = "tosumu key-value store (MVP +8)")]
 struct Cli {
@@ -48,26 +61,50 @@ struct Cli {
 }
 
 impl Cli {
-    fn json_error_command(&self) -> Option<&'static str> {
+    fn json_error_contract(&self) -> Option<InspectJsonContract> {
         match &self.command {
             Command::Inspect {
-                action: InspectAction::Header { json: true, .. },
-            } => Some("inspect.header"),
+                action: InspectAction::Header {
+                    json: InspectJsonArgs { json: true },
+                    ..
+                },
+            } => Some(InspectJsonContract { command: "inspect.header" }),
             Command::Inspect {
-                action: InspectAction::Verify { json: true, .. },
-            } => Some("inspect.verify"),
+                action: InspectAction::Verify {
+                    json: InspectJsonArgs { json: true },
+                    ..
+                },
+            } => Some(InspectJsonContract { command: "inspect.verify" }),
             Command::Inspect {
-                action: InspectAction::Pages { json: true, .. },
-            } => Some("inspect.pages"),
+                action: InspectAction::Pages {
+                    json: InspectJsonArgs { json: true },
+                    ..
+                },
+            } => Some(InspectJsonContract { command: "inspect.pages" }),
             Command::Inspect {
-                action: InspectAction::Wal { json: true, .. },
-            } => Some("inspect.wal"),
+                action: InspectAction::Wal {
+                    json: InspectJsonArgs { json: true },
+                    ..
+                },
+            } => Some(InspectJsonContract { command: "inspect.wal" }),
             Command::Inspect {
-                action: InspectAction::Page { json: true, .. },
-            } => Some("inspect.page"),
+                action: InspectAction::Page {
+                    json: InspectJsonArgs { json: true },
+                    ..
+                },
+            } => Some(InspectJsonContract { command: "inspect.page" }),
             Command::Inspect {
-                action: InspectAction::Protectors { json: true, .. },
-            } => Some("inspect.protectors"),
+                action: InspectAction::Tree {
+                    json: InspectJsonArgs { json: true },
+                    ..
+                },
+            } => Some(InspectJsonContract { command: "inspect.tree" }),
+            Command::Inspect {
+                action: InspectAction::Protectors {
+                    json: InspectJsonArgs { json: true },
+                    ..
+                },
+            } => Some(InspectJsonContract { command: "inspect.protectors" }),
             _ => None,
         }
     }
@@ -162,25 +199,22 @@ enum InspectAction {
     /// Inspect the file header.
     Header {
         path: PathBuf,
-        /// Emit a structured JSON envelope.
-        #[arg(long)]
-        json: bool,
+        #[command(flatten)]
+        json: InspectJsonArgs,
     },
     /// Inspect page-auth verification results.
     Verify {
         path: PathBuf,
-        /// Emit a structured JSON envelope.
-        #[arg(long)]
-        json: bool,
+        #[command(flatten)]
+        json: InspectJsonArgs,
         #[command(flatten)]
         unlock: InspectUnlockArgs,
     },
     /// Inspect lightweight summaries for every data page.
     Pages {
         path: PathBuf,
-        /// Emit a structured JSON envelope.
-        #[arg(long)]
-        json: bool,
+        #[command(flatten)]
+        json: InspectJsonArgs,
         #[command(flatten)]
         unlock: InspectUnlockArgs,
     },
@@ -190,34 +224,30 @@ enum InspectAction {
         /// Page number to inspect.
         #[arg(long)]
         page: u64,
-        /// Emit a structured JSON envelope.
-        #[arg(long)]
-        json: bool,
+        #[command(flatten)]
+        json: InspectJsonArgs,
         #[command(flatten)]
         unlock: InspectUnlockArgs,
     },
     /// Inspect the WAL sidecar if present.
     Wal {
         path: PathBuf,
-        /// Emit a structured JSON envelope.
-        #[arg(long)]
-        json: bool,
+        #[command(flatten)]
+        json: InspectJsonArgs,
     },
     /// Inspect the B-tree structure rooted at the current root page.
     Tree {
         path: PathBuf,
-        /// Emit a structured JSON envelope.
-        #[arg(long)]
-        json: bool,
+        #[command(flatten)]
+        json: InspectJsonArgs,
         #[command(flatten)]
         unlock: InspectUnlockArgs,
     },
     /// Inspect configured protectors / keyslots.
     Protectors {
         path: PathBuf,
-        /// Emit a structured JSON envelope.
-        #[arg(long)]
-        json: bool,
+        #[command(flatten)]
+        json: InspectJsonArgs,
     },
 }
 
@@ -241,14 +271,47 @@ enum ProtectorAction {
 
 fn main() {
     let cli = Cli::parse();
-    let json_error_command = cli.json_error_command();
+    let json_error_contract = cli.json_error_contract();
 
-    if let Err(e) = run(cli) {
-        if let Some(command) = json_error_command {
-            println!("{}", render_inspect_error_json(command, &e));
-        } else {
-            eprintln!("error: {e}");
+    match run(cli) {
+        Ok(outcome) => {
+            let exit_code = outcome.exit_code();
+            if exit_code != 0 {
+                std::process::exit(exit_code);
+            }
         }
-        std::process::exit(1);
+        Err(e) => {
+            if let Some(contract) = json_error_contract {
+                println!(
+                    "{}",
+                    render_inspect_error_report_json(
+                        contract.command,
+                        &e.error_report(),
+                    )
+                );
+            } else {
+                eprintln!("{}", render_cli_error(&e));
+            }
+            std::process::exit(exit_code_for_error(&e));
+        }
     }
+}
+
+fn exit_code_for_error(error: &CliError) -> i32 {
+    match error.error_report().status {
+        tosumu_core::error::ErrorStatus::InvalidInput => 2,
+        tosumu_core::error::ErrorStatus::NotFound => 4,
+        tosumu_core::error::ErrorStatus::PermissionDenied => 5,
+        tosumu_core::error::ErrorStatus::Conflict => 6,
+        tosumu_core::error::ErrorStatus::Unsupported => 7,
+        tosumu_core::error::ErrorStatus::Busy => 8,
+        tosumu_core::error::ErrorStatus::ExternalFailure => 9,
+        tosumu_core::error::ErrorStatus::IntegrityFailure => 10,
+        tosumu_core::error::ErrorStatus::Internal => 1,
+    }
+}
+
+fn render_cli_error(error: &CliError) -> String {
+    let report = error.error_report();
+    format!("error [{}]: {}", report.code, report.message)
 }

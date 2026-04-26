@@ -1,11 +1,18 @@
 use serde::Serialize;
-use tosumu_core::error::{codes, ErrorReport, ErrorStatus, TosumuError};
+use serde_json::{Map, Value};
+use tosumu_core::error::{codes, ErrorReport, ErrorValue, TosumuError};
+use tosumu_core::inspect::VerifyIssueKind;
 
-pub(crate) const INSPECT_SCHEMA_VERSION: u32 = 1;
+pub(crate) mod verify_payload_codes {
+    pub const VERIFY_PAGE_AUTH_FAILED: &str = "VERIFY_PAGE_AUTH_FAILED";
+    pub const VERIFY_PAGE_CORRUPT: &str = "VERIFY_PAGE_CORRUPT";
+    pub const VERIFY_PAGE_IO: &str = "VERIFY_PAGE_IO";
+    pub const VERIFY_BTREE_INVALID: &str = "VERIFY_BTREE_INVALID";
+    pub const VERIFY_BTREE_INCOMPLETE: &str = "VERIFY_BTREE_INCOMPLETE";
+}
 
 #[derive(Serialize)]
 pub(crate) struct InspectEnvelope<T> {
-    pub(crate) schema_version: u32,
     pub(crate) command: &'static str,
     pub(crate) ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -145,6 +152,8 @@ pub(crate) struct InspectRecordPayload {
 #[derive(Serialize)]
 pub(crate) struct InspectVerifyIssuePayload {
     pub(crate) pgno: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) code: Option<&'static str>,
     pub(crate) description: String,
 }
 
@@ -153,6 +162,8 @@ pub(crate) struct InspectPageVerifyPayload {
     pub(crate) pgno: u64,
     pub(crate) page_version: Option<u64>,
     pub(crate) auth_ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) issue_code: Option<&'static str>,
     pub(crate) issue: Option<String>,
 }
 
@@ -168,7 +179,35 @@ pub(crate) struct InspectBtreeVerifyPayload {
     pub(crate) checked: bool,
     pub(crate) ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) code: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) message: Option<String>,
+}
+
+pub(crate) fn inspect_verify_issue_code(kind: VerifyIssueKind) -> &'static str {
+    match kind {
+        VerifyIssueKind::AuthFailed => verify_payload_codes::VERIFY_PAGE_AUTH_FAILED,
+        VerifyIssueKind::Corrupt => verify_payload_codes::VERIFY_PAGE_CORRUPT,
+        VerifyIssueKind::Io => verify_payload_codes::VERIFY_PAGE_IO,
+    }
+}
+
+pub(crate) fn inspect_btree_verify_code(
+    checked: bool,
+    ok: bool,
+    has_message: bool,
+) -> Option<&'static str> {
+    if !has_message {
+        return None;
+    }
+
+    if checked && !ok {
+        Some(verify_payload_codes::VERIFY_BTREE_INVALID)
+    } else if !checked {
+        Some(verify_payload_codes::VERIFY_BTREE_INCOMPLETE)
+    } else {
+        None
+    }
 }
 
 #[derive(Serialize)]
@@ -180,8 +219,11 @@ pub(crate) struct InspectKeyslotPayload {
 
 #[derive(Serialize)]
 pub(crate) struct InspectErrorPayload {
-    pub(crate) kind: &'static str,
+    pub(crate) code: &'static str,
+    pub(crate) status: &'static str,
     pub(crate) message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) details: Option<Map<String, Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) pgno: Option<u64>,
 }
@@ -216,51 +258,55 @@ pub(crate) fn bytes_to_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-pub(crate) fn inspect_error_payload(error: &TosumuError) -> InspectErrorPayload {
-    inspect_error_payload_from_report(&error.error_report())
-}
-
 fn inspect_error_payload_from_report(report: &ErrorReport) -> InspectErrorPayload {
     InspectErrorPayload {
-        kind: inspect_error_kind(report),
+        code: report.code,
+        status: report.status.as_str(),
         message: report.message.clone(),
+        details: inspect_error_details(report),
         pgno: report.detail_u64("pgno"),
     }
 }
 
-fn inspect_error_kind(report: &ErrorReport) -> &'static str {
-    match report.code {
-        codes::PROTECTOR_UNLOCK_WRONG_KEY => "wrong_key",
-        codes::PAGE_AUTH_TAG_FAILED => "auth_failed",
-        codes::PAGE_DECODE_CORRUPT | codes::RECORD_CORRUPT | codes::FILE_TRUNCATED => "corrupt",
-        codes::ARGUMENT_INVALID => "invalid_argument",
-        codes::FILE_OPEN_BUSY => "file_busy",
-        codes::FORMAT_NOT_TOSUMU | codes::FORMAT_VERSION_UNSUPPORTED | codes::PAGE_SIZE_MISMATCH => "unsupported",
-        _ => match report.status {
-            ErrorStatus::InvalidInput => "invalid_argument",
-            ErrorStatus::Busy => "file_busy",
-            ErrorStatus::Unsupported => "unsupported",
-            ErrorStatus::PermissionDenied => "wrong_key",
-            ErrorStatus::IntegrityFailure => "corrupt",
-            ErrorStatus::NotFound
-            | ErrorStatus::Conflict
-            | ErrorStatus::ExternalFailure
-            | ErrorStatus::Internal => "io",
-        },
+fn inspect_error_details(report: &ErrorReport) -> Option<Map<String, Value>> {
+    if report.details.is_empty() {
+        return None;
+    }
+
+    let mut details = Map::new();
+    for detail in &report.details {
+        details.insert(detail.key.to_string(), inspect_error_value(&detail.value));
+    }
+    Some(details)
+}
+
+fn inspect_error_value(value: &ErrorValue) -> Value {
+    match value {
+        ErrorValue::Bool(value) => Value::Bool(*value),
+        ErrorValue::Str(value) => Value::String(value.clone()),
+        ErrorValue::U16(value) => Value::Number((*value).into()),
+        ErrorValue::U64(value) => Value::Number((*value).into()),
     }
 }
 
 pub(crate) fn render_inspect_error_json(command: &'static str, error: &TosumuError) -> String {
+    render_inspect_error_report_json(command, &error.error_report())
+}
+
+pub(crate) fn render_inspect_error_report_json(
+    command: &'static str,
+    report: &ErrorReport,
+) -> String {
     render_json(&InspectEnvelope::<()> {
-        schema_version: INSPECT_SCHEMA_VERSION,
         command,
         ok: false,
         payload: None,
-        error: Some(inspect_error_payload(error)),
+        error: Some(inspect_error_payload_from_report(report)),
     }).unwrap_or_else(|serialization_error| {
+        let message = format!("{:?}", serialization_error.to_string());
         format!(
-            "{{\"schema_version\":{INSPECT_SCHEMA_VERSION},\"command\":\"{command}\",\"ok\":false,\"error\":{{\"kind\":\"io\",\"message\":{:?}}}}}",
-            serialization_error.to_string()
+            "{{\"command\":\"{command}\",\"ok\":false,\"error\":{{\"code\":\"{}\",\"status\":\"external_failure\",\"message\":{message}}}}}",
+            codes::FILE_IO_FAILED,
         )
     })
 }

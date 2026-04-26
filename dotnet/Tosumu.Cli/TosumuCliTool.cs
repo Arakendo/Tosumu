@@ -43,16 +43,18 @@ public sealed class TosumuInspectCommandException : InvalidOperationException
     public TosumuInspectCommandException(
         string command,
         int exitCode,
-        string? errorKind,
+        string? errorCode,
+        string? errorStatus,
         string message,
         ulong? pgno,
         string standardOutput,
         string standardError)
-        : base($"{command} failed with kind '{errorKind ?? "unknown"}': {message}")
+        : base($"{command} failed with code '{errorCode ?? "unknown"}' (status '{errorStatus ?? "unknown"}'): {message}")
     {
         Command = command;
         ExitCode = exitCode;
-        ErrorKind = errorKind;
+        ErrorCode = errorCode;
+        ErrorStatus = errorStatus;
         Pgno = pgno;
         StandardOutput = standardOutput;
         StandardError = standardError;
@@ -62,7 +64,9 @@ public sealed class TosumuInspectCommandException : InvalidOperationException
 
     public int ExitCode { get; }
 
-    public string? ErrorKind { get; }
+    public string? ErrorCode { get; }
+
+    public string? ErrorStatus { get; }
 
     public ulong? Pgno { get; }
 
@@ -316,7 +320,8 @@ public sealed class TosumuCliTool
         return new TosumuInspectCommandException(
             command,
             result.ExitCode,
-            error?.Kind,
+            error?.Code,
+            error?.Status,
             error?.Message ?? result.StandardError,
             error?.Pgno,
             result.StandardOutput,
@@ -453,13 +458,13 @@ public sealed record TosumuInspectRecordPayload(
     [property: JsonPropertyName("record_type")] byte? RecordType);
 
 internal sealed record TosumuInspectEnvelope<TPayload>(
-    [property: JsonPropertyName("schema_version")] int SchemaVersion,
     [property: JsonPropertyName("command")] string Command,
     [property: JsonPropertyName("ok")] bool Ok,
     [property: JsonPropertyName("payload")] TPayload? Payload,
     [property: JsonPropertyName("error")] TosumuInspectErrorPayload? Error);
 
 internal sealed record TosumuInspectErrorPayload(
-    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("code")] string Code,
+    [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("message")] string Message,
     [property: JsonPropertyName("pgno")] ulong? Pgno);

@@ -379,47 +379,27 @@ Version 1 should not invent a broad secret exchange protocol beyond that.
 
 ## Inspection API Design
 
-The Rust-to-UI boundary is a **versioned inspection API** carried over JSON.
+The Rust-to-UI boundary is a structured inspection API carried over JSON.
 
 The API should be:
 
 - explicit
-- version-tolerant
-- additive by default
+- role-focused
 - stable enough for a UI client
-
-### Versioning strategy
-
-The versioning model should be simple:
-
-- `schema_version` versions the inspection API envelope and payload semantics
-- the `command` field identifies which payload shape is being returned
-- adding a new command does **not** require a new schema version by itself
-- changing the meaning or required shape of an existing command response **does** require a schema version bump
-
-In other words:
-
-- new commands are additive
-- incompatible meaning changes are versioned
-
-That keeps the API evolvable without forcing a version bump for every new surface area.
+- free of speculative compatibility scaffolding
 
 ### Compatibility rules
 
-These rules should be treated as hard constraints once the first command ships:
+These rules should be treated as hard constraints for the current baseline:
 
-- always include `schema_version`
-- never remove fields in an existing schema version
-- only add fields
-- prefer nullable or optional additions over breaking shape changes
+- keep one canonical envelope shape per command
 - keep error shapes structured, not prose-only
+- avoid compatibility aliases when the structured field already carries the meaning
 - avoid leaking Rust internal type names as API commitments
-
-If a true breaking change becomes unavoidable, bump the schema version rather than mutating meaning in place.
+- introduce formal versioning only when a real incompatible change exists
 
 Recommended shape:
 
-- top-level `schema_version`
 - top-level `command`
 - top-level `ok`
 - typed payload objects
@@ -430,7 +410,6 @@ Example:
 
 ```json
 {
-  "schema_version": 1,
    "command": "inspect.header",
    "ok": true,
    "payload": {
@@ -453,21 +432,16 @@ Example:
 
 ```json
 {
-   "schema_version": 1,
    "command": "inspect.verify",
    "ok": false,
    "error": {
-      "kind": "auth_failed",
+      "code": "PAGE_AUTH_TAG_FAILED",
+      "status": "integrity_failure",
       "message": "authentication tag mismatch",
       "pgno": 3
    }
 }
 ```
-
-Suggested stable error kinds for version 1:
-
-- `wrong_key`
-- `auth_failed`
 - `corrupt`
 - `invalid_argument`
 - `file_busy`

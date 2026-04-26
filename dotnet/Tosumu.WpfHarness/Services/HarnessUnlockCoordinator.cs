@@ -102,7 +102,7 @@ internal sealed class HarnessUnlockCoordinator
                     logDebug($"Completed {operationName}.");
                     return;
                 }
-                catch (TosumuInspectCommandException ex) when (string.Equals(ex.ErrorKind, "wrong_key", StringComparison.Ordinal))
+                catch (TosumuInspectCommandException ex) when (string.Equals(ex.ErrorCode, "PROTECTOR_UNLOCK_WRONG_KEY", StringComparison.Ordinal))
                 {
                     setStatus("Unlock required or provided secret was rejected.");
                     logInspectFailure(operationName, ex);

@@ -115,6 +115,12 @@ pub enum TosumuError {
     #[error("invalid argument: {0}")]
     InvalidArgument(&'static str),
 
+    #[error("page number out of range: requested {pgno}, page_count {page_count}")]
+    InspectPageOutOfRange {
+        pgno: u64,
+        page_count: u64,
+    },
+
     /// A file needed for a database operation is temporarily locked by another
     /// process (e.g. AV scanner, backup tool).  The caller should retry later.
     #[error("file temporarily locked by another process during {operation}: {path:?}")]
@@ -290,6 +296,21 @@ impl TosumuError {
                     value: ErrorValue::Str((*reason).to_string()),
                 }],
             },
+            TosumuError::InspectPageOutOfRange { pgno, page_count } => ErrorReport {
+                code: codes::INSPECT_PAGE_OUT_OF_RANGE,
+                status: ErrorStatus::InvalidInput,
+                message: self.to_string(),
+                details: vec![
+                    ErrorDetail {
+                        key: "pgno",
+                        value: ErrorValue::U64(*pgno),
+                    },
+                    ErrorDetail {
+                        key: "page_count",
+                        value: ErrorValue::U64(*page_count),
+                    },
+                ],
+            },
             TosumuError::FileBusy { path, operation } => ErrorReport {
                 code: codes::FILE_OPEN_BUSY,
                 status: ErrorStatus::Busy,
@@ -343,5 +364,19 @@ mod tests {
         let report = TosumuError::AuthFailed { pgno: Some(42) }.error_report();
         assert_eq!(report.code, codes::PAGE_AUTH_TAG_FAILED);
         assert_eq!(report.detail_u64("pgno"), Some(42));
+    }
+
+    #[test]
+    fn error_report_maps_inspect_page_out_of_range_to_specific_code() {
+        let report = TosumuError::InspectPageOutOfRange {
+            pgno: 9,
+            page_count: 4,
+        }
+        .error_report();
+
+        assert_eq!(report.code, codes::INSPECT_PAGE_OUT_OF_RANGE);
+        assert_eq!(report.status, ErrorStatus::InvalidInput);
+        assert_eq!(report.detail_u64("pgno"), Some(9));
+        assert_eq!(report.detail_u64("page_count"), Some(4));
     }
 }

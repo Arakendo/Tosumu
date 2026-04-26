@@ -161,26 +161,26 @@ A comprehensive database tooling library with migration runner, schema builder, 
 
 ### Migration system
 
-#### **ICodeMigration** + **SqliteMigrationRunner** — Directly relevant to DESIGN.md §12
+#### **ICodeMigration** + **SqliteMigrationRunner** — Reference material for future explicit rewrite tooling
 **Path:** `ICodeMigration.cs`, `SqliteMigrationRunner.cs`, `MIGRATIONS.md`
 
 **What to reference:**
-- **Version-based migration ordering** — each migration has a `long Version` (uses timestamps like `202602190900`).
-- **Up/Down pattern** — forward migration + explicit rollback. Tosumu's §12.6 `FormatMigration` trait mirrors this.
-- **Migration history table** — `__MigrationHistory` tracks applied migrations. Tosumu should store this in page 0 header or a system page.
-- **Transaction wrapping** — migrations run inside transactions by default, with opt-out for long-running ops.
-- **Discovery + sorting** — runner auto-discovers migrations, sorts by version, applies pending ones.
+- **Version-based ordering** — useful only if Tosumu eventually grows explicit rewrite tooling with multiple concrete steps.
+- **Up/Down pattern** — a reference point, not Tosumu policy. Pre-stability Tosumu should prefer one clean baseline change over carrying rollback scaffolding by default.
+- **Migration history table** — potentially useful later if explicit schema or format rewrites become real product features.
+- **Transaction wrapping** — useful for bounded metadata rewrites, but not evidence that Tosumu should implement automatic migration now.
+- **Discovery + sorting** — useful once there are real, multiple rewrite steps to manage.
 
 **Adaptation notes:**
 - C# version uses `SqliteConnection` + ADO.NET. Tosumu's version works on raw pages.
-- Core pattern is identical: versioned changes, recorded history, safe rollback.
-- Tosumu's migration categories (§12.2) are more granular (metadata-only vs. page-local vs. destructive).
+- Do not read this as a template Tosumu must implement now. It is only a design reference for the point where explicit rewrite tooling becomes necessary.
+- Tosumu's current policy is a single baseline format, with incompatible-format tooling deferred until a real break exists.
 
-**Key lesson:** The **migration history table** pattern is crucial. Tosumu should store `(version, name, applied_at, rolled_back_at)` tuples, not just `format_version` in the header.
+**Key lesson:** If Tosumu eventually needs explicit schema or format rewrite tooling, a durable history record is a useful pattern to revisit. It is not a current baseline requirement.
 
 **Usage:**
 ```bash
-# Review before implementing tosumu's migration system
+# Review only if implementing explicit rewrite tooling later
 code F:\LocalSource\ClassLibrary\DatabaseTools\MIGRATIONS.md
 code F:\LocalSource\ClassLibrary\DatabaseTools\ICodeMigration.cs
 code F:\LocalSource\ClassLibrary\DatabaseTools\SqliteMigrationRunner.cs
@@ -232,8 +232,8 @@ code F:\LocalSource\ClassLibrary\DatabaseTools\SqliteMigrationRunner.cs
 
 ### Other useful patterns
 
-- **DatabaseExporter/Importer** — full-DB export to JSON/SQLite/CSV. Useful for tosumu's backup/restore (Stage 4b "backup before migration").
-- **SchemaComparer** — detects differences between two databases. Tosumu could use this for migration validation tests.
+- **DatabaseExporter/Importer** — full-DB export to JSON/SQLite/CSV. Useful for explicit backup/restore tooling or future rewrite workflows that need a safe external representation.
+- **SchemaComparer** — detects differences between two databases. Tosumu could use this for schema or explicit rewrite validation tests.
 - **Content packages** — self-contained SQLite files with metadata. Similar to tosumu's fixture files (§10.9).
 
 ---
@@ -287,10 +287,10 @@ An in-memory virtual file system with URI-based resource management. Thread-safe
 
 **Tosumu use case:**
 - Tosumu already has HMAC-SHA256 for header MAC (§8.4) and AEAD tags for pages (§8.2).
-- This pattern is useful for **migration validation tests**: compute hash of pre-migration file, run migration, verify hash of specific pages or metadata hasn't changed when it shouldn't.
+- This pattern is useful for **explicit rewrite validation tests**: compute hash of pre-rewrite state, run the rewrite, verify hash of specific pages or metadata hasn't changed when it shouldn't.
 - Could also be used for **backup integrity** — hash backup files, verify on restore.
 
-**When to reference:** Stage 3+ (WAL checksums), Stage 4 (migration validation), Stage 6 (backup integrity).
+**When to reference:** Stage 3+ (WAL checksums), future explicit rewrite tooling, Stage 6 (backup integrity).
 
 ---
 
@@ -442,7 +442,7 @@ code F:\LocalSource\ClassLibrary\VaultServices\KEYMANAGER_INTEGRATION.md
 
 **Tosumu parallels:**
 - VaultServices encrypts files. Tosumu encrypts pages. Same AEAD pattern.
-- Backup rotation → tosumu's §12.5 "automatic .bak files before migrations."
+- Backup rotation → useful only if Tosumu later grows explicit backup retention policy for rewrite tools or operator workflows.
 - In-place updates → tosumu's WAL ensures crash-safety; VaultServices relies on atomic file writes.
 
 ---
@@ -564,7 +564,7 @@ A lightweight publish/subscribe event bus for decoupled cross-component communic
 | Library | Directly relevant | When to reference |
 |---|---|---|
 | **DataStructures** | BPlusTree, LruCache, BloomFilter, RingBuffer | Stage 1 (LRU), Stage 2 (B+tree), Stage 3 (Ring), Stage 6+ (Bloom) |
-| **DatabaseTools** | Migration system, schema builder, sync engine | Stage 1+ (migrations §12), Stage 5+ (DDL), Stage 7+ (sync) |
+| **DatabaseTools** | Future explicit rewrite tooling, schema builder, sync engine | Future rewrite tooling, Stage 5+ (DDL), Stage 7+ (sync) |
 | **MemoryStore** | In-memory mode, hashing/comparison | Stage 1+ (testing), Stage 3+ (integrity checks) |
 | **SecurityTools** | AES-GCM, HKDF, PBKDF2, secure random | **Stage 4 (critical)** — crypto primitives and patterns |
 | **VaultServices** | Envelope encryption, protectors, key management | **Stage 4 (critical)** — direct parallel to §8 design |
@@ -724,7 +724,7 @@ The ClassLibrary is a massive enterprise toolkit with ~75 infrastructure librari
 - **VaultServices** — Stage 4 (envelope encryption, protectors)
 - **SecurityTools** — Stage 4 (AES-GCM, HKDF, Argon2 patterns)
 - **DataStructures** — Stage 1 (LRU cache), Stage 2 (B+ tree), Stage 3 (ring buffer), Stage 6+ (Bloom filter)
-- **DatabaseTools** — Stage 1+ (migrations), Stage 5+ (DDL), Stage 7+ (sync)
+- **DatabaseTools** — future explicit rewrite tooling, Stage 5+ (DDL), Stage 7+ (sync)
 
 **Useful for extensions:**
 - **UlidTools** — Stage 7+ (time-sortable LSN, sync change IDs)
@@ -799,7 +799,7 @@ These are not analogies — they are direct derivations. The DESIGN.md sections 
 #### The Wilkins failure → §13 format stability policy
 John Wilkins (1668) built *An Essay Towards a Real Character, and a Philosophical Language* — every word encoded its taxonomic position. When the taxonomy was revised, all vocabulary had to change. The language was obsolete before it was finished.
 
-**Applied:** The on-disk page layout, AEAD construction, and keyslot format are Tosumu's primitive roots. They are frozen after Stage 2. New features grow by composition. `format_version` bumps are the controlled exceptions. The migration system exists for those exceptions.
+**Applied:** The on-disk page layout, AEAD construction, and keyslot format are Tosumu's primitive roots. They are frozen after Stage 2. New features grow by composition. `format_version` bumps are the controlled exceptions, and rewrite tooling should be introduced only when a concrete incompatible change actually requires it.
 
 **File:** `F:\LocalSource\Tonesu\spec\domain-creation.md` → §4 Stability Rule
 
