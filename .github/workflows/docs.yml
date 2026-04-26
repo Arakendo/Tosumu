@@ -41,7 +41,7 @@ jobs:
         run: mkdocs build --strict
       - name: Disable Jekyll processing
         run: |
-          New-Item -ItemType File -Path site/.nojekyll -Force | Out-Null
+          touch site/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
