@@ -15,9 +15,11 @@ use tosumu_core::format::{PAGE_TYPE_FREE, PAGE_TYPE_INTERNAL, PAGE_TYPE_LEAF, PA
 use tosumu_core::inspect::{inspect_page_from_pager, read_header_info, verify_pager, HeaderInfo, PageSummary, RecordInfo, VerifyReport};
 use tosumu_core::pager::Pager;
 
+use crate::unlock::open_pager;
+
 pub fn run(path: &Path) -> Result<()> {
     let header = read_header_info(path)?;
-    let (pager, _) = super::open_pager(path)?;
+    let (pager, _) = open_pager(path)?;
     let verify = verify_pager(&pager)?;
     let pages = load_page_rows(&pager)?;
     let mut app = ViewApp::new(path, header, verify, pages);

@@ -103,6 +103,7 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 ## Further reading
 
 - [`DESIGN.md`](DESIGN.md) — the design doc. Source of truth for all decisions.
+- [`ERRORS.md`](ERRORS.md) — structured error design, code/status model, and boundary-mapping plan.
 - [`INSPECT_API.md`](INSPECT_API.md) — machine-readable inspection contract for the TUI, harness, and future companion tools.
 - [`SECURITY.md`](SECURITY.md) — threat model summary and responsible disclosure.
 - [`REFERENCES.md`](REFERENCES.md) — reference implementations that informed the design.

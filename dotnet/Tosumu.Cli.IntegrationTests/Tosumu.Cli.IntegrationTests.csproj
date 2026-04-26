@@ -5,8 +5,8 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <RestoreAdditionalProjectSources>$(MSBuildThisFileDirectory)..\_packages</RestoreAdditionalProjectSources>
-    <RestorePackagesPath>$(MSBuildThisFileDirectory)..\_packages-cache</RestorePackagesPath>
+    <RestoreAdditionalProjectSources>$(MSBuildThisFileDirectory)..\.artifacts\packages</RestoreAdditionalProjectSources>
+    <RestorePackagesPath>$(MSBuildThisFileDirectory)..\.artifacts\nuget-cache</RestorePackagesPath>
   </PropertyGroup>
 
   <ItemGroup>

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Path = (Join-Path $PSScriptRoot '_scratch\harness-demo.tsm'),
+    [string]$Path = (Join-Path $PSScriptRoot '.artifacts\scratch\harness-demo.tsm'),
     [ValidateSet('Tiny', 'Branchy', 'Wide')]
     [string]$Dataset = 'Branchy',
     [int]$RecordCount,

@@ -6,20 +6,30 @@ namespace Tosumu.WpfHarness;
 
 public partial class UnlockPromptWindow : Window
 {
+    private readonly HarnessUnlockPanelController unlockPanelController;
+
     public UnlockPromptWindow(string promptMessage, string initialMode, string initialKeyfilePath)
     {
         InitializeComponent();
+        unlockPanelController = new HarnessUnlockPanelController(
+            UnlockModeComboBox,
+            SecretLabelTextBlock,
+            SecretPasswordBox,
+            KeyfilePathTextBox,
+            BrowseKeyfileButton,
+            HarnessUnlockModes.Passphrase,
+            keepLabelVisible: true);
         PromptTextBlock.Text = promptMessage;
-        SelectUnlockMode(initialMode);
+        unlockPanelController.SelectUnlockMode(initialMode);
         KeyfilePathTextBox.Text = initialKeyfilePath;
-        UpdateModeInputs();
+        unlockPanelController.UpdateModeInputs();
     }
 
     internal HarnessUnlockSelection? UnlockSelection { get; private set; }
 
     private void UnlockModeComboBox_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        UpdateModeInputs();
+        unlockPanelController.UpdateModeInputs();
     }
 
     private void BrowseKeyfileButton_OnClick(object sender, RoutedEventArgs e)
@@ -45,7 +55,7 @@ public partial class UnlockPromptWindow : Window
 
     private void RetryButton_OnClick(object sender, RoutedEventArgs e)
     {
-        switch (GetSelectedUnlockMode())
+        switch (unlockPanelController.GetSelectedUnlockMode())
         {
             case HarnessUnlockModes.Passphrase:
             case HarnessUnlockModes.RecoveryKey:
@@ -56,7 +66,7 @@ public partial class UnlockPromptWindow : Window
                     return;
                 }
 
-                UnlockSelection = new HarnessUnlockSelection(GetSelectedUnlockMode(), secret);
+                UnlockSelection = new HarnessUnlockSelection(unlockPanelController.GetSelectedUnlockMode(), secret);
                 DialogResult = true;
                 return;
             case HarnessUnlockModes.Keyfile:
@@ -79,45 +89,6 @@ public partial class UnlockPromptWindow : Window
             default:
                 MessageBox.Show(this, "Choose an unlock mode before retrying.", "Tosumu Harness", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
-        }
-    }
-
-    private string GetSelectedUnlockMode()
-    {
-        return (UnlockModeComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? HarnessUnlockModes.Passphrase;
-    }
-
-    private void SelectUnlockMode(string mode)
-    {
-        var desiredMode = mode == HarnessUnlockModes.Auto ? HarnessUnlockModes.Passphrase : mode;
-        foreach (var item in UnlockModeComboBox.Items)
-        {
-            if (item is ComboBoxItem comboBoxItem && string.Equals(comboBoxItem.Tag as string, desiredMode, StringComparison.Ordinal))
-            {
-                UnlockModeComboBox.SelectedItem = comboBoxItem;
-                return;
-            }
-        }
-
-        UnlockModeComboBox.SelectedIndex = 0;
-    }
-
-    private void UpdateModeInputs()
-    {
-        var selectedMode = GetSelectedUnlockMode();
-        var usesSecret = selectedMode is HarnessUnlockModes.Passphrase or HarnessUnlockModes.RecoveryKey;
-        var usesKeyfile = selectedMode == HarnessUnlockModes.Keyfile;
-
-        SecretLabelTextBlock.Text = selectedMode == HarnessUnlockModes.RecoveryKey ? "Recovery key" : "Passphrase";
-        SecretLabelTextBlock.Visibility = Visibility.Visible;
-        SecretPasswordBox.Visibility = usesSecret ? Visibility.Visible : Visibility.Collapsed;
-        KeyfilePathTextBox.Visibility = usesKeyfile ? Visibility.Visible : Visibility.Collapsed;
-        BrowseKeyfileButton.Visibility = usesKeyfile ? Visibility.Visible : Visibility.Collapsed;
-
-        if (usesKeyfile)
-        {
-            SecretPasswordBox.Password = string.Empty;
-            SecretLabelTextBlock.Text = "Keyfile path";
         }
     }
 }

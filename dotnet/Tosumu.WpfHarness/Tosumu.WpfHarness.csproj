@@ -6,8 +6,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <RestoreAdditionalProjectSources>$(MSBuildThisFileDirectory)..\_packages</RestoreAdditionalProjectSources>
-    <RestorePackagesPath>$(MSBuildThisFileDirectory)..\_packages-cache</RestorePackagesPath>
+    <RestoreAdditionalProjectSources>$(MSBuildThisFileDirectory)..\.artifacts\packages</RestoreAdditionalProjectSources>
+    <RestorePackagesPath>$(MSBuildThisFileDirectory)..\.artifacts\nuget-cache</RestorePackagesPath>
   </PropertyGroup>
 
   <ItemGroup>

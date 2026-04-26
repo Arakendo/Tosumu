@@ -31,15 +31,10 @@ Thumbs.db
 .env.local
 
 # .NET local packaging / build outputs
-/dotnet/_packages/
-/dotnet/_packages-cache/
-/dotnet/_packages-cache-*/
+/dotnet/.artifacts/
 /dotnet/**/bin/
 /dotnet/**/obj/
 
 
-#audit files
-/Audits/
-
-# Notes
-/Notes/
+# Local workbench material
+/.workbench/

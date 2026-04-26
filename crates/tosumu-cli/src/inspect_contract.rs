@@ -1,5 +1,5 @@
 use serde::Serialize;
-use tosumu_core::error::TosumuError;
+use tosumu_core::error::{codes, ErrorReport, ErrorStatus, TosumuError};
 
 pub(crate) const INSPECT_SCHEMA_VERSION: u32 = 1;
 
@@ -217,55 +217,35 @@ pub(crate) fn bytes_to_hex(bytes: &[u8]) -> String {
 }
 
 pub(crate) fn inspect_error_payload(error: &TosumuError) -> InspectErrorPayload {
-    match error {
-        TosumuError::WrongKey => InspectErrorPayload {
-            kind: "wrong_key",
-            message: error.to_string(),
-            pgno: None,
-        },
-        TosumuError::AuthFailed { pgno } => InspectErrorPayload {
-            kind: "auth_failed",
-            message: error.to_string(),
-            pgno: *pgno,
-        },
-        TosumuError::Corrupt { pgno, .. } => InspectErrorPayload {
-            kind: "corrupt",
-            message: error.to_string(),
-            pgno: Some(*pgno),
-        },
-        TosumuError::InvalidArgument(_) => InspectErrorPayload {
-            kind: "invalid_argument",
-            message: error.to_string(),
-            pgno: None,
-        },
-        TosumuError::FileBusy { .. } => InspectErrorPayload {
-            kind: "file_busy",
-            message: error.to_string(),
-            pgno: None,
-        },
-        TosumuError::NotATosumFile
-        | TosumuError::NewerFormat { .. }
-        | TosumuError::PageSizeMismatch { .. } => InspectErrorPayload {
-            kind: "unsupported",
-            message: error.to_string(),
-            pgno: None,
-        },
-        TosumuError::CorruptRecord { .. }
-        | TosumuError::Io(_)
-        | TosumuError::EncryptFailed
-        | TosumuError::RngFailed
-        | TosumuError::FileTruncated { .. }
-        | TosumuError::Poisoned
-        | TosumuError::OutOfSpace
-        | TosumuError::CommittedButFlushFailed { .. } => InspectErrorPayload {
-            kind: "io",
-            message: error.to_string(),
-            pgno: None,
-        },
-        _ => InspectErrorPayload {
-            kind: "unsupported",
-            message: error.to_string(),
-            pgno: None,
+    inspect_error_payload_from_report(&error.error_report())
+}
+
+fn inspect_error_payload_from_report(report: &ErrorReport) -> InspectErrorPayload {
+    InspectErrorPayload {
+        kind: inspect_error_kind(report),
+        message: report.message.clone(),
+        pgno: report.detail_u64("pgno"),
+    }
+}
+
+fn inspect_error_kind(report: &ErrorReport) -> &'static str {
+    match report.code {
+        codes::PROTECTOR_UNLOCK_WRONG_KEY => "wrong_key",
+        codes::PAGE_AUTH_TAG_FAILED => "auth_failed",
+        codes::PAGE_DECODE_CORRUPT | codes::RECORD_CORRUPT | codes::FILE_TRUNCATED => "corrupt",
+        codes::ARGUMENT_INVALID => "invalid_argument",
+        codes::FILE_OPEN_BUSY => "file_busy",
+        codes::FORMAT_NOT_TOSUMU | codes::FORMAT_VERSION_UNSUPPORTED | codes::PAGE_SIZE_MISMATCH => "unsupported",
+        _ => match report.status {
+            ErrorStatus::InvalidInput => "invalid_argument",
+            ErrorStatus::Busy => "file_busy",
+            ErrorStatus::Unsupported => "unsupported",
+            ErrorStatus::PermissionDenied => "wrong_key",
+            ErrorStatus::IntegrityFailure => "corrupt",
+            ErrorStatus::NotFound
+            | ErrorStatus::Conflict
+            | ErrorStatus::ExternalFailure
+            | ErrorStatus::Internal => "io",
         },
     }
 }

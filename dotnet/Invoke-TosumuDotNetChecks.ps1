@@ -10,10 +10,11 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$artifactsRoot = Join-Path $repoRoot 'dotnet\.artifacts'
 $packageProject = Join-Path $repoRoot 'dotnet\Tosumu.Cli\Tosumu.Cli.csproj'
 $testProject = Join-Path $repoRoot 'dotnet\Tosumu.Cli.IntegrationTests\Tosumu.Cli.IntegrationTests.csproj'
-$packageOutput = Join-Path $repoRoot 'dotnet\_packages'
-$packageCache = Join-Path $repoRoot 'dotnet\_packages-cache'
+$packageOutput = Join-Path $artifactsRoot 'packages'
+$packageCache = Join-Path $artifactsRoot 'nuget-cache'
 $restorePackagesPath = $packageCache
 
 function Remove-CacheDirectory {
@@ -45,7 +46,7 @@ function Remove-StaleRestoreCaches {
         [string]$ActivePath
     )
 
-    Get-ChildItem $DotnetRoot -Directory -Filter '_packages-cache-*' -ErrorAction SilentlyContinue |
+    Get-ChildItem $DotnetRoot -Directory -Filter 'nuget-cache-*' -ErrorAction SilentlyContinue |
         Where-Object { -not $ActivePath -or $_.FullName -ne $ActivePath } |
         ForEach-Object {
             Write-Host "Removing stale fallback cache: $($_.FullName)"
@@ -54,13 +55,14 @@ function Remove-StaleRestoreCaches {
 }
 
 Write-Host "Repository root: $repoRoot"
-Remove-StaleRestoreCaches -DotnetRoot (Join-Path $repoRoot 'dotnet')
+New-Item -ItemType Directory -Path $artifactsRoot -Force | Out-Null
+Remove-StaleRestoreCaches -DotnetRoot $artifactsRoot
 
 if (Test-Path $packageCache) {
     Write-Host "Clearing local NuGet cache: $packageCache"
     if (-not (Remove-CacheDirectory -Path $packageCache -Label 'local NuGet cache')) {
         $timestamp = Get-Date -Format 'yyyyMMddHHmmssfff'
-        $restorePackagesPath = Join-Path $repoRoot ("dotnet\_packages-cache-$timestamp")
+        $restorePackagesPath = Join-Path $artifactsRoot ("nuget-cache-$timestamp")
         Write-Warning "Could not clear local NuGet cache. Falling back to fresh restore path: $restorePackagesPath"
     }
 }

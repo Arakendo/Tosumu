@@ -17,6 +17,6 @@ Typical local workflow from the repository root:
 Manual equivalent:
 
 ```powershell
-dotnet pack .\dotnet\Tosumu.Cli\Tosumu.Cli.csproj -c Release -o .\dotnet\_packages
+dotnet pack .\dotnet\Tosumu.Cli\Tosumu.Cli.csproj -c Release -o .\dotnet\.artifacts\packages
 dotnet test .\dotnet\Tosumu.Cli.IntegrationTests\Tosumu.Cli.IntegrationTests.csproj -c Release -p:RestoreForce=true -p:RestoreNoCache=true
 ```

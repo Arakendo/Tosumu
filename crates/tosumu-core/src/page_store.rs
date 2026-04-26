@@ -33,6 +33,7 @@ use std::path::Path;
 
 use crate::btree::BTree;
 use crate::error::{Result, TosumuError};
+use crate::pager::Pager;
 
 /// High-level key-value store backed by the B+ tree.
 pub struct PageStore {
@@ -104,97 +105,97 @@ impl PageStore {
 
     /// Add a passphrase protector. Returns the slot index used.
     pub fn add_passphrase_protector(path: &Path, unlock_passphrase: &str, new_passphrase: &str) -> Result<u16> {
-        BTree::add_passphrase_protector(path, unlock_passphrase, new_passphrase)
+        Pager::add_passphrase_protector(path, unlock_passphrase, new_passphrase)
     }
 
     /// Add a passphrase protector, unlocking the DEK with a recovery key.
     pub fn add_passphrase_protector_with_recovery_key(path: &Path, recovery_str: &str, new_passphrase: &str) -> Result<u16> {
-        BTree::add_passphrase_protector_with_recovery_key(path, recovery_str, new_passphrase)
+        Pager::add_passphrase_protector_with_recovery_key(path, recovery_str, new_passphrase)
     }
 
     /// Add a passphrase protector, unlocking the DEK with a keyfile protector.
     pub fn add_passphrase_protector_with_keyfile(path: &Path, keyfile_path: &Path, new_passphrase: &str) -> Result<u16> {
-        BTree::add_passphrase_protector_with_keyfile(path, keyfile_path, new_passphrase)
+        Pager::add_passphrase_protector_with_keyfile(path, keyfile_path, new_passphrase)
     }
 
     /// Add a recovery-key protector. Returns the one-time recovery string.
     pub fn add_recovery_key_protector(path: &Path, unlock_passphrase: &str) -> Result<String> {
-        BTree::add_recovery_key_protector(path, unlock_passphrase)
+        Pager::add_recovery_key_protector(path, unlock_passphrase)
     }
 
     /// Add a recovery-key protector, unlocking the DEK with an existing recovery key.
     pub fn add_recovery_key_protector_with_recovery_key(path: &Path, recovery_str: &str) -> Result<String> {
-        BTree::add_recovery_key_protector_with_recovery_key(path, recovery_str)
+        Pager::add_recovery_key_protector_with_recovery_key(path, recovery_str)
     }
 
     /// Add a recovery-key protector, unlocking the DEK with a keyfile protector.
     pub fn add_recovery_key_protector_with_keyfile(path: &Path, keyfile_path: &Path) -> Result<String> {
-        BTree::add_recovery_key_protector_with_keyfile(path, keyfile_path)
+        Pager::add_recovery_key_protector_with_keyfile(path, keyfile_path)
     }
 
     /// Add a recovery-key protector using a caller-supplied recovery string.
     pub fn add_recovery_key_protector_with_secret(path: &Path, unlock_passphrase: &str, recovery_str: &str) -> Result<()> {
-        BTree::add_recovery_key_protector_with_secret(path, unlock_passphrase, recovery_str)
+        Pager::add_recovery_key_protector_with_secret(path, unlock_passphrase, recovery_str)
     }
 
     /// Add a recovery-key protector using an existing recovery key and caller-supplied secret.
     pub fn add_recovery_key_protector_with_recovery_key_and_secret(path: &Path, recovery_str: &str, new_recovery_str: &str) -> Result<()> {
-        BTree::add_recovery_key_protector_with_recovery_key_and_secret(path, recovery_str, new_recovery_str)
+        Pager::add_recovery_key_protector_with_recovery_key_and_secret(path, recovery_str, new_recovery_str)
     }
 
     /// Add a recovery-key protector using a keyfile unlock and caller-supplied secret.
     pub fn add_recovery_key_protector_with_keyfile_and_secret(path: &Path, keyfile_path: &Path, recovery_str: &str) -> Result<()> {
-        BTree::add_recovery_key_protector_with_keyfile_and_secret(path, keyfile_path, recovery_str)
+        Pager::add_recovery_key_protector_with_keyfile_and_secret(path, keyfile_path, recovery_str)
     }
 
     /// Add a keyfile protector. Returns the slot index used.
     pub fn add_keyfile_protector(path: &Path, unlock_passphrase: &str, keyfile_path: &Path) -> Result<u16> {
-        BTree::add_keyfile_protector(path, unlock_passphrase, keyfile_path)
+        Pager::add_keyfile_protector(path, unlock_passphrase, keyfile_path)
     }
 
     /// Add a keyfile protector, unlocking with an existing recovery key.
     pub fn add_keyfile_protector_with_recovery_key(path: &Path, recovery_str: &str, keyfile_path: &Path) -> Result<u16> {
-        BTree::add_keyfile_protector_with_recovery_key(path, recovery_str, keyfile_path)
+        Pager::add_keyfile_protector_with_recovery_key(path, recovery_str, keyfile_path)
     }
 
     /// Add a keyfile protector, unlocking with another keyfile protector.
     pub fn add_keyfile_protector_with_keyfile(path: &Path, unlock_keyfile_path: &Path, keyfile_path: &Path) -> Result<u16> {
-        BTree::add_keyfile_protector_with_keyfile(path, unlock_keyfile_path, keyfile_path)
+        Pager::add_keyfile_protector_with_keyfile(path, unlock_keyfile_path, keyfile_path)
     }
 
     /// Remove the keyslot at `slot_idx` (must not be the last active slot).
     pub fn remove_keyslot(path: &Path, unlock_passphrase: &str, slot_idx: u16) -> Result<()> {
-        BTree::remove_keyslot(path, unlock_passphrase, slot_idx)
+        Pager::remove_keyslot(path, unlock_passphrase, slot_idx)
     }
 
     /// Remove a keyslot, unlocking the DEK with a recovery key.
     pub fn remove_keyslot_with_recovery_key(path: &Path, recovery_str: &str, slot_idx: u16) -> Result<()> {
-        BTree::remove_keyslot_with_recovery_key(path, recovery_str, slot_idx)
+        Pager::remove_keyslot_with_recovery_key(path, recovery_str, slot_idx)
     }
 
     /// Remove a keyslot, unlocking the DEK with a keyfile protector.
     pub fn remove_keyslot_with_keyfile(path: &Path, keyfile_path: &Path, slot_idx: u16) -> Result<()> {
-        BTree::remove_keyslot_with_keyfile(path, keyfile_path, slot_idx)
+        Pager::remove_keyslot_with_keyfile(path, keyfile_path, slot_idx)
     }
 
     /// Rotate the KEK for the Passphrase slot at `slot_idx`.
     pub fn rekey_kek(path: &Path, slot_idx: u16, old_passphrase: &str, new_passphrase: &str) -> Result<()> {
-        BTree::rekey_kek(path, slot_idx, old_passphrase, new_passphrase)
+        Pager::rekey_kek(path, slot_idx, old_passphrase, new_passphrase)
     }
 
     /// Rotate a Passphrase slot using a recovery key to unlock the DEK.
     pub fn rekey_kek_with_recovery_key(path: &Path, slot_idx: u16, recovery_str: &str, new_passphrase: &str) -> Result<()> {
-        BTree::rekey_kek_with_recovery_key(path, slot_idx, recovery_str, new_passphrase)
+        Pager::rekey_kek_with_recovery_key(path, slot_idx, recovery_str, new_passphrase)
     }
 
     /// Rotate a Passphrase slot using a keyfile protector to unlock the DEK.
     pub fn rekey_kek_with_keyfile(path: &Path, slot_idx: u16, keyfile_path: &Path, new_passphrase: &str) -> Result<()> {
-        BTree::rekey_kek_with_keyfile(path, slot_idx, keyfile_path, new_passphrase)
+        Pager::rekey_kek_with_keyfile(path, slot_idx, keyfile_path, new_passphrase)
     }
 
     /// List active keyslots. Returns `Vec<(slot_index, kind_byte)>`.
     pub fn list_keyslots(path: &Path) -> Result<Vec<(u16, u8)>> {
-        BTree::list_keyslots(path)
+        Pager::list_keyslots(path)
     }
 
     // ── Writes ───────────────────────────────────────────────────────────────
