@@ -490,11 +490,45 @@ impl<'a> ViewApp<'a> {
         self.visible_page_indices().len()
     }
 
+    pub(super) fn next_match(&mut self, pager: &Pager) -> Result<(), CliError> {
+        self.step_match(pager, true)
+    }
+
+    pub(super) fn previous_match(&mut self, pager: &Pager) -> Result<(), CliError> {
+        self.step_match(pager, false)
+    }
+
     fn selected_visible_index(&self) -> Option<usize> {
         let selected = self.selected?;
         self.visible_page_indices()
             .into_iter()
             .position(|index| index == selected)
+    }
+
+    fn step_match(&mut self, pager: &Pager, forward: bool) -> Result<(), CliError> {
+        if self.active_filter_query().is_none() {
+            self.status_message = Some("set a filter first".to_string());
+            return Ok(());
+        }
+
+        let visible = self.visible_page_indices();
+        if visible.is_empty() {
+            self.status_message = Some("no filter matches".to_string());
+            return Ok(());
+        }
+
+        let next_visible = match (forward, self.selected_visible_index()) {
+            (true, Some(index)) => (index + 1) % visible.len(),
+            (false, Some(0)) | (false, None) => visible.len() - 1,
+            (false, Some(index)) => index - 1,
+            (true, None) => 0,
+        };
+
+        self.selected = Some(visible[next_visible]);
+        self.panel_scroll = 0;
+        self.refresh_selected_detail(pager)?;
+        self.status_message = Some(format!("match {}/{}", next_visible + 1, visible.len()));
+        Ok(())
     }
 
     fn visible_page_indices(&self) -> Vec<usize> {

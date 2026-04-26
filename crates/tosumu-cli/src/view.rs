@@ -116,6 +116,8 @@ fn run_loop(
             KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
             KeyCode::Char('/') => app.start_filter_prompt(),
             KeyCode::Char(':') => app.start_page_jump(),
+            KeyCode::Char('n') => app.next_match(pager)?,
+            KeyCode::Char('N') => app.previous_match(pager)?,
             KeyCode::Tab | KeyCode::Right | KeyCode::Left => app.toggle_focus(),
             KeyCode::Down | KeyCode::Char('j') => app.move_down(pager)?,
             KeyCode::Up | KeyCode::Char('k') => app.move_up(pager)?,

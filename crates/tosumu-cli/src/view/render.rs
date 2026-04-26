@@ -107,7 +107,7 @@ fn protectors_widget(app: &ViewApp) -> Paragraph<'static> {
 fn help_widget(app: &ViewApp) -> Paragraph<'static> {
     let watch = if app.watch_enabled { "on" } else { "off" };
     let text = format!(
-        "Tab or Left/Right switches focus • j/k and arrows act on active pane • PgUp/PgDn jumps pages or scrolls panel • / starts filter • : starts goto-page • K/J scroll panel • 1-6 or h/d/v/t/l/p for panels • current={} • focus={} • scroll={} • watch={}{}",
+        "Tab or Left/Right switches focus • j/k and arrows act on active pane • PgUp/PgDn jumps pages or scrolls panel • / starts filter • n/N move between matches • : starts goto-page • K/J scroll panel • 1-6 or h/d/v/t/l/p for panels • current={} • focus={} • scroll={} • watch={}{}",
         app.mode.label(),
         app.focus.label(),
         app.panel_scroll,

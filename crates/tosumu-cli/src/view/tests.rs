@@ -501,3 +501,105 @@ fn confirm_filter_matches_record_search_text() {
         assert_eq!(app.selected, Some(0));
     });
 }
+
+#[test]
+fn next_match_wraps_within_filtered_pages() {
+    with_temp_db("view_next_match_wrap", |_, pager| {
+        let pages = vec![
+            PageRow {
+                pgno: 1,
+                page_type: Some(PAGE_TYPE_LEAF),
+                page_version: Some(1),
+                slot_count: Some(0),
+                status: PageStatus::Corrupt,
+                issue: Some("corrupt".to_string()),
+                search_text: "match one".to_string(),
+            },
+            PageRow {
+                pgno: 2,
+                page_type: Some(PAGE_TYPE_LEAF),
+                page_version: Some(2),
+                slot_count: Some(0),
+                status: PageStatus::Corrupt,
+                issue: Some("corrupt".to_string()),
+                search_text: "match two".to_string(),
+            },
+            PageRow {
+                pgno: 3,
+                page_type: Some(PAGE_TYPE_LEAF),
+                page_version: Some(3),
+                slot_count: Some(0),
+                status: PageStatus::Corrupt,
+                issue: Some("corrupt".to_string()),
+                search_text: "match three".to_string(),
+            },
+        ];
+        let mut app = new_app(3, pages);
+
+        app.start_filter_prompt();
+        for ch in "match".chars() {
+            app.push_filter_char(ch);
+        }
+        app.confirm_filter_prompt(pager).unwrap();
+
+        assert_eq!(app.selected, Some(0));
+        app.next_match(pager).unwrap();
+        assert_eq!(app.selected, Some(1));
+        assert_eq!(app.footer_status(), " • filter: match (3) • match 2/3");
+
+        app.next_match(pager).unwrap();
+        assert_eq!(app.selected, Some(2));
+
+        app.next_match(pager).unwrap();
+        assert_eq!(app.selected, Some(0));
+    });
+}
+
+#[test]
+fn previous_match_wraps_backwards() {
+    with_temp_db("view_previous_match_wrap", |_, pager| {
+        let pages = vec![
+            PageRow {
+                pgno: 1,
+                page_type: Some(PAGE_TYPE_LEAF),
+                page_version: Some(1),
+                slot_count: Some(0),
+                status: PageStatus::Corrupt,
+                issue: Some("corrupt".to_string()),
+                search_text: "match one".to_string(),
+            },
+            PageRow {
+                pgno: 2,
+                page_type: Some(PAGE_TYPE_LEAF),
+                page_version: Some(2),
+                slot_count: Some(0),
+                status: PageStatus::Corrupt,
+                issue: Some("corrupt".to_string()),
+                search_text: "match two".to_string(),
+            },
+        ];
+        let mut app = new_app(2, pages);
+
+        app.start_filter_prompt();
+        for ch in "match".chars() {
+            app.push_filter_char(ch);
+        }
+        app.confirm_filter_prompt(pager).unwrap();
+
+        app.previous_match(pager).unwrap();
+        assert_eq!(app.selected, Some(1));
+        assert_eq!(app.footer_status(), " • filter: match (2) • match 2/2");
+    });
+}
+
+#[test]
+fn next_match_requires_active_filter() {
+    with_temp_db("view_next_match_requires_filter", |_, pager| {
+        let pages = vec![corrupt_page(1)];
+        let mut app = new_app(1, pages);
+
+        app.next_match(pager).unwrap();
+
+        assert_eq!(app.footer_status(), " • set a filter first");
+    });
+}
