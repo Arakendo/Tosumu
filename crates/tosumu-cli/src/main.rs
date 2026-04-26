@@ -168,6 +168,9 @@ enum Command {
     /// Open the read-only interactive inspection view.
     View {
         path: PathBuf,
+        /// Periodically reload header, page, tree, WAL, and verification data.
+        #[arg(long)]
+        watch: bool,
     },
     /// Structured inspection commands intended for machine consumption.
     Inspect {

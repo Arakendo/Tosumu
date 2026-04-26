@@ -5,25 +5,35 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Terminal;
 use tosumu_core::error::TosumuError;
-use tosumu_core::format::{PAGE_TYPE_FREE, PAGE_TYPE_INTERNAL, PAGE_TYPE_LEAF, PAGE_TYPE_OVERFLOW};
-use tosumu_core::inspect::{inspect_page_from_pager, read_header_info, verify_pager, HeaderInfo, PageSummary, RecordInfo, VerifyReport};
+use tosumu_core::inspect::{inspect_tree_from_pager, inspect_wal, read_header_info, verify_pager};
 use tosumu_core::pager::Pager;
+use tosumu_core::page_store::PageStore;
 
 use crate::error_boundary::CliError;
-use crate::unlock::open_pager;
+use crate::unlock::{open_pager, open_pager_with_unlock, UnlockSecret};
 
-pub fn run(path: &Path) -> Result<(), CliError> {
+mod render;
+mod state;
+mod watch;
+
+#[cfg(test)]
+mod tests;
+
+use render::draw;
+use state::{load_page_rows, ViewApp, ViewMode, PANEL_SCROLL_PAGE};
+use watch::capture_watch_fingerprint;
+
+pub fn run(path: &Path, watch: bool) -> Result<(), CliError> {
     let header = read_header_info(path)?;
-    let (pager, _) = open_pager(path)?;
+    let (mut pager, unlock) = open_pager(path)?;
     let verify = verify_pager(&pager)?;
     let pages = load_page_rows(&pager)?;
-    let mut app = ViewApp::new(path, header, verify, pages);
+    let tree = inspect_tree_from_pager(&pager).map_err(|error| error.to_string());
+    let wal = inspect_wal(path).map_err(|error| error.to_string());
+    let keyslots = PageStore::list_keyslots(path).map_err(|error| error.to_string());
+    let mut app = ViewApp::new(path, header, verify, pages, tree, wal, keyslots, watch);
     app.select_first(&pager)?;
 
     enable_raw_mode().map_err(TosumuError::Io)?;
@@ -32,7 +42,7 @@ pub fn run(path: &Path) -> Result<(), CliError> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).map_err(TosumuError::Io)?;
 
-    let run_result = run_loop(&mut terminal, &pager, &mut app);
+    let run_result = run_loop(&mut terminal, path, &mut pager, &unlock, &mut app);
 
     let mut restore_error = None;
     if let Err(error) = disable_raw_mode().map_err(TosumuError::Io) {
@@ -54,13 +64,22 @@ pub fn run(path: &Path) -> Result<(), CliError> {
 
 fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
-    pager: &Pager,
+    path: &Path,
+    pager: &mut Pager,
+    unlock: &Option<UnlockSecret>,
     app: &mut ViewApp,
 ) -> Result<(), CliError> {
     loop {
         terminal.draw(|frame| draw(frame, app)).map_err(TosumuError::Io)?;
 
         if !event::poll(Duration::from_millis(200)).map_err(TosumuError::Io)? {
+            if app.should_refresh() {
+                match app.watch_refresh_needed(path) {
+                    Ok(true) => refresh_view(path, pager, unlock, app),
+                    Ok(false) => app.note_watch_check(),
+                    Err(_) => refresh_view(path, pager, unlock, app),
+                }
+            }
             continue;
         }
 
@@ -73,329 +92,55 @@ fn run_loop(
 
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-            KeyCode::Down | KeyCode::Char('j') => app.select_next(pager)?,
-            KeyCode::Up | KeyCode::Char('k') => app.select_previous(pager)?,
-            KeyCode::Home | KeyCode::Char('g') => app.select_first(pager)?,
-            KeyCode::End | KeyCode::Char('G') => app.select_last(pager)?,
-            _ => {}
-        }
-    }
-}
-
-fn draw(frame: &mut ratatui::Frame<'_>, app: &ViewApp) {
-    let root = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(12),
-            Constraint::Length(2),
-        ])
-        .split(frame.area());
-
-    let body = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(40), Constraint::Min(40)])
-        .split(root[1]);
-
-    let right = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(12),
-            Constraint::Length(6),
-            Constraint::Min(8),
-        ])
-        .split(body[1]);
-
-    frame.render_widget(title_widget(app), root[0]);
-    frame.render_stateful_widget(page_list_widget(app), body[0], &mut app.list_state());
-    frame.render_widget(header_widget(app), right[0]);
-    frame.render_widget(verify_widget(app), right[1]);
-    frame.render_widget(detail_widget(app), right[2]);
-    frame.render_widget(help_widget(), root[2]);
-}
-
-fn title_widget(app: &ViewApp) -> Paragraph<'static> {
-    let text = Line::from(vec![
-        Span::styled("tosumu view", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw("  "),
-        Span::raw(app.path.display().to_string()),
-    ]);
-    Paragraph::new(text).block(Block::default().borders(Borders::ALL))
-}
-
-fn page_list_widget(app: &ViewApp) -> List<'static> {
-    let items = app
-        .pages
-        .iter()
-        .map(|page| {
-            let summary = format!(
-                "{:>4}  {:<8}  v{:>3}  slots {:>3}",
-                page.pgno,
-                page_type_label(page.page_type),
-                page.page_version,
-                page.slot_count,
-            );
-            ListItem::new(Line::from(summary))
-        })
-        .collect::<Vec<_>>();
-
-    List::new(items)
-        .block(Block::default().title("Pages").borders(Borders::ALL))
-        .highlight_style(Style::default().bg(Color::Blue).fg(Color::Black).add_modifier(Modifier::BOLD))
-        .highlight_symbol("> ")
-}
-
-fn header_widget(app: &ViewApp) -> Paragraph<'static> {
-    let header = &app.header;
-    let lines = vec![
-        Line::from(format!("format_version:       {}", header.format_version)),
-        Line::from(format!("page_size:            {}", header.page_size)),
-        Line::from(format!("page_count:           {}", header.page_count)),
-        Line::from(format!("root_page:            {}", header.root_page)),
-        Line::from(format!("freelist_head:        {}", header.freelist_head)),
-        Line::from(format!("wal_checkpoint_lsn:   {}", header.wal_checkpoint_lsn)),
-        Line::from(format!("dek_id:               {}", header.dek_id)),
-        Line::from(format!("keyslot_count:        {}", header.keyslot_count)),
-        Line::from(format!("keyslot_region_pages: {}", header.keyslot_region_pages)),
-        Line::from(format!("slot0_kind:           {}", keyslot_kind_label(header.ks0_kind))),
-    ];
-
-    Paragraph::new(Text::from(lines))
-        .block(Block::default().title("Header").borders(Borders::ALL))
-        .wrap(Wrap { trim: false })
-}
-
-fn verify_widget(app: &ViewApp) -> Paragraph<'static> {
-    let lines = vec![
-        Line::from(format!("pages_checked: {}", app.verify.pages_checked)),
-        Line::from(format!("pages_ok:      {}", app.verify.pages_ok)),
-        Line::from(format!("issues:        {}", app.verify.issues.len())),
-        Line::from(if app.verify.issues.is_empty() {
-            "status:        clean".to_string()
-        } else {
-            format!("status:        {} issue(s)", app.verify.issues.len())
-        }),
-    ];
-
-    Paragraph::new(Text::from(lines))
-        .block(Block::default().title("Verify").borders(Borders::ALL))
-        .wrap(Wrap { trim: false })
-}
-
-fn detail_widget(app: &ViewApp) -> Paragraph<'static> {
-    let mut lines = Vec::new();
-    match &app.selected_detail {
-        Some(detail) => {
-            lines.push(Line::from(format!("page:         {}", detail.pgno)));
-            lines.push(Line::from(format!("type:         {}", page_type_label(detail.page_type))));
-            lines.push(Line::from(format!("page_version: {}", detail.page_version)));
-            lines.push(Line::from(format!("slot_count:   {}", detail.slot_count)));
-            lines.push(Line::from(format!("free_start:   {}", detail.free_start)));
-            lines.push(Line::from(format!("free_end:     {}", detail.free_end)));
-            lines.push(Line::from(""));
-
-            if detail.records.is_empty() {
-                lines.push(Line::from("(no decoded records)"));
-            } else {
-                for (index, record) in detail.records.iter().enumerate().take(12) {
-                    lines.push(Line::from(format!("slot {index:>2}: {}", record_summary(record))));
-                }
-                if detail.records.len() > 12 {
-                    lines.push(Line::from(format!("... {} more record(s)", detail.records.len() - 12)));
+            KeyCode::Tab | KeyCode::Right | KeyCode::Left => app.toggle_focus(),
+            KeyCode::Down | KeyCode::Char('j') => app.move_down(pager)?,
+            KeyCode::Up | KeyCode::Char('k') => app.move_up(pager)?,
+            KeyCode::Home | KeyCode::Char('g') => app.move_home(pager)?,
+            KeyCode::End | KeyCode::Char('G') => app.move_end(pager)?,
+            KeyCode::PageDown => app.move_page_down(pager)?,
+            KeyCode::PageUp => app.move_page_up(pager)?,
+            KeyCode::Char('J') => app.scroll_panel_down(PANEL_SCROLL_PAGE),
+            KeyCode::Char('K') => app.scroll_panel_up(PANEL_SCROLL_PAGE),
+            KeyCode::Char('r') => refresh_view(path, pager, unlock, app),
+            KeyCode::Char('w') => app.toggle_watch(),
+            code => {
+                if let Some(mode) = ViewMode::from_key(code) {
+                    app.set_mode(mode);
                 }
             }
         }
-        None => lines.push(Line::from("page 0 is the file header; no data pages to inspect yet")),
-    }
-
-    Paragraph::new(Text::from(lines))
-        .block(Block::default().title("Page Detail").borders(Borders::ALL))
-        .wrap(Wrap { trim: false })
-}
-
-fn help_widget() -> Paragraph<'static> {
-    Paragraph::new("Up/Down or j/k to move • g/G for first/last • q or Esc to quit")
-        .block(Block::default().borders(Borders::ALL))
-}
-
-fn load_page_rows(pager: &Pager) -> Result<Vec<PageRow>, CliError> {
-    let mut rows = Vec::new();
-    for pgno in 1..pager.page_count() {
-        let summary = inspect_page_from_pager(pager, pgno)?;
-        rows.push(PageRow {
-            pgno,
-            page_type: summary.page_type,
-            page_version: summary.page_version,
-            slot_count: summary.slot_count,
-        });
-    }
-    Ok(rows)
-}
-
-fn page_type_label(page_type: u8) -> &'static str {
-    match page_type {
-        PAGE_TYPE_LEAF => "Leaf",
-        PAGE_TYPE_INTERNAL => "Internal",
-        PAGE_TYPE_OVERFLOW => "Overflow",
-        PAGE_TYPE_FREE => "Free",
-        _ => "Unknown",
     }
 }
 
-fn keyslot_kind_label(kind: u8) -> &'static str {
-    match kind {
-        0 => "Empty",
-        1 => "Sentinel",
-        2 => "Passphrase",
-        3 => "RecoveryKey",
-        4 => "Keyfile",
-        _ => "Unknown",
-    }
-}
+fn refresh_view(path: &Path, pager: &mut Pager, unlock: &Option<UnlockSecret>, app: &mut ViewApp) {
+    let selected_pgno = app.selected.and_then(|index| app.pages.get(index).map(|page| page.pgno));
 
-fn record_summary(record: &RecordInfo) -> String {
-    match record {
-        RecordInfo::Live { key, value } => format!(
-            "live key={} value={}",
-            preview_bytes(key),
-            preview_bytes(value)
-        ),
-        RecordInfo::Tombstone { key } => format!("tombstone key={}", preview_bytes(key)),
-        RecordInfo::Unknown { slot, record_type } => {
-            format!("unknown slot={slot} record_type=0x{record_type:02x}")
+    match refresh_view_result(path, pager, unlock, app, selected_pgno) {
+        Ok(()) => app.status_message = Some("refreshed".to_string()),
+        Err(error) => {
+            app.status_message = Some(format!("refresh failed: {error:?}"));
+            app.last_refresh = std::time::Instant::now();
         }
     }
 }
 
-fn preview_bytes(bytes: &[u8]) -> String {
-    match std::str::from_utf8(bytes) {
-        Ok(text) => {
-            let shortened = text.chars().take(24).collect::<String>();
-            if text.chars().count() > 24 {
-                format!("{shortened:?}...")
-            } else {
-                format!("{shortened:?}")
-            }
-        }
-        Err(_) => {
-            let hex = bytes.iter().take(16).map(|b| format!("{b:02x}")).collect::<String>();
-            if bytes.len() > 16 {
-                format!("0x{hex}...")
-            } else {
-                format!("0x{hex}")
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct PageRow {
-    pgno: u64,
-    page_type: u8,
-    page_version: u64,
-    slot_count: u16,
-}
-
-struct ViewApp<'a> {
-    path: &'a Path,
-    header: HeaderInfo,
-    verify: VerifyReport,
-    pages: Vec<PageRow>,
-    selected: Option<usize>,
-    selected_detail: Option<PageSummary>,
-}
-
-impl<'a> ViewApp<'a> {
-    fn new(path: &'a Path, header: HeaderInfo, verify: VerifyReport, pages: Vec<PageRow>) -> Self {
-        Self {
-            path,
-            header,
-            verify,
-            pages,
-            selected: None,
-            selected_detail: None,
-        }
-    }
-
-    fn list_state(&self) -> ListState {
-        let mut state = ListState::default();
-        state.select(self.selected);
-        state
-    }
-
-    fn select_first(&mut self, pager: &Pager) -> Result<(), CliError> {
-        if self.pages.is_empty() {
-            return Ok(());
-        }
-        self.selected = Some(0);
-        self.refresh_selected_detail(pager)
-    }
-
-    fn select_last(&mut self, pager: &Pager) -> Result<(), CliError> {
-        if self.pages.is_empty() {
-            return Ok(());
-        }
-        self.selected = Some(self.pages.len() - 1);
-        self.refresh_selected_detail(pager)
-    }
-
-    fn select_next(&mut self, pager: &Pager) -> Result<(), CliError> {
-        if self.pages.is_empty() {
-            return Ok(());
-        }
-        self.selected = Some(match self.selected {
-            Some(index) if index + 1 < self.pages.len() => index + 1,
-            _ => self.pages.len() - 1,
-        });
-        self.refresh_selected_detail(pager)
-    }
-
-    fn select_previous(&mut self, pager: &Pager) -> Result<(), CliError> {
-        if self.pages.is_empty() {
-            return Ok(());
-        }
-        self.selected = Some(match self.selected {
-            Some(index) if index > 0 => index - 1,
-            _ => 0,
-        });
-        self.refresh_selected_detail(pager)
-    }
-
-    fn refresh_selected_detail(&mut self, pager: &Pager) -> Result<(), CliError> {
-        self.selected_detail = match self.selected.and_then(|index| self.pages.get(index).copied()) {
-            Some(page) => Some(inspect_page_from_pager(pager, page.pgno)?),
-            None => None,
-        };
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn page_type_labels_cover_known_types() {
-        assert_eq!(page_type_label(PAGE_TYPE_LEAF), "Leaf");
-        assert_eq!(page_type_label(PAGE_TYPE_INTERNAL), "Internal");
-        assert_eq!(page_type_label(PAGE_TYPE_OVERFLOW), "Overflow");
-        assert_eq!(page_type_label(PAGE_TYPE_FREE), "Free");
-        assert_eq!(page_type_label(0xff), "Unknown");
-    }
-
-    #[test]
-    fn keyslot_kind_labels_cover_known_types() {
-        assert_eq!(keyslot_kind_label(0), "Empty");
-        assert_eq!(keyslot_kind_label(1), "Sentinel");
-        assert_eq!(keyslot_kind_label(2), "Passphrase");
-        assert_eq!(keyslot_kind_label(3), "RecoveryKey");
-        assert_eq!(keyslot_kind_label(4), "Keyfile");
-        assert_eq!(keyslot_kind_label(9), "Unknown");
-    }
-
-    #[test]
-    fn preview_bytes_formats_utf8_and_binary() {
-        assert_eq!(preview_bytes(b"alpha"), "\"alpha\"");
-        assert_eq!(preview_bytes(&[0xde, 0xad, 0xbe, 0xef]), "0xdeadbeef");
-    }
+fn refresh_view_result(
+    path: &Path,
+    pager: &mut Pager,
+    unlock: &Option<UnlockSecret>,
+    app: &mut ViewApp,
+    selected_pgno: Option<u64>,
+) -> Result<(), CliError> {
+    let (next_pager, _) = open_pager_with_unlock(path, unlock.clone(), true)?;
+    app.header = read_header_info(path)?;
+    app.verify = verify_pager(&next_pager)?;
+    app.pages = load_page_rows(&next_pager)?;
+    app.tree = inspect_tree_from_pager(&next_pager).map_err(|error| error.to_string());
+    app.wal = inspect_wal(path).map_err(|error| error.to_string());
+    app.keyslots = PageStore::list_keyslots(path).map_err(|error| error.to_string());
+    app.last_watch_fingerprint = capture_watch_fingerprint(path).ok();
+    *pager = next_pager;
+    app.restore_selection(selected_pgno, pager)?;
+    app.last_refresh = std::time::Instant::now();
+    Ok(())
 }

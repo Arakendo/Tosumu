@@ -50,7 +50,7 @@ pub(crate) fn run(cli: Cli) -> Result<RunOutcome, CliError> {
         Command::Dump { path, page } => cmd_dump(&path, page, None, false)?,
         Command::Hex { path, page } => cmd_hex(&path, page)?,
         Command::Verify { path, explain } => return Ok(cmd_verify(&path, explain, None, false)?.into()),
-        Command::View { path } => crate::view::run(&path)?,
+        Command::View { path, watch } => crate::view::run(&path, watch)?,
         Command::Inspect { action } => return run_inspect_action(action),
         Command::Backup { src, dest } => cmd_backup(&src, &dest)?,
         Command::Protector { action } => run_protector_action(action)?,

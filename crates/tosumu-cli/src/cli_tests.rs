@@ -236,6 +236,24 @@ fn cli_parses_inspect_protectors_json_subcommand() {
 }
 
 #[test]
+fn cli_parses_view_watch_flag() {
+    let cli = Cli::try_parse_from([
+        "tosumu",
+        "view",
+        "--watch",
+        "db.tsm",
+    ]).unwrap();
+
+    match cli.command {
+        Command::View { path, watch } => {
+            assert_eq!(path, PathBuf::from("db.tsm"));
+            assert!(watch);
+        }
+        _ => panic!("unexpected command variant"),
+    }
+}
+
+#[test]
 fn cli_parses_inspect_verify_with_stdin_passphrase() {
     let cli = Cli::try_parse_from([
         "tosumu",
