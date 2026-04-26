@@ -745,6 +745,29 @@ match db.read(|tx| tx.get(b"key")) {
 
 The `Poisoned` state itself is not stored in an error variant — it is stored in the `Database` struct. Subsequent calls return `Err(TosumError::Poisoned)` without touching the file.
 
+### 9.4 Recovery posture: rollback first, salvage only by exception
+
+Tosumu should strongly prefer **rollback / restore to a known-good point** over in-place salvage whenever the integrity of the current file is in doubt.
+
+Why: rollback preserves a state the engine can still explain and trust. Salvage is inherently best-effort. It is useful for extracting what can still be read; it is not evidence that the recovered result is a complete or fully trustworthy database.
+
+Prefer rollback, restore, or explicit snapshot recovery when:
+
+- a clean backup, snapshot, or WAL-consistent copy exists
+- corruption affects the header, keyslot region, or other global metadata
+- multiple pages fail authentication or structural checks and the blast radius is unclear
+- the operator needs a database that can return to normal service, not just partial data extraction
+
+Salvage is still worth documenting as a future **explicit offline tool**, but only with strict boundaries:
+
+- never part of normal `open()` or routine read APIs
+- never mutates the source file in place
+- always writes recovered output to a separate destination or export stream
+- always reports what was skipped, why it was skipped, and what integrity checks were relaxed or still enforced
+- described as best-effort recovery, not as equivalent to a clean open
+
+The right mental model is: **rollback restores service; salvage recovers clues**. If both are available, rollback is the default. Salvage exists for the cases where no trustworthy rollback point exists or where partial extraction is still operationally valuable.
+
 ---
 
 ## 10. Programmer footguns and API guardrails

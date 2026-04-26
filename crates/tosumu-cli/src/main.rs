@@ -5,6 +5,7 @@
 
 use std::path::PathBuf;
 use clap::{ArgGroup, Args, Parser, Subcommand};
+use tosumu_core::error::ErrorValue;
 
 mod commands;
 mod error_boundary;
@@ -272,6 +273,7 @@ enum ProtectorAction {
 fn main() {
     let cli = Cli::parse();
     let json_error_contract = cli.json_error_contract();
+    let operation = cli.operation_name();
 
     match run(cli) {
         Ok(outcome) => {
@@ -281,6 +283,7 @@ fn main() {
             }
         }
         Err(e) => {
+            log_cli_error(&e, operation);
             if let Some(contract) = json_error_contract {
                 println!(
                     "{}",
@@ -293,6 +296,41 @@ fn main() {
                 eprintln!("{}", render_cli_error(&e));
             }
             std::process::exit(exit_code_for_error(&e));
+        }
+    }
+}
+
+impl Cli {
+    fn operation_name(&self) -> &'static str {
+        match &self.command {
+            Command::Init { .. } => "init",
+            Command::Put { .. } => "put",
+            Command::Get { .. } => "get",
+            Command::Delete { .. } => "delete",
+            Command::Scan { .. } => "scan",
+            Command::Stat { .. } => "stat",
+            Command::Dump { .. } => "dump",
+            Command::Hex { .. } => "hex",
+            Command::Verify { .. } => "verify",
+            Command::View { .. } => "view",
+            Command::Backup { .. } => "backup",
+            Command::Protector { action } => match action {
+                ProtectorAction::AddPassphrase { .. } => "protector.add-passphrase",
+                ProtectorAction::AddRecoveryKey { .. } => "protector.add-recovery-key",
+                ProtectorAction::AddKeyfile { .. } => "protector.add-keyfile",
+                ProtectorAction::Remove { .. } => "protector.remove",
+                ProtectorAction::List { .. } => "protector.list",
+            },
+            Command::RekeyKek { .. } => "rekey-kek",
+            Command::Inspect { action } => match action {
+                InspectAction::Header { .. } => "inspect.header",
+                InspectAction::Verify { .. } => "inspect.verify",
+                InspectAction::Pages { .. } => "inspect.pages",
+                InspectAction::Page { .. } => "inspect.page",
+                InspectAction::Wal { .. } => "inspect.wal",
+                InspectAction::Tree { .. } => "inspect.tree",
+                InspectAction::Protectors { .. } => "inspect.protectors",
+            },
         }
     }
 }
@@ -314,4 +352,78 @@ fn exit_code_for_error(error: &CliError) -> i32 {
 fn render_cli_error(error: &CliError) -> String {
     let report = error.error_report();
     format!("error [{}]: {}", report.code, report.message)
+}
+
+fn log_cli_error(error: &CliError, operation: &'static str) {
+    if !cli_error_logging_enabled() {
+        return;
+    }
+
+    eprintln!("{}", render_cli_error_log(error, operation));
+}
+
+fn cli_error_logging_enabled() -> bool {
+    matches!(
+        std::env::var("TOSUMU_LOG_ERRORS").ok().as_deref(),
+        Some(value) if cli_error_logging_enabled_value(value)
+    )
+}
+
+fn cli_error_logging_enabled_value(value: &str) -> bool {
+    value.eq_ignore_ascii_case("1")
+        || value.eq_ignore_ascii_case("true")
+        || value.eq_ignore_ascii_case("yes")
+        || value.eq_ignore_ascii_case("on")
+}
+
+fn render_cli_error_log(error: &CliError, operation: &'static str) -> String {
+    let report = error.error_report();
+    let mut parts = vec![
+        "event=boundary_error".to_string(),
+        format!("code={}", report.code),
+        format!("status={}", report.status.as_str()),
+        format!("message={}", log_string_value(&report.message)),
+        format!("operation={operation}"),
+    ];
+
+    for detail in &report.details {
+        let key = match detail.key {
+            "event" | "code" | "status" | "message" | "operation" | "source" => {
+                format!("detail_{}", detail.key)
+            }
+            _ => detail.key.to_string(),
+        };
+        parts.push(format!("{}={}", key, log_error_value(&detail.value)));
+    }
+
+    if let Some(source) = cli_error_source(error) {
+        parts.push(format!("source={}", log_string_value(&source)));
+    }
+
+    parts.join(" ")
+}
+
+fn cli_error_source(error: &CliError) -> Option<String> {
+    match error {
+        CliError::Core(tosumu_core::error::TosumuError::Io(source)) => Some(source.to_string()),
+        _ => None,
+    }
+}
+
+fn log_error_value(value: &ErrorValue) -> String {
+    match value {
+        ErrorValue::Bool(value) => value.to_string(),
+        ErrorValue::Str(value) => log_string_value(value),
+        ErrorValue::U16(value) => value.to_string(),
+        ErrorValue::U64(value) => value.to_string(),
+    }
+}
+
+fn log_string_value(value: &str) -> String {
+    let escaped = value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r");
+    format!("\"{escaped}\"")
 }

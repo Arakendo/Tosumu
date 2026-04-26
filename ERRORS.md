@@ -359,24 +359,31 @@ Examples of code-specific overrides that may still be reasonable:
 
 ## Logging and Telemetry
 
-When a boundary logs an error, emit structured fields rather than one formatted blob.
+When the CLI boundary logs an error, emit structured fields rather than one formatted blob.
+
+Current CLI behavior:
+
+- default human-facing output remains unchanged: human-readable stderr for normal CLI commands, structured JSON envelopes for `inspect ... --json`
+- structured boundary error logs are opt-in via `TOSUMU_LOG_ERRORS=1` (also accepts `true`, `yes`, or `on`)
+- the emitted log line is a single key-value record on stderr
 
 Recommended log fields:
 
 ```txt
+event=boundary_error
 code=PAGE_AUTH_TAG_FAILED
-status=IntegrityFailure
+status=integrity_failure
 message="page authentication failed"
-pgno=42
 operation=inspect.page
-source="aead tag mismatch"
+pgno=42
+source="The system cannot find the file specified."
 ```
 
-The message should stay readable on its own, but `code`, `status`, and `details` are the stable fields downstream tools should rely on.
+The message should stay readable on its own, but `code`, `status`, `operation`, and structured detail fields are the stable fields downstream tools should rely on. `source` is optional and should be included only when there is a distinct underlying cause worth preserving.
 
 ## Logging Consistency
 
-Structured logs should include at minimum `code`, `status`, and `message`. When available, include relevant detail fields. Logs should remain machine-queryable without parsing free-form text.
+Structured logs should include at minimum `code`, `status`, `message`, and `operation`. When available, include relevant detail fields using their stable detail keys. Logs should remain machine-queryable without parsing free-form text.
 
 ## Suggested First Rollout
 

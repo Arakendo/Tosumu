@@ -400,6 +400,45 @@ fn cli_error_render_uses_cli_key_not_found_for_missing_key() {
 }
 
 #[test]
+fn cli_error_log_renders_structured_fields_and_details() {
+    let rendered = render_cli_error_log(
+        &CliError::from(TosumuError::InspectPageOutOfRange {
+            pgno: 9,
+            page_count: 4,
+        }),
+        "inspect.page",
+    );
+
+    assert_eq!(
+        rendered,
+        "event=boundary_error code=INSPECT_PAGE_OUT_OF_RANGE status=invalid_input message=\"page number out of range: requested 9, page_count 4\" operation=inspect.page pgno=9 page_count=4"
+    );
+}
+
+#[test]
+fn cli_error_log_includes_string_details_and_source_when_available() {
+    let rendered = render_cli_error_log(
+        &CliError::inspect_stdin_secret_empty("stdin_passphrase", "passphrase"),
+        "inspect.verify",
+    );
+
+    assert_eq!(
+        rendered,
+        "event=boundary_error code=CLI_ARGUMENT_INVALID status=invalid_input message=\"stdin passphrase must not be empty\" operation=inspect.verify argument=\"stdin_passphrase\" secret_kind=\"passphrase\" input_source=\"stdin\""
+    );
+}
+
+#[test]
+fn cli_error_logging_enabled_value_accepts_truthy_flags() {
+    assert!(cli_error_logging_enabled_value("1"));
+    assert!(cli_error_logging_enabled_value("true"));
+    assert!(cli_error_logging_enabled_value("YES"));
+    assert!(cli_error_logging_enabled_value("on"));
+    assert!(!cli_error_logging_enabled_value("0"));
+    assert!(!cli_error_logging_enabled_value("false"));
+}
+
+#[test]
 fn cli_exit_code_maps_missing_key_to_four() {
     assert_eq!(exit_code_for_error(&CliError::key_not_found("alpha")), 4);
 }
