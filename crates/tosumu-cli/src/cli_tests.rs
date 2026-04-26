@@ -7,6 +7,7 @@ use crate::commands::protector::{
 use crate::commands::store::run_get;
 use crate::commands::text::cmd_backup;
 use crate::error_boundary::{codes as cli_codes, CliError};
+use clap::error::ErrorKind;
 use tosumu_core::error::TosumuError;
 
 #[test]
@@ -251,6 +252,22 @@ fn cli_parses_view_watch_flag() {
         }
         _ => panic!("unexpected command variant"),
     }
+}
+
+#[test]
+fn cli_view_help_lists_interactive_keys() {
+    let err = match Cli::try_parse_from(["tosumu", "view", "--help"]) {
+        Ok(_) => panic!("expected clap to render help"),
+        Err(err) => err,
+    };
+
+    assert_eq!(err.kind(), ErrorKind::DisplayHelp);
+
+    let help = err.to_string();
+    assert!(help.contains("Open the read-only interactive inspection view."));
+    assert!(help.contains("Interactive keys:"));
+    assert!(help.contains("n/N    move to the next or previous filter match"));
+    assert!(help.contains("w      toggle watch mode"));
 }
 
 #[test]
