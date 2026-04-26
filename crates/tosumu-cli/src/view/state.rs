@@ -22,6 +22,7 @@ use super::watch::{capture_watch_fingerprint, watch_refresh_needed, WatchFingerp
 
 pub(super) const PANEL_SCROLL_PAGE: u16 = 8;
 pub(super) const PAGE_LIST_JUMP: usize = 10;
+pub(super) const PAGE_LIST_WINDOW: usize = 200;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum FocusPane {
@@ -105,7 +106,7 @@ pub(super) struct PageRow {
     pub(super) slot_count: Option<u16>,
     pub(super) status: PageStatus,
     pub(super) issue: Option<String>,
-    pub(super) search_text: String,
+    pub(super) search_text: Option<String>,
 }
 
 pub(super) enum SelectedPageDetail {
@@ -175,7 +176,7 @@ impl<'a> ViewApp<'a> {
 
     pub(super) fn list_state(&self) -> ListState {
         let mut state = ListState::default();
-        state.select(self.selected_visible_index());
+        state.select(self.selected_page_window_index());
         state
     }
 
@@ -375,6 +376,10 @@ impl<'a> ViewApp<'a> {
             return Ok(());
         }
 
+        if self.active_filter_query().is_some() {
+            self.ensure_filter_search_text_loaded(pager);
+        }
+
         self.selected = selected_pgno
             .and_then(|pgno| self.pages.iter().position(|page| page.pgno == pgno))
             .or(Some(0));
@@ -463,6 +468,9 @@ impl<'a> ViewApp<'a> {
         };
 
         self.filter_query = input.trim().to_string();
+        if self.active_filter_query().is_some() {
+            self.ensure_filter_search_text_loaded(pager);
+        }
         self.normalize_selection();
         self.panel_scroll = 0;
         self.refresh_selected_detail(pager)?;
@@ -479,10 +487,23 @@ impl<'a> ViewApp<'a> {
         Ok(())
     }
 
-    pub(super) fn visible_pages(&self) -> Vec<&PageRow> {
-        self.visible_page_indices()
-            .into_iter()
-            .map(|index| &self.pages[index])
+    pub(super) fn page_list_title(&self) -> String {
+        let visible_len = self.visible_page_count();
+        if visible_len == 0 {
+            return "Pages 0/0".to_string();
+        }
+
+        let range = self.page_list_window_range(visible_len);
+        format!("Pages {}-{} / {}", range.start + 1, range.end, visible_len)
+    }
+
+    pub(super) fn page_list_window(&self) -> Vec<&PageRow> {
+        let visible = self.visible_page_indices();
+        let range = self.page_list_window_range(visible.len());
+
+        visible[range]
+            .iter()
+            .map(|index| &self.pages[*index])
             .collect()
     }
 
@@ -503,6 +524,12 @@ impl<'a> ViewApp<'a> {
         self.visible_page_indices()
             .into_iter()
             .position(|index| index == selected)
+    }
+
+    fn selected_page_window_index(&self) -> Option<usize> {
+        let selected = self.selected_visible_index()?;
+        let range = self.page_list_window_range(self.visible_page_count());
+        Some(selected.saturating_sub(range.start))
     }
 
     fn step_match(&mut self, pager: &Pager, forward: bool) -> Result<(), CliError> {
@@ -550,6 +577,29 @@ impl<'a> ViewApp<'a> {
             None
         } else {
             Some(query)
+        }
+    }
+
+    fn page_list_window_range(&self, visible_len: usize) -> std::ops::Range<usize> {
+        if visible_len <= PAGE_LIST_WINDOW {
+            return 0..visible_len;
+        }
+
+        let selected = self.selected_visible_index().unwrap_or(0).min(visible_len - 1);
+        let max_start = visible_len - PAGE_LIST_WINDOW;
+        let start = selected.saturating_sub(PAGE_LIST_WINDOW / 2).min(max_start);
+        start..(start + PAGE_LIST_WINDOW)
+    }
+
+    fn ensure_filter_search_text_loaded(&mut self, pager: &Pager) {
+        for page in &mut self.pages {
+            if matches!(page.status, PageStatus::Ok) && page.search_text.is_none() {
+                page.search_text = Some(
+                    inspect_page_from_pager(pager, page.pgno)
+                        .map(|summary| page_record_search_text(&summary))
+                        .unwrap_or_default(),
+                );
+            }
         }
     }
 
@@ -631,14 +681,6 @@ pub(super) fn load_page_rows(pager: &Pager) -> Result<Vec<PageRow>, CliError> {
         .pages
         .into_iter()
         .map(|page| {
-            let search_text = if matches!(page.state, PageInspectState::Ok) {
-                inspect_page_from_pager(pager, page.pgno)
-                    .map(|summary| page_record_search_text(&summary))
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            };
-
             PageRow {
                 pgno: page.pgno,
                 page_type: page.page_type,
@@ -651,7 +693,7 @@ pub(super) fn load_page_rows(pager: &Pager) -> Result<Vec<PageRow>, CliError> {
                     PageInspectState::Io => PageStatus::Io,
                 },
                 issue: page.issue,
-                search_text,
+                search_text: None,
             }
         })
         .collect())
@@ -691,8 +733,10 @@ fn page_matches_filter(page: &PageRow, query: &str) -> bool {
     if let Some(issue) = &page.issue {
         haystacks.push(issue.to_ascii_lowercase());
     }
-    if !page.search_text.is_empty() {
-        haystacks.push(page.search_text.clone());
+    if let Some(search_text) = &page.search_text {
+        if !search_text.is_empty() {
+            haystacks.push(search_text.clone());
+        }
     }
 
     haystacks

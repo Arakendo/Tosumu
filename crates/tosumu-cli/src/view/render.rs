@@ -61,10 +61,11 @@ fn title_widget(app: &ViewApp) -> Paragraph<'static> {
 }
 
 fn page_list_widget(app: &ViewApp) -> List<'static> {
-    let items = app.visible_pages().into_iter().map(page_list_item).collect::<Vec<_>>();
+    let items = app.page_list_window().into_iter().map(page_list_item).collect::<Vec<_>>();
+    let title = app.page_list_title();
 
     List::new(items)
-        .block(focus_block("Pages", app.focus == FocusPane::Pages))
+        .block(focus_block(&title, app.focus == FocusPane::Pages))
         .highlight_style(Style::default().bg(Color::Blue).fg(Color::Black).add_modifier(Modifier::BOLD))
         .highlight_symbol("> ")
 }
@@ -298,7 +299,7 @@ fn protectors_lines(app: &ViewApp) -> Vec<Line<'static>> {
     lines
 }
 
-fn focus_block(title: &'static str, focused: bool) -> Block<'static> {
+fn focus_block(title: &str, focused: bool) -> Block<'static> {
     let title = if focused {
         format!("{title} [active]")
     } else {

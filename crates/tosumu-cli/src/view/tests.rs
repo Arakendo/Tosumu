@@ -31,6 +31,7 @@ use super::state::{
     PageStatus,
     ViewApp,
     ViewMode,
+    PAGE_LIST_WINDOW,
     PAGE_LIST_JUMP,
     PANEL_SCROLL_PAGE,
 };
@@ -108,7 +109,7 @@ fn corrupt_page(pgno: u64) -> PageRow {
         slot_count: Some(0),
         status: PageStatus::Corrupt,
         issue: Some("corrupt".to_string()),
-        search_text: String::new(),
+        search_text: None,
     }
 }
 
@@ -191,7 +192,7 @@ fn page_list_summary_formats_missing_fields() {
         slot_count: None,
         status: PageStatus::AuthFailed,
         issue: Some("auth failed".to_string()),
-        search_text: String::new(),
+        search_text: None,
     };
 
     assert_eq!(page_list_summary(&page), "    9  ?         auth     v --  slots  --");
@@ -227,6 +228,21 @@ fn watch_toggle_updates_status() {
 
     assert!(app.watch_enabled);
     assert_eq!(app.status_suffix(), " • watch enabled");
+}
+
+#[test]
+fn page_list_window_keeps_selection_visible() {
+    let pages = (1..=300).map(corrupt_page).collect::<Vec<_>>();
+    let mut app = new_app(300, pages);
+    app.selected = Some(149);
+
+    let window = app.page_list_window();
+
+    assert_eq!(window.len(), PAGE_LIST_WINDOW);
+    assert_eq!(window.first().map(|page| page.pgno), Some(50));
+    assert_eq!(window.last().map(|page| page.pgno), Some(249));
+    assert_eq!(app.page_list_title(), "Pages 50-249 / 300");
+    assert_eq!(app.list_state().selected(), Some(100));
 }
 
 #[test]
@@ -397,7 +413,7 @@ fn confirm_filter_limits_visible_pages_and_selection() {
                 slot_count: Some(0),
                 status: PageStatus::Ok,
                 issue: None,
-                search_text: "alpha key value".to_string(),
+                search_text: Some("alpha key value".to_string()),
             },
             PageRow {
                 pgno: 2,
@@ -406,7 +422,7 @@ fn confirm_filter_limits_visible_pages_and_selection() {
                 slot_count: Some(0),
                 status: PageStatus::AuthFailed,
                 issue: Some("auth failed".to_string()),
-                search_text: String::new(),
+                search_text: None,
             },
             corrupt_page(3),
         ];
@@ -438,7 +454,7 @@ fn page_jump_uses_visible_page_indices_when_filtered() {
                 slot_count: Some(0),
                 status: PageStatus::AuthFailed,
                 issue: Some("auth failed".to_string()),
-                search_text: String::new(),
+                search_text: None,
             },
             PageRow {
                 pgno: 3,
@@ -447,7 +463,7 @@ fn page_jump_uses_visible_page_indices_when_filtered() {
                 slot_count: Some(0),
                 status: PageStatus::AuthFailed,
                 issue: Some("auth failed".to_string()),
-                search_text: String::new(),
+                search_text: None,
             },
         ];
         let mut app = new_app(3, pages);
@@ -477,7 +493,7 @@ fn confirm_filter_matches_record_search_text() {
                 slot_count: Some(0),
                 status: PageStatus::Ok,
                 issue: None,
-                search_text: "customer-id welcome".to_string(),
+                search_text: Some("customer-id welcome".to_string()),
             },
             PageRow {
                 pgno: 2,
@@ -486,7 +502,7 @@ fn confirm_filter_matches_record_search_text() {
                 slot_count: Some(0),
                 status: PageStatus::Ok,
                 issue: None,
-                search_text: "invoice archived".to_string(),
+                search_text: Some("invoice archived".to_string()),
             },
         ];
         let mut app = new_app(2, pages);
@@ -513,7 +529,7 @@ fn next_match_wraps_within_filtered_pages() {
                 slot_count: Some(0),
                 status: PageStatus::Corrupt,
                 issue: Some("corrupt".to_string()),
-                search_text: "match one".to_string(),
+                search_text: Some("match one".to_string()),
             },
             PageRow {
                 pgno: 2,
@@ -522,7 +538,7 @@ fn next_match_wraps_within_filtered_pages() {
                 slot_count: Some(0),
                 status: PageStatus::Corrupt,
                 issue: Some("corrupt".to_string()),
-                search_text: "match two".to_string(),
+                search_text: Some("match two".to_string()),
             },
             PageRow {
                 pgno: 3,
@@ -531,7 +547,7 @@ fn next_match_wraps_within_filtered_pages() {
                 slot_count: Some(0),
                 status: PageStatus::Corrupt,
                 issue: Some("corrupt".to_string()),
-                search_text: "match three".to_string(),
+                search_text: Some("match three".to_string()),
             },
         ];
         let mut app = new_app(3, pages);
@@ -566,7 +582,7 @@ fn previous_match_wraps_backwards() {
                 slot_count: Some(0),
                 status: PageStatus::Corrupt,
                 issue: Some("corrupt".to_string()),
-                search_text: "match one".to_string(),
+                search_text: Some("match one".to_string()),
             },
             PageRow {
                 pgno: 2,
@@ -575,7 +591,7 @@ fn previous_match_wraps_backwards() {
                 slot_count: Some(0),
                 status: PageStatus::Corrupt,
                 issue: Some("corrupt".to_string()),
-                search_text: "match two".to_string(),
+                search_text: Some("match two".to_string()),
             },
         ];
         let mut app = new_app(2, pages);
