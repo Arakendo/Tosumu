@@ -684,7 +684,7 @@ The ClassLibrary is a massive enterprise toolkit with ~75 infrastructure librari
 **Tosumu use case:**
 - If tosumu needs structured logging (Stage 6+ observability)
 - EventIds for database events: `2001 - ApplicationStarted`, `1102 - DataModification`, `2101 - SystemError`
-- Probably overkill for a learning project — Rust `tracing` crate is simpler
+- Probably overkill for the current project stage — Rust `tracing` crate is simpler
 
 ---
 

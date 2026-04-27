@@ -4,7 +4,7 @@ This is the page to read before treating Tosumu like a mature database.
 
 ## Early development status
 
-Tosumu is an academic and learning project. It has real storage logic, real crash-recovery work, and real authenticated page encryption, but it has not been independently audited or hardened for production use.
+Tosumu is an early-stage database project. It has real storage logic, real crash-recovery work, and real authenticated page encryption, but it has not been independently audited or hardened for production use.
 
 ## Durability the project currently aims for
 

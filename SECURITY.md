@@ -1,8 +1,8 @@
 # Security Policy
 
-## This is a learning project
+## Pre-audit status
 
-`tosumu` is an **academic / learning project**. It implements authenticated encryption, envelope key management, and a write-ahead log — but these are implemented by the author as an exercise, not by a cryptography team, and they have not been independently reviewed or audited.
+`tosumu` is an **early-stage database project**. It implements authenticated encryption, envelope key management, and a write-ahead log, but these mechanisms have not been independently reviewed or audited.
 
 > **Do not use `tosumu` to protect real secrets.**
 >
@@ -34,7 +34,7 @@ If you believe you have found a cryptographic or integrity-affecting flaw in the
 - **Preferred:** use GitHub's [private vulnerability reporting](https://github.com/Arakendo/tosumu/security/advisories/new) if enabled on the repository.
 - **Fallback:** open an issue titled `SECURITY: <short summary>` and immediately email the maintainer without including exploit details.
 
-Because this is a learning project maintained on a best-effort basis, please understand:
+Because this is a pre-stability project maintained on a best-effort basis, please understand:
 
 - There is **no SLA** for response or fix.
 - There is **no coordinated-disclosure pipeline** and no CVE assignment process.

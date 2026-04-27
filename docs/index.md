@@ -17,10 +17,10 @@ Core themes:
 
 ## Current status
 
-Tosumu is in early development and remains a learning project.
+Tosumu is in early development and should be treated as a serious but pre-stability database project.
 
 - MVP +8 is complete: storage, B+ tree lookup, WAL recovery, key management, and the read-only TUI viewer are implemented.
-- The current roadmap still places a toy SQL layer after the storage milestones, but the storage engine remains the core of the project.
+- The current roadmap still places an initial SQL layer after the storage milestones, but the storage engine remains the core of the project.
 - The design is public and detailed, but pre-stability changes are still expected.
 
 ## Warning

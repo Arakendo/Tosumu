@@ -11,7 +11,7 @@ This page is the public roadmap summary. It is intentionally shorter than the re
 
 ## Next
 
-- the current design roadmap places a toy SQL layer after the core storage milestones
+- the current design roadmap places an initial SQL layer after the core storage milestones
 - continued work on inspection, audit, and structured diagnostics may still reshape near-term priorities while the project remains pre-stability
 
 ## Later

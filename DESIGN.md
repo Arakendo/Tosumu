@@ -1,13 +1,13 @@
 # tosumu — Design Document
 
 **Status:** Draft v0.1
-**Project type:** Academic / learning
+**Project type:** Experimental / pre-stability
 **Language:** Rust (stable)
-**Target:** Single-file, single-process, embedded, page-based, authenticated-encrypted key/value store with an eventual toy SQL layer.
+**Target:** Single-file, single-process, embedded, page-based, authenticated-encrypted key/value store with an eventual initial SQL layer.
 
 > **Name.** `tosumu` (written `to-su-mu`) is a conlang word meaning *knowledge-organization device* — literally "database." Components: `to` (knowledge / information) + `su` (organized structure) + `mu` (object / device). See §17.
 >
-> **Published at** https://github.com/Arakendo/tosumu. Dual-licensed MIT OR Apache-2.0. This is a public learning project: the crypto and storage design are documented, but neither has been independently reviewed or audited. Do not use `tosumu` to protect real secrets — see [`SECURITY.md`](SECURITY.md).
+> **Published at** https://github.com/Arakendo/tosumu. Dual-licensed MIT OR Apache-2.0. This is a public, pre-audit database project: the crypto and storage design are documented, but neither has been independently reviewed or audited. Do not use `tosumu` to protect real secrets — see [`SECURITY.md`](SECURITY.md).
 
 ---
 
@@ -42,7 +42,7 @@
 
 ### 1.4 Motivating real-world context: offline-first sync
 
-Tosumu is a learning project, but the epistemic model (§29) emerged from a concrete problem: the standard offline-first architecture —
+Tosumu began as a hands-on storage and crypto exploration, but the epistemic model (§29) emerged from a concrete problem: the standard offline-first architecture —
 
 ```
 client → local SQLite
@@ -645,7 +645,7 @@ This is policy, not cryptography. It is documented as such.
 
 ### 8.9 Nonce reuse risk
 
-Random 96-bit nonces have a birthday bound around 2^48 encryptions per key before collision probability becomes meaningful. Acceptable for a toy engine. Documented so future-us doesn't re-derive it at 2am.
+Random 96-bit nonces have a birthday bound around 2^48 encryptions per key before collision probability becomes meaningful. Acceptable at the current scale of the engine. Documented so future-us doesn't re-derive it at 2am.
 
 ### 8.10 Known limitations (explicit)
 
@@ -865,7 +865,7 @@ Testing is a first-class concern. A storage engine is only as good as the confid
 - **Fuzz everything that touches bytes.** Decoders, parsers, and crypto boundaries get fuzz targets.
 - **Crash safety is not optional.** Stage 3's `CrashFs` harness runs on every commit after WAL lands.
 - **Tests document behavior.** A test name like `test_compaction_preserves_slot_order` is a spec.
-- **Realistic, not exhaustive.** This is a learning project. We aim for *high confidence*, not formal proof.
+- **Realistic, not exhaustive.** This is early-stage software. We aim for *high confidence*, not formal proof.
 
 ### 11.2 Test categories and organization
 
@@ -1171,7 +1171,7 @@ Honest list of what this testing strategy does not cover:
 - **Platform-specific behavior** — Windows and Linux CI, but no BSD, no 32-bit, no ARM-specific tests.
 - **Adversarial cryptanalysis** — RustCrypto primitives are trusted. Our *composition* is tested, not broken.
 
-This is acceptable for a learning project. Document it so we don't quietly assume otherwise.
+This is acceptable at the current project stage. Document it so we don't quietly assume otherwise.
 
 ### 11.14 Adversarial testing strategy
 
@@ -1393,7 +1393,7 @@ Multiple protectors, recovery key, cheap KEK rotation.
 
 #### MVP +8 — "It's interactively inspectable" *(Stage 2–4 TUI viewer)*
 
-Status: complete. Next MVP is MVP+9, the toy SQL layer.
+Status: complete. Next MVP is MVP+9, the initial SQL layer.
 
 Interactive TUI viewer (§12.4). Can slot in any time after MVP+2, but most valuable after MVP+6 when encrypted DB inspection becomes interesting.
 
@@ -1406,7 +1406,7 @@ Interactive TUI viewer (§12.4). Can slot in any time after MVP+2, but most valu
 **Demo:** `tosumu view db.tsm` → navigate pages → see B+ tree visually → spot corrupt page highlighted red.
 **Explicitly not there:** no write operations, no query builder, no remote connections.
 
-#### MVP +9 — "It speaks SQL (toy)" *(Stage 5 query layer)*
+#### MVP +9 — "It speaks SQL" *(Stage 5 query layer)*
 
 Minimal query layer. Proves the engine supports relational-style workloads.
 
@@ -1543,7 +1543,7 @@ Multi-reader concurrency without blocking writes.
 - Conditional-write helpers: `get_with_version()`, `put_if_absent()`, and `put_if_version()` / compare-and-set semantics built on stable version visibility.
 - Secondary indexes (additional B+ trees mapping `(secondary_key, primary_key)`).
 - `VACUUM` command — reclaim space from deleted records.
-- Benchmarks vs SQLite on toy workloads (§11.11).
+- Benchmarks vs SQLite on small representative workloads (§11.11).
 
 **Proves:** real concurrency works. Read-heavy workloads don't block writers, and callers no longer have to open-code basic optimistic-concurrency races.
 **Demo:** 10 reader threads scanning while 1 writer inserts — no contention, no stale errors.
@@ -1617,7 +1617,7 @@ Delivered in four sub-slices, ordered by cost-to-build:
 | +6 | Passphrase-encrypted DB, Argon2id, DEK wrap, header MAC, KATs, crypto fuzz targets | Crypto works end-to-end | Stage 4a | ✅ done |
 | +7 | Multiple protectors (up to 8), RecoveryKey (Base32), `rekey-kek`, CLI `protector` subcommand; 9 new KATs, 8 new integration tests incl. protector-swap attack | Key management works | Stage 4b | ✅ done |
 | +8 | TUI viewer (`tosumu view`) | Interactive inspection | Stage 2–4 crosscut | ✅ done |
-| +9 | Toy SQL (`CREATE TABLE`, `SELECT`) | Real query foundation | Stage 5 | |
+| +9 | Initial SQL (`CREATE TABLE`, `SELECT`) | Real query foundation | Stage 5 | |
 | +10 | MVCC readers, conditional writes, secondary indexes, `VACUUM` | Concurrency and optimistic write safety | Stage 6 | |
 | +11 | iOS/Android FFI, Keychain/Keystore | Mobile portability | Stage 7 | |
 | +12 | K3s cluster: server + witnesses + observer sidecar | Audit/witness in real deployment | Stage 8 | |
@@ -1666,7 +1666,7 @@ Debugging a storage engine without visibility is a recipe for learned helplessne
 
 #### 12.4 Viewer evolution (Stage 2+, optional but recommended)
 
-The CLI inspection tools in §12.3 are the foundation. Once they work, an **interactive viewer** becomes a force multiplier for debugging, learning, and demonstrating tosumu. This section documents the staged viewer evolution so we don't accidentally build "Datagrip Junior" before the database works.
+The CLI inspection tools in §12.3 are the foundation. Once they work, an **interactive viewer** becomes a force multiplier for debugging, analysis, and demonstrating tosumu. This section documents the staged viewer evolution so we don't accidentally build "Datagrip Junior" before the database works.
 
 **Stage 2–3: TUI viewer (terminal UI)**
 
@@ -1891,7 +1891,7 @@ This section is the design home; the actual delivery is staged through MVP +14 (
 
 ### Stage 4 — Encryption
 
-Split into three sub-stages because key management is its own discipline and cramming it into one stage is how toy projects quietly die.
+Split into three sub-stages because key management is its own discipline and cramming it into one stage is how small database efforts quietly die.
 
 #### Stage 4a — envelope encryption (one protector)
 - Enable the page frame in §5.3 unconditionally for new encrypted databases.
@@ -1918,7 +1918,7 @@ Split into three sub-stages because key management is its own discipline and cra
 - Platform: Windows TBS or Linux `/dev/tpmrm0` via `tss-esapi` crate; pick one, document, move on.
 - **Non-goal:** remote attestation, network key escrow, OS credential vault integration.
 
-### Stage 5 — Toy query layer
+### Stage 5 — Initial query layer
 - Parser for `CREATE TABLE`, `INSERT`, `SELECT ... WHERE key = ?`.
 - Multiple tables → baseline implementation stores table metadata and row data in reserved SQL key namespaces inside the existing store (`__sql_catalog__/*`, `__sql_row__/*`) rather than introducing per-table physical roots first.
 - Still single-column primary key, no joins.
@@ -1958,7 +1958,7 @@ The detailed design lives in [docs/Tosumu Command Language.md](docs/Tosumu%20Com
 - Multi-reader concurrency (MVCC snapshot by LSN).
 - **Secondary indexes** — additional B+ trees mapping `(secondary_key, primary_key)`. Think `CREATE INDEX idx ON users(email)` for relational-style lookups. Not full-text, not fuzzy, not vectors (see §18).
 - `VACUUM` — reclaim space from deleted records and rebuild indexes.
-- Benchmarks vs SQLite on toy workloads, purely for humility.
+- Benchmarks vs SQLite on small representative workloads, purely for humility.
 - Explicit non-goals for Stage 6: no FSTs, no full-text search, no vector search, no spatial indexes. See §18 for why.
 - **Optional optimization:** See `REFERENCES.md` for BloomFilter (per-page negative lookups to skip pages during scans).
 
@@ -2316,7 +2316,7 @@ Build a separate `tosumu-fst` crate wrapping the `fst` crate from BurntSushi. St
 
 **Why not in tosumu:**
 - This is **an entire search engine**, not a database feature. Lucene, Elasticsearch, Tantivy, MeiliSearch are purpose-built for this.
-- Building a competitive full-text engine is a multi-year project. tosumu is a learning project about page-based storage and crypto, not information retrieval.
+- Building a competitive full-text engine is a multi-year project. tosumu is focused on page-based storage and crypto, not information retrieval.
 - The right architecture is: tosumu stores documents → external indexer (Tantivy, Sonic, etc.) builds the inverted index → queries go to the indexer.
 
 **If you wanted it:**
@@ -2328,7 +2328,7 @@ Use Tantivy or MeiliSearch as the index layer. Store document IDs in tosumu, for
 
 **Why not in tosumu:**
 - ANN algorithms (HNSW, IVF, product quantization) are **fundamentally different** from B+ trees. They're graph-based or partition-based, not sorted-key-based.
-- This is an active research area. State-of-the-art changes every 18 months. Not a fit for a "finishable" learning project.
+- This is an active research area. State-of-the-art changes every 18 months. Not a fit for the current project scope.
 - Storage engines that bolt on vector search (pgvector, SQLite-vss) are essentially embedding a separate vector index library (hnswlib, faiss) and exposing it through SQL syntax. That's a thin integration layer, not a core engine feature.
 
 **If you wanted it:**
@@ -2355,13 +2355,13 @@ Use Tantivy or MeiliSearch as the index layer. Store document IDs in tosumu, for
 
 ### 18.3 What *could* be added as extensions (hypothetical Stage 7+)
 
-If tosumu reaches Stage 6 and someone wants to continue the learning journey, here are reasonable next steps that don't violate the core design:
+If tosumu reaches Stage 6 and someone wants to keep extending it, here are reasonable next steps that don't violate the core design:
 
 **A. Spatial indexes (R-tree / Geohash)**
 
 Store `(lat, lon)` pairs, support bounding-box queries. This is a well-understood problem with clear algorithms (R-tree, Geohash grid) and fits the "page-based index" model. Would live as a separate index type alongside the B+ tree.
 
-**Complexity:** Medium. A decent learning project extension.
+**Complexity:** Medium. A reasonable later-stage extension.
 
 **B. Bloom filters for negative lookups**
 
@@ -2403,7 +2403,7 @@ If you need vector search, use **Qdrant** or **pgvector**.
 If you need spatial queries, use **PostGIS** or **SpatiaLite**.
 If you need graphs, use **Neo4j** or **SurrealDB**.
 
-tosumu is a learning project about building a small, correct, encrypted, page-based key/value store with a toy SQL layer. It does that one thing well (eventually). It is not a search engine, a vector database, a graph database, or a data warehouse.
+tosumu is a serious early-stage effort to build a small, correct, encrypted, page-based key/value store with an intentionally narrow SQL layer. It does that one thing well. It is not a search engine, a vector database, a graph database, or a data warehouse.
 
 Trying to be all of those would make it none of them.
 
@@ -2928,7 +2928,7 @@ Argon2id { m: 64_000, t: 4, p: 2 }
 
 The interesting database ideas are not "faster index." They are: **make systems understandable, safe, and repairable.** Performance problems get optimized. Understanding problems haunt you forever.
 
-This section documents the design bets where tosumu can go beyond being another learning-exercise toy database. Not all of them will ship. The honest answer for a solo learning project is: pick 2–3 that align with your actual pain, build them well, and leave the rest as named ideas rather than half-implemented messes.
+This section documents the design bets where tosumu can go beyond being another small experimental database. Not all of them will ship. The honest answer for a solo project is: pick 2–3 that align with your actual pain, build them well, and leave the rest as named ideas rather than half-implemented messes.
 
 **The ideas are documented regardless of shipping status.** Naming them explicitly is useful: it tells future contributors what's intentional vs. simply missing, and it keeps scope decisions from being accidental.
 
@@ -3228,7 +3228,7 @@ Applied to tosumu:
 | Repairable | `verify` exits non-zero | Structured repair stack, `RepairReport` |
 | Explainable | `EXPLAIN` roadmap (Stage 5) | Derivation tracking, staleness annotation |
 
-**The most honest version of this section:** tosumu is a learning project, and learning projects that try to innovate on 10 axes finish zero of them. The value of this section is naming the ideas clearly so that Stage-N decisions are made deliberately, not accidentally. When Stage 3 WAL design comes up, add the `source` field. When Stage 5 query design comes up, add `GET ... EXPLAIN`. When Stage 6 MVCC comes up, add `--at-lsn`. These are not separate projects. They are one extra field or one extra flag added at the right moment.
+**The most honest version of this section:** tosumu is still a solo, pre-stability project, and projects that try to innovate on 10 axes finish zero of them. The value of this section is naming the ideas clearly so that Stage-N decisions are made deliberately, not accidentally. When Stage 3 WAL design comes up, add the `source` field. When Stage 5 query design comes up, add `GET ... EXPLAIN`. When Stage 6 MVCC comes up, add `--at-lsn`. These are not separate projects. They are one extra field or one extra flag added at the right moment.
 
 ---
 
@@ -4136,7 +4136,7 @@ The goal is not to make attacks impossible. It is to make attacks visible.
 
 ## 24. Competitive positioning
 
-This section exists because someone will ask, and "it's a learning project" is not an answer. This is the honest version.
+This section exists because someone will ask, and "it's experimental" is not an answer. This is the honest version.
 
 ### 24.1 Positioning statement
 
@@ -4226,7 +4226,7 @@ There is no version of this comparison where Tosumu beats SQLite on:
 - **Speed.** SQLite is 30+ years of query and I/O optimization. Tosumu is not competing here.
 - **Maturity.** SQLite has billions of deployments and an exhaustive test suite with 100% branch coverage as a stated goal. Tosumu does not.
 - **Ecosystem.** Every language has SQLite bindings. ORMs target it. Tools exist for it. The Tosumu ecosystem is this document and a stub crate.
-- **SQL support.** SQLite has a full SQL engine. Tosumu's SQL layer (Stage 5) will be a toy subset for years.
+- **SQL support.** SQLite has a full SQL engine. Tosumu's SQL layer (Stage 5) will be a deliberately narrow subset for a long time.
 - **"Just works."** SQLite requires no configuration, no key management, no audit setup. Tosumu's full feature set requires explicit setup. That is the correct trade-off for what it is, and it is a real cost.
 
 Any pitch that glosses over these is dishonest. Don't make it.

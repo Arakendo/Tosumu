@@ -2,13 +2,13 @@
 
 > *knowledge-organization device*
 
-`tosumu` is a small, page-based, authenticated-encrypted embedded database written in Rust. It is an **academic / learning project** — a clean-room implementation inspired by SQLite's structure, with per-page AEAD and envelope (DEK/KEK) key management designed in from day one rather than bolted on.
+`tosumu` is a small, page-based, authenticated-encrypted embedded database written in Rust. It is an **early-stage database project** — a clean-room implementation inspired by SQLite's structure, with per-page AEAD and envelope (DEK/KEK) key management designed in from day one rather than bolted on.
 
 The name is a conlang word: `to` (knowledge) + `su` (organized structure) + `mu` (object / device) → *knowledge-organization device*.
 
 ## Status
 
-**MVP +7 complete.** The core storage engine and full encryption/key-management stack are implemented and tested. 125 tests pass across `tosumu-core` and `tosumu-cli`, including an adversarial suite covering crash simulation, cross-DB splice attacks, snapshot rollback, slot-reuse stale-AAD, and structural invariant sweeps.
+**MVP +8 complete.** The core storage engine, full encryption/key-management stack, and interactive TUI viewer are implemented and covered by unit, integration, property, fuzz, and adversarial tests.
 
 | MVP | Capability | State |
 |---|---|---|
@@ -21,12 +21,12 @@ The name is a conlang word: `to` (knowledge) + `su` (organized structure) + `mu`
 | +6 | Envelope encryption: per-page AEAD, single passphrase protector, KATs | ✅ done |
 | +7 | Multiple protectors: up to 8 keyslots, recovery key, KEK rotation, `protector` CLI | ✅ done |
 | +8 | Interactive TUI viewer (`tosumu view`) | ✅ done |
-| +9 | Toy SQL layer | 🔲 planned |
+| +9 | Initial SQL layer | 🔲 planned |
 | +10 | MVCC / multiple readers | 🔲 planned |
 
 ## Warning
 
-> **This is a learning project. Do not use `tosumu` to protect real secrets.**
+> **This is a pre-audit, pre-stability database project. Do not use `tosumu` to protect real secrets.**
 >
 > The crypto design is carefully documented, but it is not audited, not reviewed, not hardened, and not production-ready. See [`SECURITY.md`](SECURITY.md).
 
@@ -87,7 +87,7 @@ Six `cargo fuzz` targets in `fuzz/fuzz_targets/`: page decode, B+ tree ops, WAL 
 
 ## Roadmap
 
-See [`DESIGN.md §12`](DESIGN.md) for the full MVP and stage breakdown. MVP+8 is complete: `tosumu view` now provides a cross-platform TUI (`ratatui` + `crossterm`) for inspecting file header, pages, B+ tree structure, WAL records, and per-keyslot detail on encrypted databases. The Windows WPF harness remains a parallel diagnostic surface for fast inspection and triage; it does not replace the TUI milestone. The next milestone is MVP+9, the toy SQL layer.
+See [`DESIGN.md §12`](DESIGN.md) for the full MVP and stage breakdown. MVP+8 is complete: `tosumu view` now provides a cross-platform TUI (`ratatui` + `crossterm`) for inspecting file header, pages, B+ tree structure, WAL records, and per-keyslot detail on encrypted databases. The Windows WPF harness remains a parallel diagnostic surface for fast inspection and triage; it does not replace the TUI milestone. The next milestone is MVP+9, the initial SQL layer.
 
 ## License
 
