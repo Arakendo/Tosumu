@@ -76,3 +76,49 @@ Later direction on the roadmap:
 - witness and observer deployment work in clustered environments
 
 What is not planned as a core identity change: a general-purpose multi-process network database.
+
+## Future service boundary and host modes
+
+Tosumu is still embedded-first, but the planned deployment story is better described as a stable authority boundary with different hosts around it.
+
+```txt
+Application / CLI / UI
+		  ↓
+	  Host adapter
+		  ↓
+	tosumu-service
+		  ↓
+	  tosumu-core
+		  ↓
+	 Database file
+```
+
+The important constraint is that the host changes, but storage semantics do not. `tosumu-core` remains the canonical engine. A future `tosumu-service` layer would own open or close lifecycle, unlock state, write serialization, inspect shaping, and boundary-level error mapping. Hosts wrap that service boundary; they do not reimplement it.
+
+### Planned host modes
+
+- Embedded host: the caller and service live in the same process. This stays the default deployment model.
+- Local daemon host: a future `tosumu-daemon` exposes the same service contract over local IPC such as named pipes, Unix sockets, or stdio.
+- Remote or admin host: a future `tosumu-server` or `tosumu-admin` exposes the same contract over HTTP or another operator-facing surface.
+
+This is not a shift to a different database personality. It is one authority model with multiple deployment shells.
+
+### Platform guidance
+
+| Platform | Embedded host | Local daemon host | Remote or admin host |
+| --- | --- | --- | --- |
+| Windows | Primary | Strong option | Supported |
+| Linux | Primary | Strong option | Primary server target |
+| macOS | Primary | Good option | Supported |
+| iOS | Primary | Generally unavailable | Client only |
+| Android | Primary | App-scoped only | Client only |
+
+Platform notes:
+
+- Windows is a natural fit for either in-process desktop usage or a long-lived local authority using named pipes and, when needed, a Windows service.
+- Linux is the broadest target because it fits embedded tools, local daemons managed by `systemd`, and server or container deployment.
+- macOS is best treated as a strong local desktop and development platform, with `launchd` as the natural daemon manager when a background authority is needed.
+- iOS should be treated as embedded-only in practice; sandbox and lifecycle constraints make a general daemon host the wrong model.
+- Android allows app-local service patterns, but it should still be treated as embedded-first rather than as a machine-wide daemon host.
+
+For the deeper design sketch, including service-layer responsibilities and multi-database contexts, see the main design document.

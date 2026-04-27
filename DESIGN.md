@@ -3531,42 +3531,151 @@ Tosumu's per-page AEAD means network mode doesn't need a *separate* integrity la
 
 ---
 
-## 22. Server mode and multi-client access (Stage 7+)
+## 22. Service boundary and multi-client access (Stage 7+)
 
-The §21 network story resolves to the correct answer: don't pretend a network filesystem is a local disk. The *actually correct* answer for multi-client network access is a thin server wrapper around `tosumu-core`.
+The §21 network story resolves to the correct answer: do not pretend a network filesystem is a local disk. The correct pattern is still an embedded core, but with an explicit authority layer above it once more than one caller needs to share the same database state.
 
-This section documents that architecture so it stays consistent with the rest of the design if/when it gets built. It is explicitly Stage 7+ — it should not be designed in detail before Stage 1 exists.
+That means the future architecture is not "turn `tosumu-core` into a server." It is "keep `tosumu-core` embedded and put a single service boundary above it."
 
-### 22.1 Crate structure
+This section documents that architecture so it stays consistent with the rest of the design if and when it gets built. It is explicitly Stage 7+ — it should not be implemented in detail before the earlier storage milestones exist.
+
+### 22.1 Current status and architectural goal
+
+Today Tosumu is still embedded-first:
+
+- `tosumu-core` is the canonical storage engine.
+- `tosumu-cli` calls the engine directly.
+- There is no daemon, service crate, or remote host yet.
+
+The future goal is to preserve that embedded identity while introducing a single authority layer for multi-client or operator-facing scenarios.
+
+### 22.2 Canonical crate split
 
 ```
-tosumu-core    → storage engine (local, embedded, single-process)
-tosumu-cli     → tooling (inspect, verify, migrate, dump, debug)
-tosumu-server  → network wrapper (multi-client access to one database)
-tosumu-client  → optional client SDK (talks to tosumu-server over HTTP/gRPC)
+tosumu-core     → storage engine (local, embedded, single-process)
+tosumu-service  → canonical operation boundary over the core
+tosumu-cli      → tooling / embedded host
+tosumu-daemon   → local IPC host around tosumu-service
+tosumu-server   → remote HTTP or gRPC host around tosumu-service
+tosumu-admin    → operator-facing control surface
+tosumu-client   → optional client SDK
 ```
 
-These do not mix. `tosumu-core` has no network code. `tosumu-server` has no storage code beyond calling `tosumu-core`. The boundary is enforced by the crate boundary.
+These do not mix. `tosumu-core` has no IPC or network code. `tosumu-service` owns operation shaping, unlock state, write serialization, inspect shaping, and boundary-level error mapping. Hosts such as `tosumu-daemon` and `tosumu-server` wrap `tosumu-service`; they do not reimplement storage behavior.
 
-### 22.2 Architecture
+### 22.3 Layering and host modes
 
 ```
-clients (many)
-     ↓
-network transport (HTTP or gRPC)
-     ↓
-tosumu-server
-  ├── reader pool  → snapshot reads (parallel)
-  └── writer queue → serialized writes (one at a time)
-     ↓
+client or UI
+    ↓
+host adapter
+    ↓
+tosumu-service
+    ↓
 tosumu-core
-     ↓
+    ↓
 file
 ```
 
-The concurrency model is identical to the embedded model: many readers, single writer. The server extends that model across the network — it does not replace or complicate it. The writer queue in `tosumu-server` maps directly to the writer gate in `tosumu-core` (§7.5).
+The host adapter changes by deployment mode:
 
-### 22.3 API design
+- **Embedded host.** Caller and service live in the same process. No transport boundary; the service boundary is logical.
+- **Local daemon host.** `tosumu-daemon` exposes the same service contract over IPC (named pipes, Unix sockets, or stdio).
+- **Remote or admin host.** `tosumu-server` or `tosumu-admin` exposes the same service contract over HTTP/gRPC or a local operator surface.
+
+These are not different database personalities. They are different hosts around the same authority boundary.
+
+### 22.4 Deployment configurations by operating system
+
+The host model should stay consistent, but the recommended deployment shape changes by platform.
+
+#### Windows
+
+- **Embedded host** should remain the default for desktop applications, local tools, and test harnesses.
+- **Local daemon host** is a good fit for shared-machine access, using named pipes or stdio for IPC and a Windows service when background lifetime matters.
+- **Remote or admin host** is reasonable for operator tooling or LAN-accessible workflows, but it should still wrap the same `tosumu-service` boundary rather than talking to files directly.
+
+Windows is the most natural fit for a split between embedded desktop use and a long-lived local daemon. This is also the clearest path for future WPF or WinUI operator surfaces.
+
+#### Linux
+
+- **Embedded host** fits CLI tools, batch jobs, and single-process applications.
+- **Local daemon host** is a strong default for multi-tool local access, typically over Unix sockets or stdio and managed by `systemd` or a container entrypoint.
+- **Remote or admin host** is the most practical server deployment shape, including VPS, on-prem, container, and future k3s-style cluster scenarios.
+
+Linux is the broadest deployment target because it supports all three modes well: in-process, local authority daemon, and remote service host.
+
+#### macOS
+
+- **Embedded host** should remain the default for local apps, development workflows, and desktop tooling.
+- **Local daemon host** is viable over Unix sockets or stdio, with `launchd` as the natural lifetime manager for a background authority.
+- **Remote or admin host** is possible for local-network administration or dev/test environments, but is less likely to be the primary production host than Linux.
+
+macOS is best treated as a strong local desktop and development platform with an optional daemon, not as the main always-on server target.
+
+#### iOS
+
+- **Embedded host** is the primary deployment model.
+- **Local daemon host** should generally be treated as unavailable; iOS app lifecycle and sandbox constraints do not align with a general-purpose background database authority.
+- **Remote or admin host** means the app talks to a separately hosted Tosumu service elsewhere, not that the device becomes the host.
+
+iOS should assume an in-app authority boundary. If multi-device coordination is needed, the device should act as a client to a remote host rather than trying to run its own daemon.
+
+#### Android
+
+- **Embedded host** is the primary deployment model for single-app usage.
+- **Local daemon host** is possible only in a tightly app-scoped form, such as an Android service or bound-service pattern, not as a general machine-wide authority like desktop platforms.
+- **Remote or admin host** again means the device consumes a separately hosted service rather than serving as the canonical multi-client authority.
+
+Android has slightly more room than iOS for app-local service patterns, but it should still be treated as embedded-first. A true always-on host belongs on desktop or server-class operating systems.
+
+#### Platform summary
+
+| Platform | Embedded host | Local daemon host | Remote or admin host |
+| --- | --- | --- | --- |
+| Windows | Primary | Strong option | Supported |
+| Linux | Primary | Strong option | Primary server target |
+| macOS | Primary | Good option | Supported |
+| iOS | Primary | Generally unavailable | Client only |
+| Android | Primary | App-scoped only | Client only |
+
+### 22.5 Concurrency model
+
+The concurrency model stays identical to the embedded model: many readers, single writer. The service layer owns the writer gate. A daemon or server host only extends that same model across process or network boundaries.
+
+```
+clients (many)
+    ↓
+IPC or HTTP host
+    ↓
+tosumu-service
+  ├── reader paths  → snapshot reads
+  └── writer gate   → serialized writes
+    ↓
+tosumu-core
+    ↓
+file
+```
+
+This is the important constraint: transport changes do not change storage semantics.
+
+### 22.6 Service API sketch
+
+The authority boundary should be operation-shaped, not transport-shaped:
+
+```rust
+trait StoreService {
+    fn get(&self, db: DatabaseRef, key: &[u8]) -> Result<Option<Value>>;
+    fn put(&self, db: DatabaseRef, key: &[u8], value: &[u8]) -> Result<()>;
+    fn delete(&self, db: DatabaseRef, key: &[u8]) -> Result<()>;
+    fn scan(&self, db: DatabaseRef, range: ScanRange) -> Result<Vec<KvPair>>;
+    fn inspect(&self, db: DatabaseRef, request: InspectRequest) -> Result<InspectEnvelope>;
+}
+```
+
+Embedded callers invoke this directly. `tosumu-daemon` maps it onto IPC. `tosumu-server` maps it onto HTTP or gRPC. The same semantics and structured errors must survive each mapping.
+
+### 22.7 Remote API design
 
 Start stateless and boring:
 
@@ -3576,7 +3685,7 @@ PUT    /kv/{key}          → single write
 DELETE /kv/{key}          → single delete
 POST   /tx                → batched transaction
 GET    /scan?start=&end=  → range scan (snapshot)
-GET    /status            → server health + connection_info
+GET    /status            → service health + connection_info
 ```
 
 Batched transaction body:
@@ -3591,27 +3700,25 @@ POST /tx
 }
 ```
 
-The server enqueues the batch as a single `WriteTransaction` and returns the result atomically. Clients do not manage transaction boundaries directly — they submit a batch, get a result. This is the right default for a network API: stateless request → atomic result.
+The host enqueues the batch as a single write unit and returns the result atomically. Clients do not manage transaction lifetimes directly.
 
-### 22.4 Transport choice
+### 22.8 Transport choice
 
-Pick HTTP/1.1 + JSON first. It works everywhere, is debuggable with `curl`, and requires no code generation. gRPC is faster and typed but adds complexity and tooling dependencies. Upgrade to gRPC only if profiling shows HTTP overhead is a real bottleneck — it almost certainly will not be for an embedded key/value store.
+Pick HTTP/1.1 + JSON first. It works everywhere, is debuggable with `curl`, and requires no code generation. gRPC is faster and typed but adds complexity and tooling dependencies. Upgrade only if profiling shows HTTP overhead is a real bottleneck — it almost certainly will not be for an embedded key/value store.
 
-### 22.5 Authentication
+### 22.9 Authentication
 
-Even a minimal deployment needs authentication. Start with static API keys in the request header:
+Even a minimal remote deployment needs authentication. Start with static API keys in the request header:
 
 ```
 Authorization: Bearer <api-key>
 ```
 
-Keys are stored in the server config, not in the database. Do not skip this. Unauthenticated database endpoints are an incident waiting to happen.
+Keys live in host configuration, not in the database. Token-based auth is a later concern.
 
-Token-based auth (JWT, short-lived tokens) is a Stage 8+ concern. Static API keys are adequate for controlled deployments and substantially simpler.
+### 22.10 Observability
 
-### 22.6 Observability
-
-`GET /status` returns the same `connection_info` fields as `Database::connection_info()` (§7.7), plus server-layer additions:
+`GET /status` returns the same `connection_info` fields as `Database::connection_info()` (§7.7), plus host-layer additions:
 
 ```json
 {
@@ -3627,9 +3734,9 @@ Token-based auth (JWT, short-lived tokens) is a Stage 8+ concern. Static API key
 }
 ```
 
-The server is talkative by default. Silence is how you end up with a giant WAL and no idea why.
+The host is talkative by default. Silence is how you end up with a giant WAL and no idea why.
 
-### 22.7 `LocalStore` / `RemoteStore` abstraction (optional)
+### 22.11 `LocalStore` / `RemoteStore` abstraction (optional)
 
 Once `tosumu-client` exists, the same interface can be presented for local and remote access:
 
@@ -3640,31 +3747,47 @@ trait Store {
     fn delete(&self, key: &[u8]) -> Result<()>;
 }
 
-struct LocalStore  { db: Database }   // calls tosumu-core directly
-struct RemoteStore { url: Url }       // calls tosumu-server over HTTP
+struct LocalStore  { service: EmbeddedServiceHost }
+struct RemoteStore { client: HttpStoreClient }
 ```
 
-This is **API-level transparency**, not storage-level lies. The caller chooses which `Store` to construct — there is no auto-detection, no magic proxying, no silent fallback. `LocalStore` and `RemoteStore` are different types with the same interface.
+This is **API-level transparency**, not storage-level lies. The caller chooses which `Store` to construct — there is no auto-detection, no magic proxying, no silent fallback.
 
 This enables:
 
 ```
-local dev   → LocalStore  → tosumu-core
-production  → RemoteStore → tosumu-server → tosumu-core
-offline     → LocalStore  (no server needed)
+local dev   → LocalStore  → embedded host → tosumu-service → tosumu-core
+production  → RemoteStore → HTTP host     → tosumu-service → tosumu-core
+offline     → LocalStore  (no daemon or network required)
 ```
 
-Same data model. Same semantics. Different deployment. No surprise behavior when the network is absent.
+Same data model. Same semantics. Different host.
 
-### 22.8 What this is not
+### 22.12 Multi-database contexts
 
-- **Not a distributed database.** One server, one database file, one writer loop. No consensus, no sharding, no replication.
-- **Not an automatically scaled service.** If you need horizontal scaling, use a database that was designed for it. Tosumu-server is for "many clients, one database," not "many databases, many writers."
-- **Not a hidden network layer.** There is no auto-detection that silently switches from local to remote. You construct `LocalStore` or `RemoteStore` explicitly.
+A daemon or server host may manage more than one database, but each database gets an isolated authority context:
 
-### 22.9 Design principle
+```
+Client Request
+  db = "name or path"
+      ↓
+Database Context
+      ↓
+Isolated State + Resources
+```
 
-The correct pattern for multi-client network database access is **embedded core + explicit server wrapper**, not "make the filesystem work harder." Tosumu-server is that wrapper — minimal, explicit, and built directly on the same concurrency model as the embedded engine rather than layered on top of different assumptions.
+Each context owns its open file handle, unlock state, writer gate, inspect state, and future audit or witness bindings. Database identity must be canonicalized as path plus header identity. Contexts must not share mutable runtime state.
+
+### 22.12 What this is not
+
+- **Not a distributed database.** One authority context per database. No consensus, no sharding, no replication here.
+- **Not an automatically scaled service.** If you need horizontal scaling, use a database designed for it.
+- **Not a hidden network layer.** There is no auto-detection that silently switches from local to remote.
+- **Not a second storage engine.** Daemon, server, and admin hosts wrap the same core through the same service boundary.
+
+### 22.13 Design principle
+
+The correct pattern for multi-client access is **embedded core + explicit service boundary + explicit hosts**, not "make the filesystem work harder" and not "turn the embedded engine into a different system." The authority layer exists to preserve one semantics model while allowing multiple deployment shapes.
 
 ---
 
@@ -3936,19 +4059,22 @@ Action:
 
 ### 23.9 Crate structure expansion
 
-The full crate map once the audit and observer layers exist:
+The full crate map once the service, audit, and observer layers exist:
 
 ```
 tosumu-core       local storage engine (no network, no IPC)
-tosumu-cli        inspect / verify / migrate / audit / dump
-tosumu-server     network wrapper (multi-client access)
+tosumu-service    canonical authority boundary over the core
+tosumu-cli        inspect / verify / migrate / audit / dump / embedded host
+tosumu-daemon     local IPC host around tosumu-service
+tosumu-server     network wrapper around tosumu-service
+tosumu-admin      operator-facing control surface
 tosumu-client     optional HTTP/gRPC client SDK
 tosumu-audit      hash-chained event log + manifest management
 tosumu-witness    external freshness receipts (three-server model)
 tosumu-observer   local IPC health observers (single-server model)
 ```
 
-Dependency rules mirror the existing layer invariant (§4): `tosumu-core` has no dependency on any of the others. `tosumu-audit` depends on `tosumu-core` (reads LSN and manifest) but not on `tosumu-server`. `tosumu-witness` and `tosumu-observer` depend on `tosumu-audit` for the event chain; neither depends on each other.
+Dependency rules mirror the existing layer invariant (§4): `tosumu-core` has no dependency on any of the others. `tosumu-service` depends on `tosumu-core`. `tosumu-daemon` and `tosumu-server` depend on `tosumu-service`, not on each other. `tosumu-audit` depends on `tosumu-service` and `tosumu-core` state, but not on a specific host transport. `tosumu-witness` and `tosumu-observer` depend on `tosumu-audit` for the event chain; neither depends on each other.
 
 ### 23.11 Cluster deployment target (K3s)
 
