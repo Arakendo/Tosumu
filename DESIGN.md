@@ -1918,7 +1918,7 @@ Split into three sub-stages because key management is its own discipline and cra
 
 ### Stage 5 — Toy query layer
 - Parser for `CREATE TABLE`, `INSERT`, `SELECT ... WHERE key = ?`.
-- Multiple tables → each table is a (rootpage, name) entry in a system catalog page.
+- Multiple tables → baseline implementation stores table metadata and row data in reserved SQL key namespaces inside the existing store (`__sql_catalog__/*`, `__sql_row__/*`) rather than introducing per-table physical roots first.
 - Still single-column primary key, no joins.
 
 ### Stage 6 — Stretch
