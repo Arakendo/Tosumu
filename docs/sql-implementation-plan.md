@@ -284,7 +284,6 @@ That keeps the catalog shape forward-compatible without lying about current stor
 
 - `DELETE ... WHERE pk = ?`
 - `SELECT ... WHERE pk = <literal>` in addition to bound parameters
-- `SELECT *` projection expansion
 - `--explain` output for the SQL command
 
 ### 5.3 Explicitly out of scope for baseline
@@ -308,7 +307,7 @@ Do not silently degrade unsupported shapes into whole-database scans.
 
 Examples that should return `UnsupportedQueryShape` in baseline:
 
-- `SELECT * FROM users`
+- `SELECT * FROM users` without a required primary-key equality predicate
 - `SELECT * FROM users WHERE email = ?`
 - `SELECT * FROM users WHERE id = ? AND name = ?`
 - `DELETE FROM users`
@@ -429,6 +428,7 @@ Recommended baseline restriction:
 - no implicit rowid
 - no null primary key
 - no expression evaluation beyond literal and parameter substitution
+- `projection` may be `*` or an explicit column list, but only for primary-key equality lookups
 
 ### 8.2 AST shape
 
@@ -630,7 +630,8 @@ Recommended checks:
 
 - table exists
 - projected columns exist
-- predicate shape is either absent or exactly `pk_column = <literal|parameter>`
+- predicate shape is exactly `pk_column = <literal|parameter>`
+- `SELECT *` is allowed only when that primary-key equality predicate is present
 
 ### 11.4 DELETE
 
