@@ -1,0 +1,192 @@
+# Cline Rules for Tosumu Development
+
+## Agent Quickstart
+1. Read `README.md`, `DESIGN.md`, and the nearest task-relevant doc before changing behavior or structure.
+2. Start from the narrowest owning module or command path; do not map the whole repo before making a local hypothesis.
+3. Respect the layer direction: CLI/tooling → higher-level interpretation → B+ tree → WAL/transactions → pager → crypto → file I/O.
+4. After a non-trivial edit, run the narrowest validation first and record the result in `.cline-worklog.md` for long-running work.
+5. Update the nearest durable doc when a design, format, inspect-contract, or operational rule changes.
+6. Do not widen current MVP scope using deferred Stage 5+ or Stage 7+ ideas unless the task explicitly targets that milestone.
+7. Prefer clear, minimal changes that preserve one canonical owner for behavior.
+
+## Project Identity
+- **Name:** `tosumu` (to-su-mu) — conlang for "knowledge-organization device"
+- **Type:** Academic / learning project — embedded, page-based, authenticated-encrypted KV store
+- **Language:** Rust stable (edition 2021), `#![forbid(unsafe_code)]` everywhere in tosumu-core
+- **License:** Dual MIT OR Apache-2.0
+- **GitHub:** https://github.com/Arakendo/Tosumu
+
+## Design Principles (from DESIGN.md §2 — always reference these)
+1. Finishable by a mortal — every stage must produce something runnable on its own
+2. On-disk format is sacred — every byte has a reason, documented before coding
+3. Crypto binds structure — AEAD AAD covers anything dangerous to swap/reorder/rollback
+4. No silent corruption — any integrity failure surfaces as a typed error
+5. Types over comments — layout expressed in structs/enums, not prose
+6. Tests before cleverness — property tests and fuzzers land with the module they test
+7. Declarative intent, imperative mechanics — layers do not leak into each other
+8. **Structural impossibility over advisory rules** — strongest guardrail makes dangerous path a compiler error
+9. Stabilize traits after three independent callers
+10. Sequence is not grounding; label which claim you are making
+11. "Unspecified" and "undefined" are different design choices; name them
+
+## Architecture Layers (never cross these boundaries)
+```
+CLI → Query layer (Stage 5, future) → B+ Tree → Transaction/WAL → Pager → Crypto → File I/O
+```
+- No lower layer calls into a layer above it
+- No higher layer bypasses a layer below it
+- The pager IS the trust boundary: memory = trusted, disk = adversarial
+- Every page crossing the boundary is authenticated/decrypted or encrypted/tagged
+
+## Crate Structure
+- `crates/tosumu-core/` — library: pager, btree, wal, crypto, format, inspect, page_store/log_store, structured errors
+- `crates/tosumu-cli/` — binary: CLI commands, inspect contract, TUI viewer, unlock flow
+- `fuzz/` — cargo-fuzz targets (6 targets)
+- `docs/` — MkDocs documentation
+- `dotnet/` — WPF harness + CLI integration tests (Windows target)
+
+## Housekeeping and Change Discipline
+- Keep modules small and role-focused. Prefer extracting adjacent logic into named modules over growing orchestration files.
+- Reuse existing seams before adding new variant-specific helpers or command paths.
+- When behavior has one clear owner, remove duplicate forwarding surfaces instead of preserving them.
+- Favor readability over cleverness. Choose straightforward control flow and names that make sense in isolation.
+- Keep tests near the module that owns the behavior they validate.
+- Do not add dependencies unless the standard library or existing workspace dependencies are insufficient.
+- Do not revert unrelated user changes while working in a dirty tree.
+- If a file already has local structural issues, prefer only small adjacent cleanup unless the task is specifically a refactor.
+
+## Work Summaries and Session Reporting
+- For long-running or multi-step work, maintain a concise running summary in `.cline-worklog.md` at the repo root so progress is reviewable after the session.
+- Create `.cline-worklog.md` on first use if it does not exist; update it in place afterward rather than creating multiple log files.
+- Add one dated section per task or session with: objective, key findings, decisions made, files touched, validations run, open questions or blockers, and next recommended step.
+- Update the summary after each substantial milestone and before yielding with incomplete work.
+- Keep summaries factual and brief. Record outcomes and decisions, not chain-of-thought or raw command spam.
+- If the work is investigation-only, still log what was inspected and what conclusion was reached.
+- When relevant, include branch name, commit hash, or PR context inline with the session heading or findings rather than creating a separate verbose metadata block.
+
+## Validation and Documentation
+- After each non-trivial edit, run the narrowest validation that can falsify the change first.
+- Prefer focused `cargo test -p ...`, targeted integration tests, or a narrow `dotnet build` over whole-workspace runs unless the change is cross-cutting.
+- If a design or organization decision changes, update the nearest durable document rather than leaving the rationale only in code.
+- Link to existing docs such as `DESIGN.md`, `README.md`, `ERRORS.md`, and `INSPECT_API.md` instead of duplicating them.
+- Treat generated artifacts as derived outputs; do not hand-edit them.
+
+## Versioning and Compatibility
+- The project is still pre-stability. Improve correctness and design freely instead of preserving compatibility prematurely.
+- Do not add versioning schemes, compatibility shims, or migration surfaces unless the current design actually requires them.
+- When an on-disk or inspect-contract change is intentional, document it explicitly instead of preserving broken behavior for compatibility.
+
+## On-Disk Format Rules (DESIGN.md §5 — source of truth)
+- Page size: 4096 bytes, fixed at creation
+- All integers little-endian
+- Magic: `TOSUMUv0` + 8 NUL bytes in first 16 bytes of page 0
+- Format version: 1 (current), min_reader_version: 1
+- Page 0 = file header + keyslot region (up to 8 × 256B keyslots embedded)
+- All pages after header are AEAD-encrypted (ChaCha20-Poly1305)
+- PAGE_PLAINTEXT_SIZE = 4056 bytes (4096 - 24 frame header - 16 tag)
+
+## Crypto Rules (DESIGN.md §8)
+- **Never** use `unsafe` in tosumu-core
+- AEAD: ChaCha20-Poly1305 (primary), AES-GCM (alternative, not yet implemented)
+- KDF: Argon2id for passphrase → master key
+- Envelope encryption: DEK (32B data key) → KEK (wrapped by protectors) → up to 8 keyslots
+- Each wrapped DEK is AAD-bound to its slot index and generation number
+- `header_mac` covers the entire keyslot region (prevents protector-swap attack)
+- DEK_KAT (known-plaintext check) for cheap wrong-DEK detection
+
+## Error Handling Rules
+- All errors are typed via `TosumuError` in `error.rs` — never use string errors
+- Error status codes map to specific exit codes in CLI (1-10)
+- Use `thiserror` for error types
+- Error values describe phenomena, not mechanisms (e.g., "authentication failed" not "Poly1305 tag mismatch")
+
+## B+ Tree Rules (DESIGN.md §6.2)
+- Leaf pages: chained by `next_leaf` field (u64, 0 = tail)
+- Internal pages: `leftmost_child` in header, separator keys in slots
+- Split at midpoint, promote min-key-of-right upward
+- LWW (last-write-wins) deduplication on leaf reads
+- Max depth: 64 (cycle detection guard)
+- Records larger than RECORD_MAX_KV are rejected with InvalidArgument
+
+## WAL Rules (DESIGN.md §7)
+- Separate file: `<db>.wal`
+- Record types: Begin, PageWrite, Commit, Checkpoint
+- LSN increments monotonically; open continues from last LSN
+- Crash recovery at every write site is tested and required
+- Checkpoint truncates WAL; failed apply preserves WAL intact
+
+## Testing Requirements
+- All new code must have unit tests in the same crate
+- Property-based tests (proptest) for structural invariants
+- Fuzz targets for any decoder/encoder boundary
+- Crash simulation via `CrashWriter` harness for recovery paths
+- Prefer coverage in high-risk boundaries over chasing a numeric coverage target
+
+## Code Style Conventions
+- No `unsafe` in tosumu-core (enforced by compiler)
+- Use `const _: () = assert!(...)` for compile-time layout assertions in format.rs
+- Page header offsets use named constants from `format.rs` — never magic numbers
+- B+ tree operations use `pager.with_page()` / `pager.with_page_mut()` closure API
+- CLI uses clap derive with explicit subcommand enums (not flattened args)
+
+## Epistemic State Model (DESIGN.md §29)
+- Every read returns three dimensions: integrity, freshness, epistemic standing
+- `integrity: OK` = AEAD verified; `freshness: unanchored` = no recent sync witness
+- The system should tell the caller when it doesn't know something
+- "Sync is about moving confidence, not just bytes"
+- Treat freshness and witness language as design constraints for deferred stages, not a reason to pull Stage 7+ infrastructure into current MVP work
+
+## What Tosumu Is NOT (DESIGN.md §1.2 — non-goals)
+- NOT a SQL database (SQL layer is optional MVP+9, toy scope)
+- NOT multi-process or networked today; future multi-client work must go through the explicit Stage 7+ service-boundary design rather than bypassing the embedded core
+- NOT high-performance oriented
+- NOT feature-complete with SQLite
+- NOT production-grade crypto (learning project)
+- NOT a search engine, vector DB, graph DB, or data warehouse
+
+## MVP Phase Tracking
+Current phase: **MVP+8** (interactive TUI viewer + key management).
+- MVP+0 through MVP+8 are implemented and tested; do not hard-code volatile test counts here
+- MVP+9 (toy SQL) and MVP+10 (MVCC/secondary indexes) are NOT yet implemented
+- DESIGN.md status: FROZEN as of 2026-04-24 — no new philosophy sections, only code
+
+## Source of Truth Hierarchy
+1. `DESIGN.md` — source of truth for design decisions; treat current-MVP sections as normative and later-stage sections as constraints only when working in that stage
+2. Implemented on-disk format and inspect contract — ground truth for bytes and machine-facing payloads in the current format version
+3. Code — should match both; discrepancies are bugs to fix, not permission to silently drift the spec
+
+## Security Rules
+- Never bypass AEAD authentication to "be helpful"
+- Never return partial decryption results
+- Always reject corrupted keyslots at open time
+- Recovery keys are one-time use — print them once, never store again
+- DEK rotation must rewrap all keyslots; never leave mixed-state protectors
+
+## Common Commands
+```bash
+# Build
+cargo build --workspace --release
+
+# Test
+cargo test --workspace
+
+# Fuzz (requires cargo-fuzz)
+cd fuzz && cargo +nightly fuzz run <target>
+
+# Run CLI
+cargo run --release -- init test.tsm
+cargo run --release -- put test.tsm key value
+cargo run --release -- get test.tsm key
+cargo run --release -- view test.tsm
+```
+
+## When Adding New Features
+1. Check DESIGN.md — is this already covered? If so, follow the spec.
+2. Check MVP table in README.md — which MVP does this belong to?
+3. Check DESIGN.md §15 (open questions) — has this been discussed?
+4. If the feature requires a format change, update DESIGN.md §5 BEFORE coding
+5. If the feature adds a new on-disk field, add compile-time assertions in format.rs
+6. If the feature touches crypto, add KAT tests and a fuzz target
+7. If the feature changes error behavior, update INSPECT_API.md compatibility rules
+8. If the feature crosses a layer boundary, introduce an explicit interface, adapter, or mapping instead of bypassing the current structure
+9. Do not use deferred Stage 5+ or Stage 7+ ideas to justify widening the current implementation scope unless the task explicitly asks for that milestone
