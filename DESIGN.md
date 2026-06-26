@@ -1410,6 +1410,8 @@ Interactive TUI viewer (§12.4). Can slot in any time after MVP+2, but most valu
 
 Minimal query layer. Proves the engine supports relational-style workloads.
 
+The operator-facing sibling surface is TQL, documented separately in [docs/Tosumu Command Language.md](docs/Tosumu%20Command%20Language.md). The intended split is: SQL retrieves; TQL explains and operates.
+
 **Pipeline:** SQL string → Lexer (tokens) → Parser (AST) → Semantic checker → Planner → Executor (calls `PageStore`)
 
 The executor already exists — Stage 5 builds only the front half of the pipeline. The AST is what decouples the SQL surface from the storage engine so the storage engine doesn't need to change when this stage lands.
@@ -1920,6 +1922,37 @@ Split into three sub-stages because key management is its own discipline and cra
 - Parser for `CREATE TABLE`, `INSERT`, `SELECT ... WHERE key = ?`.
 - Multiple tables → baseline implementation stores table metadata and row data in reserved SQL key namespaces inside the existing store (`__sql_catalog__/*`, `__sql_row__/*`) rather than introducing per-table physical roots first.
 - Still single-column primary key, no joins.
+
+#### TQL — operator shell surface *(Stage 5+, sibling to SQL)*
+
+Stage 5 is also where the operator-facing command surface becomes worth naming explicitly.
+SQL and TQL are sibling surfaces over the same engine, with different jobs:
+
+- SQL retrieves.
+- TQL explains and operates.
+
+TQL is the interactive operational interface to Tosumu.
+Its purpose is to let humans ask the database about trust, freshness, provenance, verification, sync posture, and recommended next actions without open-coding those questions in every application.
+
+North star:
+
+- common application sync should eventually feel close to `db.sync(peer, scope)?;`
+- the Rust API should stay compact and structured
+- the caller may supply sync scope or policy, but should not own the bookkeeping and reasoning machinery
+- the rich follow-up reasoning should live in TQL commands such as `SYNC PREVIEW`, `WHY CONFLICT`, `EVIDENCE`, and `WHY LAST SYNC`
+
+Sync scope should express intent, not mechanism.
+Healthy future scope examples include things like:
+
+- everything
+- a namespace, collection, key, key set, or prefix
+- changes since a known anchor or snapshot
+- records currently in an epistemic state such as "stale" or "needs sync"
+
+Unhealthy scope examples are knobs that leak engine policy upward, such as conflict-resolution algorithms, witness-disable switches, or storage-level transport mechanics.
+The application should describe what universe it cares about; the engine should decide how to synchronize it.
+
+The detailed design lives in [docs/Tosumu Command Language.md](docs/Tosumu%20Command%20Language.md).
 
 ### Stage 6 — Stretch
 - Multi-reader concurrency (MVCC snapshot by LSN).

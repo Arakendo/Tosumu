@@ -1,0 +1,22 @@
+[package]
+name = "tosumu-sql"
+description = "Toy SQL query layer for the tosumu embedded database (MVP+9)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tosumu-core = { path = "../tosumu-core" }
+thiserror = "2.0.18"
+
+[dev-dependencies]
+proptest = "1"
+tempfile = "3"

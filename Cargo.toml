@@ -4,6 +4,7 @@ members = [
     "crates/tosumu-core",
     "crates/tosumu-cli",
     "crates/tosumu-bench",
+    "crates/tosumu-sql",
 ]
 
 [workspace.package]

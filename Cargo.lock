@@ -1522,6 +1522,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tosumu-sql"
+version = "0.0.0"
+dependencies = [
+ "proptest",
+ "tempfile",
+ "thiserror",
+ "tosumu-core",
+]
+
+[[package]]
 name = "typenum"
 version = "1.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
