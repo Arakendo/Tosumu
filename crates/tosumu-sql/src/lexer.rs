@@ -1,4 +1,4 @@
-//! SQL lexer for the tosumu toy SQL layer (MVP+9).
+//! SQL lexer for the tosumu initial SQL layer (MVP+9).
 //!
 //! Tokenizes SQL input into a stream of tokens for the recursive descent parser.
 
@@ -21,6 +21,10 @@ pub enum TokenKind {
     From,
     /// WHERE keyword
     Where,
+    /// AND boolean operator
+    And,
+    /// OR boolean operator
+    Or,
     /// PRIMARY KEY keywords
     PrimaryKey,
     /// VALUES keyword
@@ -47,6 +51,16 @@ pub enum TokenKind {
     Comma,
     /// Equals
     Eq,
+    /// Not equals
+    NotEq,
+    /// Less than
+    Lt,
+    /// Less than or equal
+    LtEq,
+    /// Greater than
+    Gt,
+    /// Greater than or equal
+    GtEq,
     /// Star (multiplication / wildcard)
     Star,
     /// Question mark (parameter placeholder)
@@ -167,6 +181,29 @@ impl Lexer {
                 self.advance();
                 Ok(Token::new(TokenKind::Eq, line, col))
             }
+            Some('!') if self.peek_char(1) == Some('=') => {
+                self.advance();
+                self.advance();
+                Ok(Token::new(TokenKind::NotEq, line, col))
+            }
+            Some('<') => {
+                self.advance();
+                if self.current_char() == Some('=') {
+                    self.advance();
+                    Ok(Token::new(TokenKind::LtEq, line, col))
+                } else {
+                    Ok(Token::new(TokenKind::Lt, line, col))
+                }
+            }
+            Some('>') => {
+                self.advance();
+                if self.current_char() == Some('=') {
+                    self.advance();
+                    Ok(Token::new(TokenKind::GtEq, line, col))
+                } else {
+                    Ok(Token::new(TokenKind::Gt, line, col))
+                }
+            }
             Some(c) if c.is_ascii_alphabetic() || c == '_' => self.read_ident_or_keyword(line, col),
             Some(c) => {
                 let msg = format!("unexpected character '{c}' at line {line}, column {col}");
@@ -286,6 +323,8 @@ impl Lexer {
             "SELECT" => TokenKind::Select,
             "FROM" => TokenKind::From,
             "WHERE" => TokenKind::Where,
+            "AND" => TokenKind::And,
+            "OR" => TokenKind::Or,
             "PRIMARY" => TokenKind::PrimaryKey,
             "VALUES" => TokenKind::Values,
             "DELETE" => TokenKind::Delete,
@@ -301,6 +340,7 @@ impl Lexer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn tokenize_create_table() {
@@ -468,5 +508,13 @@ mod tests {
         let tokens = lexer.tokenize().unwrap();
         let type_count = tokens.iter().filter(|t| matches!(&t.kind, TokenKind::Integer | TokenKind::Text | TokenKind::Blob)).count();
         assert_eq!(type_count, 3);
+    }
+
+    proptest! {
+        #[test]
+        fn tokenizing_arbitrary_utf8_never_panics(sql in any::<String>()) {
+            let mut lexer = Lexer::new(&sql);
+            let _ = lexer.tokenize();
+        }
     }
 }

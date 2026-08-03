@@ -21,7 +21,7 @@ The name is a conlang word: `to` (knowledge) + `su` (organized structure) + `mu`
 | +6 | Envelope encryption: per-page AEAD, single passphrase protector, KATs | ✅ done |
 | +7 | Multiple protectors: up to 8 keyslots, recovery key, KEK rotation, `protector` CLI | ✅ done |
 | +8 | Interactive TUI viewer (`tosumu view`) | ✅ done |
-| +9 | Initial SQL layer | 🔲 planned |
+| +9 | Initial SQL layer and `tosumu sql` CLI | ✅ done |
 | +10 | MVCC / multiple readers | 🔲 planned |
 
 ## Warning
@@ -42,7 +42,7 @@ The name is a conlang word: `to` (knowledge) + `su` (organized structure) + `mu`
 
 ## What it is not
 
-- Not SQL-complete, not a query optimizer, not a planner (planned for MVP+9).
+- Not SQL-complete and not a general-purpose query optimizer; MVP+9 provides a narrow primary-key SQL path.
 - Not multi-process or multi-reader (planned for MVP+10).
 - Not networked.
 - Not a drop-in SQLite replacement.
@@ -87,7 +87,7 @@ Six `cargo fuzz` targets in `fuzz/fuzz_targets/`: page decode, B+ tree ops, WAL 
 
 ## Roadmap
 
-See [`DESIGN.md §12`](DESIGN.md) for the full MVP and stage breakdown. MVP+8 is complete: `tosumu view` now provides a cross-platform TUI (`ratatui` + `crossterm`) for inspecting file header, pages, B+ tree structure, WAL records, and per-keyslot detail on encrypted databases. The Windows WPF harness remains a parallel diagnostic surface for fast inspection and triage; it does not replace the TUI milestone. The next milestone is MVP+9, the initial SQL layer.
+See [`DESIGN.md §12`](DESIGN.md) for the full MVP and stage breakdown. MVP+8 is complete: `tosumu view` provides a cross-platform TUI (`ratatui` + `crossterm`) for inspecting file header, pages, B+ tree structure, WAL records, and per-keyslot detail on encrypted databases. MVP+9 now adds the initial SQL layer and `tosumu sql` CLI path. The next milestone is MVP+10, MVCC and multiple readers.
 
 ## License
 

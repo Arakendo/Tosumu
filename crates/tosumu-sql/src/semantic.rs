@@ -1,4 +1,4 @@
-//! Semantic checker for the tosumu toy SQL layer (MVP+9).
+//! Semantic checker for the tosumu initial SQL layer (MVP+9).
 //!
 //! Validates statements against a catalog before execution.
 

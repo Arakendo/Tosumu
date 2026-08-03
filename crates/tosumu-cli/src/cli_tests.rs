@@ -81,6 +81,53 @@ fn cli_parses_add_recovery_key_subcommand() {
 }
 
 #[test]
+fn cli_parses_sql_query_and_repeated_parameters() {
+    let cli = Cli::try_parse_from([
+        "tosumu",
+        "sql",
+        "db.tsm",
+        "SELECT * FROM users WHERE id = ? AND name = ?",
+        "--param",
+        "42",
+        "--param",
+        "alice",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Sql {
+            path,
+            query,
+            explain,
+            params,
+        } => {
+            assert_eq!(path, PathBuf::from("db.tsm"));
+            assert_eq!(query, "SELECT * FROM users WHERE id = ? AND name = ?");
+            assert!(!explain);
+            assert_eq!(params, vec!["42", "alice"]);
+        }
+        _ => panic!("unexpected command variant"),
+    }
+}
+
+#[test]
+fn cli_parses_sql_explain_flag() {
+    let cli = Cli::try_parse_from([
+        "tosumu",
+        "sql",
+        "db.tsm",
+        "SELECT name FROM users WHERE id = ?",
+        "--explain",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Sql { explain, .. } => assert!(explain),
+        _ => panic!("unexpected command variant"),
+    }
+}
+
+#[test]
 fn cli_parses_inspect_header_json_subcommand() {
     let cli = Cli::try_parse_from(["tosumu", "inspect", "header", "--json", "db.tsm"]).unwrap();
 

@@ -4,14 +4,14 @@ This page is the public roadmap summary. It is intentionally shorter than the re
 
 ## Now
 
-- stabilize the MVP +8 storage-and-inspection slice
+- stabilize the MVP +9 storage, inspection, and initial SQL slice
 - keep the CLI, inspect contract, and TUI viewer coherent
 - keep crash, crypto, and verification behavior visible through tests and tooling
 - improve the trust surface around docs, diagnostics, and website guidance
 
 ## Next
 
-- the current design roadmap places an initial SQL layer after the core storage milestones
+- begin MVP+10 work on MVCC-style readers and multiple-reader coordination
 - continued work on inspection, audit, and structured diagnostics may still reshape near-term priorities while the project remains pre-stability
 
 ## Later

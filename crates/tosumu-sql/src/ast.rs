@@ -151,6 +151,20 @@ pub enum Expr {
     Column(String),
     /// Equality comparison: left = right.
     Eq(Box<Expr>, Box<Expr>),
+    /// Boolean conjunction.
+    And(Box<Expr>, Box<Expr>),
+    /// Boolean disjunction.
+    Or(Box<Expr>, Box<Expr>),
+    /// Inequality comparison.
+    NotEq(Box<Expr>, Box<Expr>),
+    /// Less-than comparison.
+    Lt(Box<Expr>, Box<Expr>),
+    /// Less-than-or-equal comparison.
+    LtEq(Box<Expr>, Box<Expr>),
+    /// Greater-than comparison.
+    Gt(Box<Expr>, Box<Expr>),
+    /// Greater-than-or-equal comparison.
+    GtEq(Box<Expr>, Box<Expr>),
     /// A positional parameter placeholder (`?`).
     Parameter(usize),
 }
@@ -162,6 +176,13 @@ impl Expr {
             Expr::Literal(_) => 0,
             Expr::Column(_) => 0,
             Expr::Eq(left, right) => left.parameter_count() + right.parameter_count(),
+            Expr::And(left, right) => left.parameter_count() + right.parameter_count(),
+            Expr::Or(left, right) => left.parameter_count() + right.parameter_count(),
+            Expr::NotEq(left, right) => left.parameter_count() + right.parameter_count(),
+            Expr::Lt(left, right)
+            | Expr::LtEq(left, right)
+            | Expr::Gt(left, right)
+            | Expr::GtEq(left, right) => left.parameter_count() + right.parameter_count(),
             Expr::Parameter(_) => 1,
         }
     }

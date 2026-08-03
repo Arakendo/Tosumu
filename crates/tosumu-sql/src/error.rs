@@ -13,6 +13,10 @@ pub enum SqlError {
     #[error("table '{table}' not found")]
     TableNotFound { table: String },
 
+    /// A table with the requested name already exists in the catalog.
+    #[error("table '{table}' already exists")]
+    TableAlreadyExists { table: String },
+
     /// The requested column does not exist in the table's schema.
     #[error("column '{column}' not found in table '{table}'")]
     ColumnNotFound { table: String, column: String },

@@ -204,6 +204,17 @@ enum Command {
         #[command(subcommand)]
         action: ProtectorAction,
     },
+    /// Execute a baseline SQL statement against a database.
+    Sql {
+        path: PathBuf,
+        query: String,
+        /// Print the query plan without executing the statement.
+        #[arg(long)]
+        explain: bool,
+        /// Bind a positional SQL parameter. Integer-looking values are bound as INTEGER; other values as TEXT.
+        #[arg(long = "param")]
+        params: Vec<String>,
+    },
     /// Rotate the KEK for a passphrase protector slot (cheap — rewraps DEK only).
     RekeyKek {
         path: PathBuf,
@@ -329,6 +340,7 @@ impl Cli {
             Command::Verify { .. } => "verify",
             Command::View { .. } => "view",
             Command::Backup { .. } => "backup",
+            Command::Sql { .. } => "sql",
             Command::Protector { action } => match action {
                 ProtectorAction::AddPassphrase { .. } => "protector.add-passphrase",
                 ProtectorAction::AddRecoveryKey { .. } => "protector.add-recovery-key",

@@ -1,4 +1,4 @@
-//! Row encoding for the tosumu toy SQL layer (MVP+9).
+//! Row encoding for the tosumu initial SQL layer (MVP+9).
 //!
 //! Handles serialization of row payloads and building row keys.
 
@@ -139,6 +139,7 @@ fn decode_value(type_tag: u8, payload: &[u8]) -> SqlResult<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn encode_and_decode_empty_columns() {
@@ -232,6 +233,25 @@ mod tests {
         let v = Value::Blob(vec![1, 2, 3]);
         let payload = value_payload(&v, 3).unwrap();
         assert_eq!(payload, vec![1, 2, 3]);
+    }
+
+    proptest! {
+        #[test]
+        fn generated_values_round_trip(values in prop::collection::vec(
+            prop_oneof![
+                any::<i64>().prop_map(Value::Integer),
+                prop::string::string_regex("[a-zA-Z0-9 ]{0,32}")
+                    .unwrap()
+                    .prop_map(Value::Text),
+                prop::collection::vec(any::<u8>(), 0..32).prop_map(Value::Blob),
+            ],
+            0..=8,
+        )) {
+            let encoded = encode_row_values(&[], &[], &values).unwrap();
+            let decoded = decode_row_values(&encoded).unwrap();
+
+            prop_assert_eq!(decoded, values);
+        }
     }
 
     #[test]

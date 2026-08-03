@@ -6,6 +6,7 @@ use super::inspect::{
     cmd_inspect_wal_json,
 };
 use super::protector::{run_protector_action, run_rekey_kek};
+use super::sql::run_sql;
 use super::store::{run_delete, run_get, run_init, run_put, run_scan, run_stat};
 use super::text::{cmd_backup, cmd_dump, cmd_hex, cmd_verify, VerifyCommandOutcome};
 use crate::error_boundary::CliError;
@@ -51,6 +52,7 @@ pub(crate) fn run(cli: Cli) -> Result<RunOutcome, CliError> {
         Command::View { path, watch } => crate::view::run(&path, watch)?,
         Command::Inspect { action } => return run_inspect_action(action),
         Command::Backup { src, dest } => cmd_backup(&src, &dest)?,
+        Command::Sql { path, query, explain, params } => run_sql(&path, &query, explain, &params)?,
         Command::Protector { action } => run_protector_action(action)?,
         Command::RekeyKek { path, slot } => run_rekey_kek(&path, slot)?,
     }

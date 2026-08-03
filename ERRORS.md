@@ -431,6 +431,7 @@ Current CLI-local boundary codes:
 ```txt
 CLI_ARGUMENT_INVALID
 CLI_KEY_NOT_FOUND
+SQL_UNSUPPORTED_QUERY_SHAPE
 ```
 <!-- END_CLI_PUBLIC_CODES -->
 

@@ -1,6 +1,6 @@
 [package]
 name = "tosumu-sql"
-description = "Toy SQL query layer for the tosumu embedded database (MVP+9)."
+description = "Initial SQL query layer for the tosumu embedded database (MVP+9)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

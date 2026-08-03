@@ -11,6 +11,11 @@ This is the public command map for the current CLI surface.
 - `scan <path>` — print all key-value pairs
 - `stat <path>` — print database statistics
 
+## SQL commands
+
+- `sql <path> <query> [--param <value>]...` — execute a baseline SQL statement
+- `sql <path> <query> --explain` — show the validated query plan without executing it
+
 ## Inspection commands
 
 - `dump <path>` — pretty-print the header and optionally a page

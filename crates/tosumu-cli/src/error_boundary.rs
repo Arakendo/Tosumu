@@ -3,9 +3,14 @@ use tosumu_core::error::{ErrorDetail, ErrorReport, ErrorStatus, ErrorValue, Tosu
 pub(crate) mod codes {
     pub const CLI_ARGUMENT_INVALID: &str = "CLI_ARGUMENT_INVALID";
     pub const CLI_KEY_NOT_FOUND: &str = "CLI_KEY_NOT_FOUND";
+    pub const SQL_UNSUPPORTED_QUERY_SHAPE: &str = "SQL_UNSUPPORTED_QUERY_SHAPE";
 
     #[cfg(test)]
-    pub const PUBLIC_CODES: &[&str] = &[CLI_ARGUMENT_INVALID, CLI_KEY_NOT_FOUND];
+    pub const PUBLIC_CODES: &[&str] = &[
+        CLI_ARGUMENT_INVALID,
+        CLI_KEY_NOT_FOUND,
+        SQL_UNSUPPORTED_QUERY_SHAPE,
+    ];
 }
 
 #[derive(Debug)]
@@ -25,6 +30,7 @@ pub(crate) enum CliError {
     BackupDestinationExists {
         path: std::path::PathBuf,
     },
+    Sql(tosumu_sql::SqlError),
 }
 
 impl CliError {
@@ -181,6 +187,26 @@ impl CliError {
                     },
                 ],
             },
+            CliError::Sql(error) => ErrorReport {
+                code: match error {
+                    tosumu_sql::SqlError::UnsupportedQueryShape(_) => {
+                        codes::SQL_UNSUPPORTED_QUERY_SHAPE
+                    }
+                    _ => codes::CLI_ARGUMENT_INVALID,
+                },
+                status: match error {
+                    tosumu_sql::SqlError::UnsupportedQueryShape(_) => ErrorStatus::Unsupported,
+                    tosumu_sql::SqlError::TableAlreadyExists { .. } => ErrorStatus::Conflict,
+                    tosumu_sql::SqlError::TableNotFound { .. }
+                    | tosumu_sql::SqlError::ColumnNotFound { .. } => ErrorStatus::NotFound,
+                    _ => ErrorStatus::InvalidInput,
+                },
+                message: error.to_string(),
+                details: vec![ErrorDetail {
+                    key: "operation",
+                    value: ErrorValue::Str("sql".to_string()),
+                }],
+            },
         }
     }
 }
@@ -191,8 +217,15 @@ impl From<TosumuError> for CliError {
     }
 }
 
+impl From<tosumu_sql::SqlError> for CliError {
+    fn from(value: tosumu_sql::SqlError) -> Self {
+        CliError::Sql(value)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::codes::SQL_UNSUPPORTED_QUERY_SHAPE;
     use super::codes::PUBLIC_CODES;
 
     #[test]
@@ -211,6 +244,21 @@ mod tests {
         );
 
         assert_eq!(documented, PUBLIC_CODES);
+    }
+
+    #[test]
+    fn unsupported_sql_uses_stable_boundary_code_and_status() {
+        let error = super::CliError::from(tosumu_sql::SqlError::unsupported_query_shape(
+            "baseline SQL supports only primary-key equality lookups",
+        ));
+        let report = error.error_report();
+
+        assert_eq!(report.code, SQL_UNSUPPORTED_QUERY_SHAPE);
+        assert_eq!(report.status, tosumu_core::error::ErrorStatus::Unsupported);
+        assert_eq!(
+            report.message,
+            "baseline SQL supports only primary-key equality lookups"
+        );
     }
 
     fn extract_marked_code_block<'a>(

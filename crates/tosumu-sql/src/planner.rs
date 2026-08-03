@@ -1,4 +1,4 @@
-//! Planner for the tosumu toy SQL layer (MVP+9).
+//! Planner for the tosumu initial SQL layer (MVP+9).
 //!
 //! Classifies statements into supported vs unsupported query shapes.
 //! Uses catalog-aware PK resolution instead of string heuristics.
@@ -14,9 +14,40 @@ pub enum PlanNode {
     /// INSERT row values in declaration order.
     InsertRow { table: String, values: Vec<Expr> },
     /// Point lookup by primary key expression.
-    PkLookup { table: String, pk_expr: Expr, projection: Projection },
+    PkLookup {
+        table: String,
+        pk_expr: Expr,
+        filter: Option<Expr>,
+        projection: Projection,
+    },
+    /// Multiple point lookups joined by OR on the primary key.
+    PkLookupMany {
+        table: String,
+        pk_exprs: Vec<Expr>,
+        projection: Projection,
+    },
     /// DELETE by primary key expression.
-    DeleteByPk { table: String, pk_expr: Expr },
+    DeleteByPk {
+        table: String,
+        pk_expr: Expr,
+        filter: Option<Expr>,
+    },
+    /// DELETE multiple primary-key rows joined by OR.
+    DeleteByPkMany { table: String, pk_exprs: Vec<Expr> },
+}
+
+impl PlanNode {
+    /// Render the baseline plan shape for diagnostics and explain output.
+    pub fn describe(&self) -> String {
+        match self {
+            Self::CreateTable { table } => format!("CREATE_TABLE table={table}"),
+            Self::InsertRow { table, .. } => format!("INSERT_ROW table={table}"),
+            Self::PkLookup { table, .. } => format!("PK_LOOKUP table={table}"),
+            Self::PkLookupMany { table, .. } => format!("PK_LOOKUP_OR table={table}"),
+            Self::DeleteByPk { table, .. } => format!("DELETE_BY_PK table={table}"),
+            Self::DeleteByPkMany { table, .. } => format!("DELETE_BY_PK_OR table={table}"),
+        }
+    }
 }
 
 /// Planner warnings.
@@ -98,12 +129,25 @@ impl Planner {
                     ));
                 }
 
-                let pk = Self::resolve_pk_from_predicate(predicate, catalog, "SELECT")?;
+                if matches!(predicate, Some(Expr::Or(_, _))) {
+                    let pk_exprs = Self::resolve_or_pk_predicate(predicate, catalog, "SELECT")?;
+                    return Ok(PlanOutput {
+                        plan: PlanNode::PkLookupMany {
+                            table: table.clone(),
+                            pk_exprs,
+                            projection: columns.clone(),
+                        },
+                        warnings,
+                    });
+                }
+
+                let (pk, filter) = Self::resolve_pk_from_predicate(predicate, catalog, "SELECT")?;
 
                 Ok(PlanOutput {
                     plan: PlanNode::PkLookup {
                         table: table.clone(),
                         pk_expr: pk,
+                        filter,
                         projection: columns.clone(),
                     },
                     warnings,
@@ -117,12 +161,24 @@ impl Planner {
                     ));
                 }
 
-                let pk = Self::resolve_pk_from_predicate(predicate, catalog, "DELETE")?;
+                if matches!(predicate, Some(Expr::Or(_, _))) {
+                    let pk_exprs = Self::resolve_or_pk_predicate(predicate, catalog, "DELETE")?;
+                    return Ok(PlanOutput {
+                        plan: PlanNode::DeleteByPkMany {
+                            table: table.clone(),
+                            pk_exprs,
+                        },
+                        warnings: vec![],
+                    });
+                }
+
+                let (pk, filter) = Self::resolve_pk_from_predicate(predicate, catalog, "DELETE")?;
 
                 Ok(PlanOutput {
                     plan: PlanNode::DeleteByPk {
                         table: table.clone(),
                         pk_expr: pk,
+                        filter,
                     },
                     warnings: vec![],
                 })
@@ -135,15 +191,69 @@ impl Planner {
         predicate: &Option<Expr>,
         catalog: Option<&TableDef>,
         operation: &str,
-    ) -> SqlResult<Expr> {
+    ) -> SqlResult<(Expr, Option<Expr>)> {
         let pk_expr = match predicate {
             Some(Expr::Eq(left, right)) => {
-                let col_name = match **left {
-                    Expr::Column(ref name) => name.clone(),
-                    _ => return Err(SqlError::unsupported_query_shape(
-                        format!("expected column on left side of = for {operation}"),
-                    )),
+                (Self::validate_pk_equality(left, right, catalog, operation)?, None)
+            }
+            Some(Expr::And(left, right)) => {
+                let pk_expr = match left.as_ref() {
+                    Expr::Eq(pk_left, pk_right) => {
+                        Self::validate_pk_equality(pk_left, pk_right, catalog, operation)?
+                    }
+                    _ => return Err(Self::unsupported_predicate(operation)),
                 };
+                (pk_expr, Some(right.as_ref().clone()))
+            }
+            _ => return Err(Self::unsupported_predicate(operation)),
+        };
+
+        Ok(pk_expr)
+    }
+
+    fn resolve_or_pk_predicate(
+        predicate: &Option<Expr>,
+        catalog: Option<&TableDef>,
+        operation: &str,
+    ) -> SqlResult<Vec<Expr>> {
+        let mut terms = Vec::new();
+        let expression = predicate.as_ref().ok_or_else(|| Self::unsupported_predicate(operation))?;
+        Self::collect_or_terms(expression, &mut terms);
+        if terms.len() < 2 {
+            return Err(Self::unsupported_predicate(operation));
+        }
+
+        terms
+            .into_iter()
+            .map(|term| match term {
+                Expr::Eq(left, right) => Self::validate_pk_equality(&left, &right, catalog, operation),
+                _ => Err(Self::unsupported_predicate(operation)),
+            })
+            .collect()
+    }
+
+    fn collect_or_terms(expression: &Expr, terms: &mut Vec<Expr>) {
+        match expression {
+            Expr::Or(left, right) => {
+                Self::collect_or_terms(left, terms);
+                Self::collect_or_terms(right, terms);
+            }
+            _ => terms.push(expression.clone()),
+        }
+    }
+
+    fn validate_pk_equality(
+        left: &Expr,
+        right: &Expr,
+        catalog: Option<&TableDef>,
+        operation: &str,
+    ) -> SqlResult<Expr> {
+        let col_name = match left {
+            Expr::Column(name) => name.clone(),
+            _ => return Err(SqlError::unsupported_query_shape(
+                format!("expected column on left side of = for {operation}"),
+            )),
+        };
 
                 // Use catalog to determine if this column is the PK, or fall back to heuristics
                 let is_pk_column = match catalog {
@@ -165,19 +275,18 @@ impl Planner {
                     ));
                 }
 
-                match right.as_ref() {
-                    Expr::Literal(_) | Expr::Parameter(_) => right.as_ref().clone(),
-                    _ => return Err(SqlError::unsupported_query_shape(
+                match right {
+                    Expr::Literal(_) | Expr::Parameter(_) => Ok(right.clone()),
+                    _ => Err(SqlError::unsupported_query_shape(
                         format!("baseline SQL supports only pk = ? or pk = <literal> predicates for {operation}"),
                     )),
                 }
-            }
-            _ => return Err(SqlError::unsupported_query_shape(
-                format!("baseline SQL supports only pk = ? or pk = <literal> predicates for {operation}"),
-            )),
-        };
+    }
 
-        Ok(pk_expr)
+    fn unsupported_predicate(operation: &str) -> SqlError {
+        SqlError::unsupported_query_shape(format!(
+            "baseline SQL supports only pk = ? or pk = <literal> predicates, optionally followed by AND equality filters, for {operation}"
+        ))
     }
 }
 

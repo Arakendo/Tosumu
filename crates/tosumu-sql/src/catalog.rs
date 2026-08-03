@@ -1,4 +1,4 @@
-//! Catalog serialization for the tosumu toy SQL layer (MVP+9).
+//! Catalog serialization for the tosumu initial SQL layer (MVP+9).
 //!
 //! Handles reserved key prefixes and wire-format serialization of table definitions.
 
@@ -155,6 +155,7 @@ pub fn deserialize_table_def(data: &[u8]) -> SqlResult<TableDef> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn serialize_and_deserialize_simple_table() {
@@ -240,6 +241,44 @@ mod tests {
     fn table_key_format() {
         assert_eq!(table_key("users"), "__sql_catalog__/table/users");
         assert_eq!(table_key("my_table"), "__sql_catalog__/table/my_table");
+    }
+
+    proptest! {
+        #[test]
+        fn generated_table_definitions_round_trip(
+            data_types in prop::collection::vec(
+                prop_oneof![
+                    Just(DataType::Integer),
+                    Just(DataType::Text),
+                    Just(DataType::Blob),
+                ],
+                1..=8,
+            ),
+            primary_key_index in 0usize..8,
+            root_page in prop::option::of(any::<u64>()),
+        ) {
+            let primary_key_index = primary_key_index % data_types.len();
+            let columns = data_types
+                .into_iter()
+                .enumerate()
+                .map(|(index, data_type)| ColumnDef {
+                    name: format!("column_{index}"),
+                    data_type,
+                    is_primary_key: index == primary_key_index,
+                })
+                .collect();
+            let table_def = TableDef {
+                name: "generated_table".to_string(),
+                columns,
+                primary_key_index,
+                root_page,
+            };
+
+            let encoded = serialize_table_def(&table_def);
+            let decoded = deserialize_table_def(&encoded).unwrap();
+
+            prop_assert_eq!(decoded, table_def);
+        }
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! SQL parser for the tosumu toy SQL layer (MVP+9).
+//! SQL parser for the tosumu initial SQL layer (MVP+9).
 //!
 //! Recursive descent parser for the baseline grammar: CREATE TABLE, INSERT, SELECT, DELETE.
 
@@ -202,6 +202,26 @@ impl ParserInner {
     }
 
     fn parse_predicate(&mut self) -> SqlResult<Expr> {
+        let predicate = self.parse_and_predicate()?;
+        if self.match_kind(TokenKind::Or).is_some() {
+            let right = self.parse_predicate()?;
+            Ok(Expr::Or(Box::new(predicate), Box::new(right)))
+        } else {
+            Ok(predicate)
+        }
+    }
+
+    fn parse_and_predicate(&mut self) -> SqlResult<Expr> {
+        let predicate = self.parse_equality_predicate()?;
+        if self.match_kind(TokenKind::And).is_some() {
+            let right = self.parse_and_predicate()?;
+            Ok(Expr::And(Box::new(predicate), Box::new(right)))
+        } else {
+            Ok(predicate)
+        }
+    }
+
+    fn parse_equality_predicate(&mut self) -> SqlResult<Expr> {
         let left = match self.peek_kind()? {
             TokenKind::Ident(s) => {
                 let _name = self.advance();
@@ -210,7 +230,18 @@ impl ParserInner {
             _ => return Err(SqlError::parse_error("expected column name in predicate".to_string(), 0, 0)),
         };
 
-        self.expect_kind(TokenKind::Eq)?;
+        let operator = self.advance();
+        if !matches!(
+            operator.kind,
+            TokenKind::Eq
+                | TokenKind::NotEq
+                | TokenKind::Lt
+                | TokenKind::LtEq
+                | TokenKind::Gt
+                | TokenKind::GtEq
+        ) {
+            return Err(SqlError::parse_error("expected comparison operator".to_string(), 0, 0));
+        }
 
         let right = match self.peek_kind()? {
             TokenKind::Parameter => {
@@ -228,7 +259,18 @@ impl ParserInner {
             _ => return Err(SqlError::parse_error("expected value in predicate".to_string(), 0, 0)),
         };
 
-        Ok(Expr::Eq(Box::new(left), Box::new(right)))
+        let left = Box::new(left);
+        let right = Box::new(right);
+        let expression = match operator.kind {
+            TokenKind::Eq => Expr::Eq(left, right),
+            TokenKind::NotEq => Expr::NotEq(left, right),
+            TokenKind::Lt => Expr::Lt(left, right),
+            TokenKind::LtEq => Expr::LtEq(left, right),
+            TokenKind::Gt => Expr::Gt(left, right),
+            TokenKind::GtEq => Expr::GtEq(left, right),
+            _ => unreachable!("comparison operator was validated above"),
+        };
+        Ok(expression)
     }
 
     fn parse_expr(&mut self) -> SqlResult<Expr> {
@@ -269,6 +311,8 @@ fn format_token_kind(kind: &TokenKind) -> String {
         TokenKind::Select => "SELECT".to_string(),
         TokenKind::From => "FROM".to_string(),
         TokenKind::Where => "WHERE".to_string(),
+        TokenKind::And => "AND".to_string(),
+        TokenKind::Or => "OR".to_string(),
         TokenKind::PrimaryKey => "PRIMARY KEY".to_string(),
         TokenKind::Values => "VALUES".to_string(),
         TokenKind::Delete => "DELETE".to_string(),
@@ -282,6 +326,11 @@ fn format_token_kind(kind: &TokenKind) -> String {
         TokenKind::RParen => ")".to_string(),
         TokenKind::Comma => ",".to_string(),
         TokenKind::Eq => "=".to_string(),
+        TokenKind::NotEq => "!=".to_string(),
+        TokenKind::Lt => "<".to_string(),
+        TokenKind::LtEq => "<=".to_string(),
+        TokenKind::Gt => ">".to_string(),
+        TokenKind::GtEq => ">=".to_string(),
         TokenKind::Star => "*".to_string(),
         TokenKind::Parameter => "?".to_string(),
         TokenKind::Eof => "EOF".to_string(),
@@ -291,6 +340,7 @@ fn format_token_kind(kind: &TokenKind) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn parse_create_table_basic() {
@@ -457,6 +507,13 @@ mod tests {
                 assert_eq!(table, "users");
             }
             _ => panic!("expected Delete"),
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn parsing_arbitrary_utf8_never_panics(sql in any::<String>()) {
+            let _ = parse(&sql);
         }
     }
 }
