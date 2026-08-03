@@ -258,7 +258,8 @@ cargo test -p tosumu-cli backup
 - [x] An embedded consumer can request a stable backup without shelling out or
       copying Tosumu files itself.
 - [x] Success returns a complete committed main/WAL pair and structured report.
-- [ ] Instability returns `Busy`; it never returns a silently inconsistent pair.
+- [x] Instability returns structured `FileBusy`; it never returns a silently
+      inconsistent pair.
 - [x] Opening the backup reproduces the source's committed state.
 - [x] CLI behavior remains compatible while delegating storage semantics to core.
 

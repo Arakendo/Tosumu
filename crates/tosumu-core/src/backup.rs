@@ -22,6 +22,17 @@ pub struct BackupReport {
 /// staged files are published. Existing destination files are never replaced.
 /// A changing source returns [`TosumuError::FileBusy`] after bounded retries.
 pub fn create_stable_backup(source: &Path, destination: &Path) -> Result<BackupReport> {
+    create_stable_backup_with_probe(source, destination, |_| false)
+}
+
+fn create_stable_backup_with_probe<F>(
+    source: &Path,
+    destination: &Path,
+    mut force_unstable: F,
+) -> Result<BackupReport>
+where
+    F: FnMut(u32) -> bool,
+{
     let destination_wal = wal_path(destination);
     if destination.exists() || destination_wal.exists() {
         return Err(TosumuError::InvalidArgument(
@@ -78,7 +89,7 @@ pub fn create_stable_backup(source: &Path, destination: &Path) -> Result<BackupR
             TosumuError::Io(error)
         })?;
 
-        if main_matches && wal_matches {
+        if main_matches && wal_matches && !force_unstable(attempt) {
             copied_wal = copied_wal_a;
             stable = true;
             break;
@@ -175,7 +186,9 @@ fn files_equal(first: &Path, second: &Path) -> std::io::Result<bool> {
 
 #[cfg(test)]
 mod tests {
-    use super::create_stable_backup;
+    use super::{
+        backup_temp_path, create_stable_backup, create_stable_backup_with_probe,
+    };
     use crate::error::TosumuError;
     use crate::page_store::PageStore;
     use std::path::PathBuf;
@@ -224,6 +237,28 @@ mod tests {
         let error = create_stable_backup(&source, &destination).unwrap_err();
         assert!(matches!(error, TosumuError::InvalidArgument(_)));
         assert_eq!(std::fs::read(&destination).unwrap(), b"sentinel");
+
+        cleanup(&source);
+        cleanup(&destination);
+    }
+
+    #[test]
+    fn unstable_source_returns_busy_without_publishing_pair() {
+        let (source, destination) = paths("unstable");
+        cleanup(&source);
+        cleanup(&destination);
+
+        PageStore::create(&source).unwrap();
+        let error = create_stable_backup_with_probe(&source, &destination, |_| true).unwrap_err();
+
+        assert!(matches!(error, TosumuError::FileBusy { .. }));
+        assert_eq!(error.error_report().code, "FILE_OPEN_BUSY");
+        assert!(!destination.exists());
+        assert!(!crate::wal::wal_path(&destination).exists());
+        assert!(!backup_temp_path(&destination, "main").exists());
+        assert!(!backup_temp_path(&destination, "wal").exists());
+        assert!(!backup_temp_path(&destination, "main-probe").exists());
+        assert!(!backup_temp_path(&destination, "wal-probe").exists());
 
         cleanup(&source);
         cleanup(&destination);

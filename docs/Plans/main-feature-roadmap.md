@@ -543,6 +543,8 @@ without moving Tokimu-specific schema or runtime meaning into `tosumu-core`.
       whether whole-value buffering is acceptable or streaming is required.
 - [x] Newer-format, wrong-key, identity-isolation, and corrupt-page boundary
       cases have focused structured-error tests.
+- [x] Stable-backup instability returns bounded structured `FILE_OPEN_BUSY`
+      without publishing a destination pair or leaving staging files.
 - [ ] Busy classification is exposed through the stable embedded report and
       passed or explicitly deferred with an owner and rationale.
 - [x] Overflow-chain corruption and portable-artifact verification are exposed
