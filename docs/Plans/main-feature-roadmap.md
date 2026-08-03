@@ -523,7 +523,8 @@ must remain visible when planning later milestones.
       reopen/backup/export evidence.
 - [x] Distinct embedded overflow-chain finding category.
 - [ ] Unlock-aware embedded verification.
-- [ ] Complete all remaining TOKIMU-001 evidence and consumer-adapter rows.
+- [ ] Complete the remaining TOKIMU-001 consumer-adapter and streaming-policy
+      rows; the current evidence matrix and deferred-row ownership are complete.
 
 ### Tokimu CR Completion Gates
 
@@ -553,7 +554,7 @@ without moving Tokimu-specific schema or runtime meaning into `tosumu-core`.
       or exercised through the stable embedded report.
 - [ ] A real Tokimu adapter reproduces equivalent logical observations while
       importing only the admitted provider contract.
-- [ ] The CR evidence matrix is complete, with every deferred row naming an
+- [x] The CR evidence matrix is complete, with every deferred row naming an
       owner, rationale, and follow-on validation command.
 
 See `docs/CRs/Tokimu/` for the request, detailed implementation plan, provider

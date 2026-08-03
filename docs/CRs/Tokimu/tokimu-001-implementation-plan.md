@@ -48,7 +48,7 @@ physical format compatibility.
 - [ ] Keep source backup, portable export, and verification as separate
       operations with distinct guarantees.
 - [ ] Run the narrowest affected crate tests after each non-trivial edit.
-- [ ] Update the CR evidence matrix as slices complete.
+- [x] Update the CR evidence matrix as slices complete.
 
 ## 4. Slice Overview
 
@@ -372,9 +372,9 @@ Current Slice 8 evidence is recorded in
 `docs/CRs/Tokimu/tokimu-001-fixture.md`. The focused command
 `cargo test -p tosumu-core --test provider_boundary
 external_consumer_fixture_round_trips_backup_export_and_verification` passed;
-the exact value hashes are listed in that fixture document. The broader
-provider-boundary run was not counted as complete because the existing 64 MiB
-maximum-value test exceeded the available validation window.
+the exact value hashes are listed in that fixture document. The 64 MiB reopen,
+recovery, and independent measurement probes were also run explicitly; their
+commands and results are recorded in the provider baseline.
 
 Additional public-boundary tests now verify newer physical-version rejection,
 wrong-key rejection, and identity isolation:
@@ -392,8 +392,17 @@ busy WAL is returned as `FILE_OPEN_BUSY`, separate from reportable findings.
 - [ ] Tokimu can reproduce equivalent logical observations through its adapter.
 - [x] Matching keys, values, versions, and hashes establish the shared boundary.
 - [x] The fixture proves backup and portable export are different guarantees.
-- [ ] Every CR evidence-matrix row is passed or explicitly deferred with owner
+- [x] Every CR evidence-matrix row is passed or explicitly deferred with owner
       and rationale.
+
+### Remaining Gate Disposition
+
+| Gate | Owner | Disposition | Follow-up validation |
+| --- | --- | --- | --- |
+| Tokimu adapter reproduces the fixture | Tokimu consumer project | Deferred until the consumer-side adapter exists; Tosumu has validated the admitted public boundary without importing consumer semantics | Run the equivalent Tokimu adapter fixture and compare keys, schema/version records, payload hashes, and reopen observations |
+| Peak allocation and streaming policy | Tosumu + Tokimu | Deferred; elapsed time and logical copy volume are measured for 1, 16, and 64 MiB, but allocator/peak-RSS evidence is not claimed | Repeat the three ignored measurement tests with an agreed peak-allocation/RSS recorder, then record the buffering decision |
+| Machine-readable fixture metadata | Tosumu + Tokimu | Optional until both projects require automated comparison; the Markdown fixture remains reproducible and authoritative for incubation | Publish versioned metadata alongside `tokimu-001-fixture.md` and compare it in both projects |
+| Unlock-aware embedded verification | Tosumu | Deferred to the encryption/inspection follow-up; current embedded verification covers sentinel fixtures and returns structured wrong-key errors at open | Add an inspection API accepting the admitted unlock contract and run encrypted corrupt-page/overflow cases |
 
 ## 14. Cross-Cutting Error Contract
 
@@ -426,16 +435,18 @@ until its explicit run passes.
 
 TOKIMU-001 is complete only when all of the following are true:
 
-- [ ] The admitted provider API is documented and tested as an external crate.
-- [ ] A multi-record logical asset commits or rolls back atomically.
+- [x] The admitted provider API is documented and tested as an external crate.
+- [x] A multi-record logical asset commits or rolls back atomically.
 - [x] 1 MiB, 16 MiB, and 64 MiB values pass reopen and recovery tests.
-- [ ] Stable backup is available from `tosumu-core` with a structured report.
-- [ ] Portable export produces one independently verifiable file.
-- [ ] Embedded verification returns structured observations and failures.
-- [ ] Physical format and `.tasset` schema versions remain separate concerns.
-- [ ] The shared fixture passes the requested evidence matrix.
+- [x] Stable backup is available from `tosumu-core` with a structured report.
+- [x] Portable export produces one independently verifiable file.
+- [x] Embedded verification returns structured observations and failures.
+- [x] Physical format and `.tasset` schema versions remain separate concerns.
+- [x] The shared fixture passes the requested evidence matrix.
 - [ ] Workspace tests and Clippy pass.
-- [ ] Tokimu can implement its adapter without importing Tosumu internals.
+- [ ] Tokimu can implement its adapter without importing Tosumu internals; the
+      Tosumu side is validated, but the consumer-side adapter remains deferred
+      to the Tokimu project.
 
 ## 17. Explicitly Deferred
 
