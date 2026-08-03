@@ -106,6 +106,7 @@ separately validated.
 - `cargo test -p tosumu-core tokimu_large_value_recovery_evidence_matrix -- --ignored --nocapture`: passed for 1 MiB, 16 MiB, and 64 MiB overflow payloads after committed flush failure and reopen recovery.
 - `cargo test -p tosumu-core --test provider_boundary large_value_write_measurement_one_megabyte -- --ignored --nocapture`: passed; one overwrite took 3,287.9 ms with a logical copy volume of 1,048,576 bytes.
 - `cargo test -p tosumu-core --test provider_boundary large_value_write_measurement_sixteen_megabytes -- --ignored --nocapture`: passed; one overwrite took 49,666.2 ms with a logical copy volume of 16,777,216 bytes.
+- `cargo test -p tosumu-core --test provider_boundary large_value_write_measurement_maximum_value -- --ignored --nocapture`: passed; one overwrite took 203,219.2 ms with a logical copy volume of 67,108,864 bytes.
 - Provider split, compaction, overwrite/delete, scan, and page-count reuse regressions pass.
 - `cargo test -p tosumu-core overflow_chain_corruption_is_structured`: passed for missing, cyclic, and extra-segment chains.
 - The inline-boundary and over-limit tests pass; over-limit input leaves the
@@ -114,9 +115,9 @@ separately validated.
 
 The 1/16/64 MiB tests compare complete reconstructed byte vectors after close
 and reopen. The measurement helpers independently cover 1 MiB, 16 MiB, and the
-64 MiB maximum value, but only the 1 MiB and 16 MiB probes have completed so
-far. The observed timings and logical copy volumes are repeatable baseline
-evidence; allocator/peak-RSS counts and the streaming decision remain open.
+64 MiB maximum value. The observed timings and logical copy volumes are
+repeatable baseline evidence; allocator/peak-RSS counts and the streaming
+decision remain open.
 
 ## Existing Recovery, Backup, and Verification Evidence
 

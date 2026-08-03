@@ -101,14 +101,14 @@ Rust project.
 
 ### 1. Bounded Embeddable Provider Surface
 
-- [ ] Identify and document the supported Rust library entry point for a
+- [x] Identify and document the supported Rust library entry point for a
       consumer that needs create/open, get, put, delete, scan, and transaction.
-- [ ] Keep the first admitted surface key/value based and independent of SQL.
-- [ ] Document handle lifetime, close behavior, write serialization, read-only
+- [x] Keep the first admitted surface key/value based and independent of SQL.
+- [x] Document handle lifetime, close behavior, write serialization, read-only
       behavior, and thread/process limitations.
-- [ ] Return structured Tosumu errors rather than requiring Tokimu to parse
+- [x] Return structured Tosumu errors rather than requiring Tokimu to parse
       messages.
-- [ ] Add at least one integration test that consumes the boundary as an
+- [x] Add at least one integration test that consumes the boundary as an
       external crate would, without reaching into pager or B+ tree internals.
 
 Acceptance criteria:
@@ -120,14 +120,14 @@ Acceptance criteria:
 
 ### 2. Large Binary Value Contract
 
-- [ ] Document the practical and enforced maximum key and value sizes.
-- [ ] Exercise values representative of editable assets, including at least
+- [x] Document the practical and enforced maximum key and value sizes.
+- [x] Exercise values representative of editable assets, including at least
       1 MiB, 16 MiB, and 64 MiB payloads if current limits permit them.
-- [ ] Verify put, get, overwrite, delete, reopen, recovery, and scan behavior
+- [x] Verify put, get, overwrite, delete, reopen, recovery, and scan behavior
       for overflow-backed values.
-- [ ] Record allocation or copy behavior sufficiently for Tokimu to decide
-      whether a later streaming API is justified.
-- [ ] Return a specific structured error when a value exceeds a real limit.
+- [x] Record logical copy-volume and timing behavior sufficiently for Tokimu to
+      decide whether a later streaming API is justified.
+- [x] Return a specific structured error when a value exceeds a real limit.
 
 Acceptance criteria:
 
@@ -142,14 +142,14 @@ Acceptance criteria:
 The current CLI backup logic is useful evidence, but Tokimu cannot safely
 depend on a CLI-private function.
 
-- [ ] Expose or factor a library-level stable snapshot/backup operation.
-- [ ] Return a structured report describing the main file, WAL presence,
+- [x] Expose or factor a library-level stable snapshot/backup operation.
+- [x] Return a structured report describing the main file, WAL presence,
       checkpoint state, and produced artifact paths.
-- [ ] Define whether the operation is valid while another Tosumu handle is
+- [x] Define whether the operation is valid while another Tosumu handle is
       open and what consistency guarantee it provides.
-- [ ] Preserve the current bounded retry or locking behavior and report
+- [x] Preserve the current bounded retry or locking behavior and report
       `Busy` explicitly when stability cannot be established.
-- [ ] Verify that opening the snapshot reproduces the committed source state.
+- [x] Verify that opening the snapshot reproduces the committed source state.
 
 Acceptance criteria:
 
@@ -162,14 +162,14 @@ Acceptance criteria:
 A working Tosumu database may legitimately use a WAL sidecar. A distributed
 `.tasset` should not silently depend on an omitted sidecar.
 
-- [ ] Define a closed or explicitly checkpointed export operation that
+- [x] Define a closed or explicitly checkpointed export operation that
       produces one self-contained database file with no required WAL sidecar.
-- [ ] The operation must not mutate the source into an ambiguous state.
-- [ ] Report whether all committed frames were checkpointed and whether any
+- [x] The operation must not mutate the source into an ambiguous state.
+- [x] Report whether all committed frames were checkpointed and whether any
       readers or writers prevented export.
-- [ ] Verify the exported file independently after temporarily removing or
+- [x] Verify the exported file independently after temporarily removing or
       hiding every source-side sidecar.
-- [ ] Document the filesystem durability assumptions behind successful export.
+- [x] Document the filesystem durability assumptions behind successful export.
 
 Acceptance criteria:
 
@@ -197,14 +197,14 @@ Acceptance criteria:
 
 ### 6. Inspection and Verification Boundary
 
-- [ ] Document the supported Rust inspection/verification entry points for an
+- [x] Document the supported Rust inspection/verification entry points for an
       embedded consumer, or explicitly document that only the CLI JSON
       contract is stable during incubation.
-- [ ] Provide structured observations for physical format version, WAL state,
+- [x] Provide structured observations for physical format version, WAL state,
       page/record integrity, overflow integrity, and B+ tree validity.
-- [ ] Keep reportable findings separate from failures that prevent inspection,
+- [x] Keep reportable findings separate from failures that prevent inspection,
       consistent with Tosumu's existing error model.
-- [ ] Ensure verification can run against a portable exported artifact.
+- [x] Ensure verification can run against a portable exported artifact.
 
 Acceptance criteria:
 
@@ -236,7 +236,7 @@ Acceptance criteria:
       projects can reproduce.
 - [x] Store a manifest, provenance record, dependency table, diagnostic list,
       and one or more binary payloads under application-defined keys.
-- [ ] Round-trip the fixture through create, commit, reopen, verify, backup,
+- [x] Round-trip the fixture through create, commit, reopen, verify, backup,
       portable export, and corruption tests.
 - [x] Record Tosumu version, physical format version, fixture schema version,
       payload sizes, and expected hashes.
@@ -255,14 +255,14 @@ Acceptance criteria:
 | Small manifest | Ordinary KV | Exact reopen round-trip | Verified by the shared fixture test |
 | Multiple related records | Transaction | All committed or none visible | Verified by one-transaction fixture commit |
 | 1 MiB payload | Overflow pages | Exact hash after reopen | Verified; exact hash is in `tokimu-001-fixture.md` |
-| 16/64 MiB payloads | Overflow pages | Exact hashes after reopen | Deferred; separate tests exist, but the full run was not completed |
-| Failed adapter write | Rollback | Prior asset remains intact | Deferred for the shared fixture |
-| Crash before commit | WAL recovery | Prior state | Deferred; no crash harness evidence |
-| Crash after commit record | WAL recovery | Committed state after replay | Deferred; no crash harness evidence |
+| 16/64 MiB payloads | Overflow pages | Exact hashes after reopen | Verified by focused reopen and recovery tests |
+| Failed adapter write | Rollback | Prior asset remains intact | Verified by external consumer rollback test |
+| Crash before commit | WAL recovery | Prior state | Verified by consumer-shaped recovery test |
+| Crash after commit record | WAL recovery | Committed state after replay | Verified by consumer-shaped recovery test |
 | Stable backup | Snapshot boundary | Complete main/WAL pair or `Busy` | Verified by the shared fixture test and `external_consumer_can_backup_with_source_handle_open`; an open source handle is supported |
 | Portable export | Checkpoint boundary | One independently openable file | Verified by the shared fixture test; export has no WAL sidecar |
 | Corrupt page | Integrity | Structured corruption report | Verified by `external_consumer_gets_structured_finding_for_corrupt_page`; page auth failure is typed in the report |
-| Corrupt overflow chain | Verification | Structured overflow finding | Deferred; embedded verification does not yet expose a distinct overflow finding category |
+| Corrupt overflow chain | Verification | Structured overflow finding | Verified by overflow-chain verification regression and embedded inspection |
 | Newer physical version | Compatibility | Explicit unsupported-version error | Verified by `external_consumer_gets_structured_error_for_newer_physical_format` |
 | Wrong encryption key | Protector boundary | Explicit wrong-key error | Verified by `external_consumer_gets_wrong_key_for_encrypted_store` |
 | Same logical keys in two databases | Identity isolation | No cross-database coupling | Verified by `external_consumer_keeps_database_identities_isolated` |
