@@ -43,7 +43,7 @@ mkdocs build --strict
 
 ## Documentation layout
 
-Use the repository docs for source-of-truth engineering detail:
+Use the repository-root specifications for source-of-truth engineering detail:
 
 - `DESIGN.md`
 - `ERRORS.md`
@@ -54,6 +54,19 @@ Use the repository docs for source-of-truth engineering detail:
 Use `docs/` for curated public-facing explanations.
 
 The intent is to summarize and link, not to create a second divergent spec.
+
+Project-support documents have narrower roles:
+
+- `docs/ADR/` records accepted architectural decisions.
+- `docs/Architectural Reviews/` records unresolved questions and evidence.
+- `docs/Plans/` sequences implementation work.
+- `docs/CRs/` records incoming consumer and cross-project requests.
+- `docs/Notes/` and `docs/Conversations/` retain non-binding material.
+- `docs/Archive/` retains superseded support material.
+- `.workbench/` is ignored local scratch space and is never authoritative.
+
+See the [documentation map](project-governance.md) for the authority and
+promotion flow.
 
 ## Website deployment
 

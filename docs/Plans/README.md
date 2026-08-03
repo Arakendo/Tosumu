@@ -1,0 +1,31 @@
+# Implementation Plans
+
+Plans describe concrete Tosumu implementation work: scope, ownership,
+incremental slices, validation, risks, and completion criteria.
+
+Plans do not create architectural authority. When implementation evidence
+changes an accepted boundary, open an Architectural Review and update or
+supersede the relevant ADR.
+
+Copy [`TEMPLATE.md`](TEMPLATE.md) when opening a plan. Remove sections that are
+genuinely irrelevant, but keep per-slice deliverables, acceptance criteria,
+validation, and exit states.
+
+## Current And Retained Plans
+
+- [Initial SQL Layer](initial-sql-layer.md) -- MVP+9 baseline complete; retained
+  as implementation history and a source for deferred SQL work.
+
+## Plan Requirements
+
+A useful plan should include:
+
+- motivating evidence and current state;
+- goals and explicit non-goals;
+- ownership and dependency boundaries;
+- small compiling implementation slices;
+- acceptance criteria for each slice;
+- tests, fuzzing, fixtures, or consumer evidence;
+- risks, unsupported cases, and diagnostics;
+- completion, graduation, or parking criteria;
+- links to related specifications, ADRs, reviews, CRs, and code.

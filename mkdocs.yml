@@ -43,6 +43,29 @@ nav:
   - Safety and Limits: safety-and-limits.md
   - Roadmap: roadmap.md
   - Development: development.md
+  - Tosumu Command Language: Tosumu Command Language.md
+  - Project Governance:
+      - Documentation Map: project-governance.md
+      - Architecture Decisions:
+          - Index: ADR/README.md
+          - ADR-0001 Storage Engine Layer Boundaries: ADR/ADR-0001-storage-engine-layer-boundaries.md
+          - Template: ADR/TEMPLATE.md
+      - Architectural Reviews: Architectural Reviews/README.md
+      - Architectural Review Template: Architectural Reviews/TEMPLATE.md
+      - Implementation Plans:
+          - Index: Plans/README.md
+          - Initial SQL Layer: Plans/initial-sql-layer.md
+          - Template: Plans/TEMPLATE.md
+      - Change Requests: CRs/README.md
+      - Tokimu-001:
+        - Provider Boundary: CRs/Tokimu/tokimu-001-tasset-storage-provider-boundary.md
+        - Implementation Plan: CRs/Tokimu/tokimu-001-implementation-plan.md
+        - Provider Baseline: CRs/Tokimu/tokimu-001-provider-baseline.md
+        - Shared Fixture: CRs/Tokimu/tokimu-001-fixture.md
+      - Supporting Records:
+        - Notes: Notes/README.md
+        - Conversations: Conversations/README.md
+        - Archive: Archive/README.md
 
 markdown_extensions:
   - admonition
