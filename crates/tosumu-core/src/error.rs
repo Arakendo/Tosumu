@@ -83,6 +83,13 @@ pub enum TosumuError {
     #[error("corrupt page {pgno}: {reason}")]
     Corrupt { pgno: u64, reason: &'static str },
 
+    #[error("corrupt overflow chain at page {pgno}: {reason}")]
+    OverflowChainCorrupt {
+        pgno: u64,
+        length: u64,
+        reason: &'static str,
+    },
+
     #[error("AEAD authentication failed on page {}", pgno.map(|n| n.to_string()).unwrap_or_else(|| "?".into()))]
     AuthFailed { pgno: Option<u64> },
 
@@ -111,6 +118,9 @@ pub enum TosumuError {
 
     #[error("out of space")]
     OutOfSpace,
+
+    #[error("value size {actual} exceeds maximum {maximum}")]
+    ValueTooLarge { actual: u64, maximum: u64 },
 
     #[error("invalid argument: {0}")]
     InvalidArgument(&'static str),
@@ -183,6 +193,29 @@ impl TosumuError {
                     ErrorDetail {
                         key: "pgno",
                         value: ErrorValue::U64(*pgno),
+                    },
+                    ErrorDetail {
+                        key: "reason",
+                        value: ErrorValue::Str((*reason).to_string()),
+                    },
+                ],
+            },
+            TosumuError::OverflowChainCorrupt {
+                pgno,
+                length,
+                reason,
+            } => ErrorReport {
+                code: codes::OVERFLOW_CHAIN_CORRUPT,
+                status: ErrorStatus::IntegrityFailure,
+                message: self.to_string(),
+                details: vec![
+                    ErrorDetail {
+                        key: "pgno",
+                        value: ErrorValue::U64(*pgno),
+                    },
+                    ErrorDetail {
+                        key: "length",
+                        value: ErrorValue::U64(*length),
                     },
                     ErrorDetail {
                         key: "reason",
@@ -283,6 +316,21 @@ impl TosumuError {
                 status: ErrorStatus::ExternalFailure,
                 message: self.to_string(),
                 details: Vec::new(),
+            },
+            TosumuError::ValueTooLarge { actual, maximum } => ErrorReport {
+                code: codes::VALUE_TOO_LARGE,
+                status: ErrorStatus::InvalidInput,
+                message: self.to_string(),
+                details: vec![
+                    ErrorDetail {
+                        key: "actual",
+                        value: ErrorValue::U64(*actual),
+                    },
+                    ErrorDetail {
+                        key: "maximum",
+                        value: ErrorValue::U64(*maximum),
+                    },
+                ],
             },
             TosumuError::InvalidArgument(reason) => ErrorReport {
                 code: codes::ARGUMENT_INVALID,

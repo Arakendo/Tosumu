@@ -399,8 +399,11 @@ fn validate_key(key: &[u8]) -> Result<()> {
 }
 
 fn validate_value(value: &[u8]) -> Result<()> {
-    if value.len() > u16::MAX as usize {
-        return Err(TosumuError::InvalidArgument("value exceeds u16 maximum"));
+    if value.len() > crate::format::MAX_VALUE_SIZE {
+        return Err(TosumuError::ValueTooLarge {
+            actual: value.len() as u64,
+            maximum: crate::format::MAX_VALUE_SIZE as u64,
+        });
     }
     Ok(())
 }
@@ -443,6 +446,66 @@ mod tests {
     fn diff_value(step: usize, salt: usize) -> Vec<u8> {
         let repeat = 1 + ((step + salt) % 5);
         format!("value-{step:03}-{salt:02}-{}", "x".repeat(repeat * 12)).into_bytes()
+    }
+
+    #[derive(Clone)]
+    struct AssetGeneration {
+        manifest: Vec<u8>,
+        provenance: Vec<u8>,
+        payload_small: Vec<u8>,
+        payload_large: Vec<u8>,
+    }
+
+    impl AssetGeneration {
+        fn new(version: u8) -> Self {
+            Self {
+                manifest: format!("fixture-schema-v{version}").into_bytes(),
+                provenance: format!("source:tokimu-test\nrevision:{version:04}").into_bytes(),
+                payload_small: vec![version; 32],
+                payload_large: (0u8..=255)
+                    .cycle()
+                    .map(|byte| byte.wrapping_add(version))
+                    .take(1024 * 1024)
+                    .collect(),
+            }
+        }
+
+        fn records(&self) -> [(&'static [u8], &[u8]); 4] {
+            [
+                (b"asset/manifest", &self.manifest),
+                (b"asset/provenance", &self.provenance),
+                (b"asset/payload-small", &self.payload_small),
+                (b"asset/payload-large", &self.payload_large),
+            ]
+        }
+    }
+
+    fn commit_asset(store: &mut PageStore, asset: &AssetGeneration) {
+        store
+            .transaction(|tx| {
+                for (key, value) in asset.records() {
+                    tx.put(key, value)?;
+                }
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    fn assert_asset(store: &PageStore, asset: &AssetGeneration) {
+        for (key, value) in asset.records() {
+            assert_eq!(store.get(key).unwrap(), Some(value.to_vec()), "asset key {key:?}");
+        }
+        assert_eq!(store.scan().unwrap().len(), asset.records().len());
+        store.tree.check_invariants().unwrap();
+    }
+
+    fn crash_file(path: &std::path::Path) -> crate::test_helpers::CrashFile {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .unwrap();
+        crate::test_helpers::CrashFile::new(file, crate::test_helpers::CrashPhase::AfterWrite)
     }
 
     fn diff_wal_path(path: &std::path::Path) -> PathBuf {
@@ -701,6 +764,204 @@ mod tests {
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&wal);
+    }
+
+    #[test]
+    fn large_overflow_transaction_recovers_after_commit_flush_failure() {
+        use crate::test_helpers::{CrashFile, CrashPhase};
+        use sha2::{Digest, Sha256};
+
+        let path = temp_path("txn_large_flush_fail");
+        let wal = diff_wal_path(&path);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&wal);
+
+        let large: Vec<u8> = (0u8..=255).cycle().take(1024 * 1024).collect();
+        let expected_hash: [u8; 32] = Sha256::digest(&large).into();
+        let mut store = PageStore::create(&path).unwrap();
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        let mut crash_file = CrashFile::new(file, CrashPhase::AfterWrite);
+
+        let err = store
+            .transaction_with_crash_file(
+                |tx| {
+                    tx.put(b"manifest", b"schema-v1")?;
+                    tx.put(b"payload", &large)?;
+                    Ok(())
+                },
+                &mut crash_file,
+            )
+            .unwrap_err();
+        assert!(matches!(err, TosumuError::CommittedButFlushFailed { .. }));
+
+        drop(store);
+        let reopened = PageStore::open(&path).unwrap();
+        assert_eq!(reopened.get(b"manifest").unwrap(), Some(b"schema-v1".to_vec()));
+        let recovered = reopened.get(b"payload").unwrap().unwrap();
+        assert_eq!(Sha256::digest(&recovered).as_slice(), expected_hash);
+        assert_eq!(recovered, large);
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&wal);
+    }
+
+    #[test]
+    fn consumer_asset_create_recovers_as_one_committed_generation() {
+        let path = temp_path("asset_create_recovery");
+        let wal = diff_wal_path(&path);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&wal);
+
+        let asset = AssetGeneration::new(1);
+        let mut store = PageStore::create(&path).unwrap();
+        let mut crash = crash_file(&path);
+        let result = store.transaction_with_crash_file(
+            |tx| {
+                for (key, value) in asset.records() {
+                    tx.put(key, value)?;
+                }
+                Ok(())
+            },
+            &mut crash,
+        );
+        assert!(matches!(result, Err(TosumuError::CommittedButFlushFailed { .. })));
+        drop(crash);
+        drop(store);
+
+        let reopened = PageStore::open(&path).unwrap();
+        assert_asset(&reopened, &asset);
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&wal);
+    }
+
+    #[test]
+    fn consumer_asset_overwrite_recovers_as_new_generation_without_mixing() {
+        let path = temp_path("asset_overwrite_recovery");
+        let wal = diff_wal_path(&path);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&wal);
+
+        let old_asset = AssetGeneration::new(1);
+        let new_asset = AssetGeneration::new(2);
+        let mut store = PageStore::create(&path).unwrap();
+        commit_asset(&mut store, &old_asset);
+
+        let mut crash = crash_file(&path);
+        let result = store.transaction_with_crash_file(
+            |tx| {
+                for (key, value) in new_asset.records() {
+                    tx.put(key, value)?;
+                }
+                Ok(())
+            },
+            &mut crash,
+        );
+        assert!(matches!(result, Err(TosumuError::CommittedButFlushFailed { .. })));
+        drop(crash);
+        drop(store);
+
+        let reopened = PageStore::open(&path).unwrap();
+        assert_asset(&reopened, &new_asset);
+        assert_ne!(reopened.get(b"asset/manifest").unwrap(), Some(old_asset.manifest));
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&wal);
+    }
+
+    #[test]
+    fn consumer_asset_delete_recovers_as_one_empty_generation() {
+        let path = temp_path("asset_delete_recovery");
+        let wal = diff_wal_path(&path);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&wal);
+
+        let asset = AssetGeneration::new(1);
+        let mut store = PageStore::create(&path).unwrap();
+        commit_asset(&mut store, &asset);
+
+        let mut crash = crash_file(&path);
+        let result = store.transaction_with_crash_file(
+            |tx| {
+                for (key, _) in asset.records() {
+                    tx.delete(key)?;
+                }
+                Ok(())
+            },
+            &mut crash,
+        );
+        assert!(matches!(result, Err(TosumuError::CommittedButFlushFailed { .. })));
+        drop(crash);
+        drop(store);
+
+        let reopened = PageStore::open(&path).unwrap();
+        assert!(reopened.scan().unwrap().is_empty());
+        reopened.tree.check_invariants().unwrap();
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&wal);
+    }
+
+    #[test]
+    fn consumer_asset_before_commit_discards_staged_generation() {
+        use crate::wal::{wal_path, WalRecord, WalWriter};
+
+        let path = temp_path("asset_before_commit_recovery");
+        let staged_path = temp_path("asset_before_commit_staged");
+        let wal = wal_path(&path);
+        let staged_wal = wal_path(&staged_path);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&wal);
+        let _ = std::fs::remove_file(&staged_path);
+        let _ = std::fs::remove_file(&staged_wal);
+
+        let old_asset = AssetGeneration::new(1);
+        let staged_asset = AssetGeneration::new(2);
+        let mut store = PageStore::create(&path).unwrap();
+        commit_asset(&mut store, &old_asset);
+        drop(store);
+        let _ = std::fs::remove_file(&wal);
+
+        let mut staged = PageStore::create(&staged_path).unwrap();
+        commit_asset(&mut staged, &staged_asset);
+        drop(staged);
+        let _ = std::fs::remove_file(&staged_wal);
+
+        let staged_bytes = std::fs::read(&staged_path).unwrap();
+        let page_count = staged_bytes.len() / crate::format::PAGE_SIZE;
+        let mut writer = WalWriter::create(&wal).unwrap();
+        writer.append(&WalRecord::Begin { txn_id: 7 }).unwrap();
+        for pgno in 0..page_count {
+            let start = pgno * crate::format::PAGE_SIZE;
+            let end = start + crate::format::PAGE_SIZE;
+            let mut frame = Box::new([0u8; crate::format::PAGE_SIZE]);
+            frame.copy_from_slice(&staged_bytes[start..end]);
+            writer
+                .append(&WalRecord::PageWrite {
+                    pgno: pgno as u64,
+                    page_version: 1,
+                    frame,
+                })
+                .unwrap();
+        }
+        writer.sync().unwrap();
+        drop(writer);
+
+        let reopened = PageStore::open(&path).unwrap();
+        assert_asset(&reopened, &old_asset);
+        assert_ne!(
+            reopened.get(b"asset/manifest").unwrap(),
+            Some(staged_asset.manifest)
+        );
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&wal);
+        let _ = std::fs::remove_file(&staged_path);
+        let _ = std::fs::remove_file(&staged_wal);
     }
 
     #[test]

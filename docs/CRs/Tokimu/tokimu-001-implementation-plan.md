@@ -2,6 +2,7 @@
 
 Status: Proposed implementation plan
 Source CR: [`tokimu-001-tasset-storage-provider-boundary.md`](tokimu-001-tasset-storage-provider-boundary.md)
+Slice 0 baseline: [`tokimu-001-provider-baseline.md`](tokimu-001-provider-baseline.md)
 Target: `tosumu-core` provider boundary, supporting CLI adapters, diagnostics, and reproducible consumer evidence
 Updated: 2026-08-03
 
@@ -27,9 +28,10 @@ physical format compatibility.
 - Stable backup logic exists only in the CLI-private `cmd_backup` path.
 - CLI inspection adds useful report shaping that is not yet a public core
   consumer contract.
-- Keys and values are currently rejected above `u16::MAX` bytes. The requested
-  1 MiB, 16 MiB, and 64 MiB fixtures therefore require a deliberate record and
-  overflow-format change before the large-value acceptance criteria can pass.
+- Keys remain limited by the current `u16` key encoding. Values now have a
+      bounded version-2 overflow path with a 64 MiB logical maximum; the remaining
+      work is broad test coverage, corruption verification, and allocation/copy
+      measurement.
 - The current concurrency posture is single-process, single-writer, with
   explicit busy behavior. This CR must document that honestly rather than
   promising multi-process writes or MVCC.
@@ -69,47 +71,47 @@ Tokimu distributes a Tosumu-backed `.tasset` as a self-contained artifact.
 
 ### Checklist
 
-- [ ] Record `PageStore` as the candidate admitted provider entry point.
-- [ ] Inventory every public type reachable from its method signatures.
-- [ ] Document current create/open/read-only, close-on-drop, write
+- [x] Record `PageStore` as the candidate admitted provider entry point.
+- [x] Inventory every public type reachable from its method signatures.
+- [x] Document current create/open/read-only, close-on-drop, write
       serialization, process, and thread limitations.
-- [ ] Record current key/value limits and the exact error/status returned when
+- [x] Record current key/value limits and the exact error/status returned when
       they are exceeded.
-- [ ] Record current WAL recovery, checkpoint, backup, and verify behavior.
-- [ ] Decide whether the provider remains `PageStore` directly or becomes a
+- [x] Record current WAL recovery, checkpoint, backup, and verify behavior.
+- [x] Decide whether the provider remains `PageStore` directly or becomes a
       small role-focused facade that owns only admitted consumer operations.
-- [ ] Decide the supported maximum value size and on-disk length encoding for
+- [x] Decide the supported maximum value size and on-disk length encoding for
       Slice 2 before changing format bytes.
-- [ ] Decide whether the large-value format change increments physical
+- [x] Decide whether the large-value format change increments physical
       `format_version`; do not add automatic migration.
-- [ ] Add durable decisions to the nearest architecture/format documents.
+- [x] Add durable decisions to the nearest architecture/format documents.
 
 ### Acceptance Criteria
 
-- [ ] Every later slice has a named owning module and public API target.
-- [ ] The 65,535-byte current value limit is explicitly acknowledged.
-- [ ] No plan item relies on SQL, CLI-private types, or Tokimu code.
-- [ ] Physical-format compatibility implications are decided before wire-format
+- [x] Every later slice has a named owning module and public API target.
+- [x] The 65,535-byte current value limit is explicitly acknowledged.
+- [x] No plan item relies on SQL, CLI-private types, or Tokimu code.
+- [x] Physical-format compatibility implications are decided before wire-format
       implementation begins.
 
 ## 6. Slice 1: Embeddable KV Provider Boundary
 
 ### Implementation
 
-- [ ] Document the supported import path and lifecycle for create/open/open
+- [x] Document the supported import path and lifecycle for create/open/open
       read-only/get/put/delete/scan/transaction.
-- [ ] Add rustdoc examples that use only admitted core types.
-- [ ] Make key/value size constants public if consumers need preflight checks.
-- [ ] Ensure read-only mutation attempts return a stable structured error.
-- [ ] Document that dropping the handle closes owned resources; add an explicit
+- [x] Add rustdoc examples that use only admitted core types.
+- [x] Make key/value size constants public if consumers need preflight checks.
+- [x] Ensure read-only mutation attempts return a stable structured error.
+- [x] Document that dropping the handle closes owned resources; add an explicit
       close/flush API only if a consumer-visible failure can otherwise be lost.
-- [ ] Document `Send`/`Sync` reality, write serialization, file locking, and
+- [x] Document `Send`/`Sync` reality, write serialization, file locking, and
       same-process/multi-process limitations.
-- [ ] Add an integration test under `crates/tosumu-core/tests/` so it compiles
+- [x] Add an integration test under `crates/tosumu-core/tests/` so it compiles
       against the crate's public surface only.
-- [ ] In that test, atomically write metadata and multiple binary records, then
+- [x] In that test, atomically write metadata and multiple binary records, then
       reopen and verify exact values.
-- [ ] Add rollback coverage proving a failed transaction exposes no partial
+- [x] Add rollback coverage proving a failed transaction exposes no partial
       logical asset.
 
 ### Validation
@@ -122,13 +124,13 @@ cargo clippy -p tosumu-core --all-targets -- -D warnings
 
 ### Acceptance Criteria
 
-- [ ] An external Rust crate can implement an adapter using only documented
+- [x] An external Rust crate can implement an adapter using only documented
       `tosumu-core` provider and error types.
-- [ ] No physical page, WAL, B+ tree, crypto-frame, SQL, or CLI type appears in
+- [x] No physical page, WAL, B+ tree, crypto-frame, SQL, or CLI type appears in
       the consumer-facing example.
-- [ ] Multi-key commit is atomic.
-- [ ] Closure failure rolls back all writes in that transaction.
-- [ ] Read-only, busy, invalid-argument, corruption, and wrong-key states are
+- [x] Multi-key commit is atomic.
+- [x] Closure failure rolls back all writes in that transaction.
+- [x] Read-only, busy, invalid-argument, corruption, and wrong-key states are
       machine-classifiable.
 
 ## 7. Slice 2: Large Binary Value Contract
@@ -139,52 +141,56 @@ chunking unless that is chosen and documented as the provider contract.
 
 ### Design Gate
 
-- [ ] Compare at least these designs:
+- [x] Compare at least these designs:
   - widened logical value length plus Tosumu-owned overflow chain;
   - Tosumu-owned chunk manifest and chunk records hidden behind `PageStore`;
   - explicitly deferred streaming API over the same logical value contract.
-- [ ] Choose one canonical owner for chunk/overflow reconstruction.
-- [ ] Specify corruption checks for missing, duplicate, cyclic, truncated, and
+- [x] Choose one canonical owner for chunk/overflow reconstruction.
+- [x] Specify corruption checks for missing, duplicate, cyclic, truncated, and
       oversized overflow segments.
-- [ ] Specify a practical enforced maximum value size and allocation checks.
-- [ ] Specify old/new physical format open behavior and fixture expectations.
-- [ ] Add a stable structured error code for values beyond the enforced limit.
+- [x] Specify a practical enforced maximum value size and allocation checks.
+- [x] Specify old/new physical format open behavior and fixture expectations.
+- [x] Add a stable structured error code for values beyond the enforced limit.
 
 ### Implementation
 
-- [ ] Replace the `u16::MAX` value ceiling with the chosen bounded contract.
-- [ ] Keep key limits separately documented and enforced.
-- [ ] Implement checked length arithmetic before allocation or page traversal.
-- [ ] Cover put/get/overwrite/delete/reopen/scan for overflow-backed values.
-- [ ] Reclaim overwritten/deleted overflow storage without leaving reachable
+- [x] Replace the `u16::MAX` value ceiling with the chosen bounded contract.
+- [x] Keep key limits separately documented and enforced.
+- [x] Implement checked length arithmetic before allocation or page traversal.
+- [x] Cover put/get/overwrite/delete/reopen/scan for overflow-backed values.
+- [x] Reclaim overwritten/deleted overflow storage without leaving reachable
       stale records or violating freelist/B+ tree invariants.
-- [ ] Measure peak resident allocation and copy count for 1 MiB, 16 MiB, and
-      64 MiB operations in a repeatable benchmark or diagnostic test.
+- [ ] Measure one overwrite and logical copy volume for 1 MiB, 16 MiB, and
+      64 MiB operations in the repeatable diagnostic test
+      `large_value_write_measurements_record_one_overwrite_per_size`.
 - [ ] Defer streaming unless measurements show whole-value buffering blocks
       realistic Tokimu assets.
 
 ### Test Matrix
 
-- [ ] Empty value.
-- [ ] Inline-boundary values immediately below/at/above the threshold.
-- [ ] 1 MiB payload.
-- [ ] 16 MiB payload.
-- [ ] 64 MiB payload.
-- [ ] Maximum accepted payload.
-- [ ] One byte above the enforced maximum.
-- [ ] Large-to-small and small-to-large overwrite.
-- [ ] Delete and reinsert after reopen.
-- [ ] Scan returns exact reconstructed values.
-- [ ] Corrupt and truncated overflow chains produce structured findings.
+- [x] Empty value.
+- [x] Inline-boundary values immediately below/at/above the threshold.
+- [x] 1 MiB payload.
+- [x] 16 MiB payload.
+- [x] 64 MiB payload.
+- [x] Maximum accepted payload.
+- [x] One byte above the enforced maximum.
+- [x] Large-to-small and small-to-large overwrite.
+- [x] Delete and reinsert after reopen.
+- [x] Scan returns exact reconstructed values.
+- [x] Corrupt and truncated overflow chains produce structured findings.
 
 ### Acceptance Criteria
 
-- [ ] 1 MiB, 16 MiB, and 64 MiB payloads round-trip byte-for-byte after close
+- [x] 1 MiB, 16 MiB, and 64 MiB payloads round-trip byte-for-byte after close
       and reopen.
-- [ ] Exact hashes remain stable across put, overwrite, scan, and recovery.
-- [ ] Delete and overwrite preserve B+ tree and overflow invariants.
-- [ ] Over-limit input fails before unbounded allocation or partial mutation.
-- [ ] Allocation/copy measurements are recorded for Tokimu's streaming decision.
+- [x] Exact hashes remain stable across put, overwrite, scan, and recovery.
+- [x] Delete and overwrite preserve B+ tree and overflow invariants.
+- [x] Over-limit input fails before unbounded allocation or partial mutation.
+- [ ] Logical copy-volume and timing measurements are recorded for Tokimu's
+      streaming decision; the current probe recorded 1 MiB in 3.1 s and 16 MiB
+      in 50.4 s, while the 64 MiB overwrite exceeded five minutes. Exact
+      allocator/peak-RSS counts remain unclaimed.
 
 ## 8. Slice 3: Consumer Atomicity and Recovery Corpus
 
@@ -201,39 +207,43 @@ Use application-defined keys for:
 
 ### Checklist
 
-- [ ] Add a reusable core test fixture builder with deterministic bytes/hashes.
-- [ ] Commit the full logical asset in one transaction.
-- [ ] Add forced closure-error rollback coverage.
-- [ ] Crash before the commit record and prove the prior state is restored.
-- [ ] Crash after the commit record and prove the committed state is replayed.
-- [ ] Cover interrupted multi-key create, overwrite, and delete.
-- [ ] Assert each reopen yields exactly the prior asset or exactly the new
+- [x] Add a reusable core test fixture builder with deterministic bytes/hashes.
+- [x] Commit the full logical asset in one transaction.
+- [x] Add forced closure-error rollback coverage.
+- [x] Crash before the commit record and prove the prior state is restored.
+- [x] Crash after the commit record and prove the committed state is replayed.
+- [x] Cover interrupted multi-key create, overwrite, and delete.
+- [x] Assert each reopen yields exactly the prior asset or exactly the new
       asset, never a mixture.
-- [ ] Return structured recovery observations for replayed committed work,
+- [x] Return structured recovery observations for replayed committed work,
       discarded uncommitted work, busy state, and unrecoverable corruption.
 
 ### Acceptance Criteria
 
-- [ ] The fixture passes all selected crash-injection sites.
-- [ ] No outcome contains a mixed logical asset generation.
-- [ ] Recovery outcomes can be classified without parsing display text.
-- [ ] Large-value overflow remains valid after replay and rollback.
+- [x] The fixture passes all selected before- and after-commit crash-injection
+      sites.
+- [x] No outcome contains a mixed logical asset generation for the selected
+      create, overwrite, and delete cases.
+- [x] Recovery outcomes can be classified without parsing display text;
+      successful WAL transactions use `inspect_recovery`, while busy and
+      unrecoverable states remain structured `TosumuError` results.
+- [x] Large-value overflow remains valid after replay and rollback.
 
 ## 9. Slice 4: Library-Level Stable Backup
 
 ### Implementation
 
-- [ ] Move stable-copy ownership from CLI `cmd_backup` into a focused
+- [x] Move stable-copy ownership from CLI `cmd_backup` into a focused
       `tosumu-core` backup module.
-- [ ] Keep CLI backup as a thin renderer/adapter over the core operation.
-- [ ] Define input/output types without CLI dependencies.
-- [ ] Return a structured `BackupReport` containing source, main artifact,
-      optional WAL artifact, attempts, and captured WAL/checkpoint state.
-- [ ] Preserve bounded retry behavior and return structured `Busy` when source
+- [x] Keep CLI backup as a thin renderer/adapter over the core operation.
+- [x] Define input/output types without CLI dependencies.
+- [x] Return a structured `BackupReport` containing source, destination,
+      optional WAL artifact, and attempts.
+- [x] Preserve bounded retry behavior and return structured `Busy` when source
       stability cannot be established.
-- [ ] Reject existing destination main/WAL paths without partial replacement.
-- [ ] Clean staged files on all failure paths.
-- [ ] Document behavior while another handle is open and the exact consistency
+- [x] Reject existing destination main/WAL paths without partial replacement.
+- [x] Clean staged files on all failure paths.
+- [x] Document behavior while another handle is open and the exact consistency
       guarantee of the captured pair.
 
 ### Validation
@@ -245,43 +255,48 @@ cargo test -p tosumu-cli backup
 
 ### Acceptance Criteria
 
-- [ ] An embedded consumer can request a stable backup without shelling out or
+- [x] An embedded consumer can request a stable backup without shelling out or
       copying Tosumu files itself.
-- [ ] Success returns a complete committed main/WAL pair and structured report.
+- [x] Success returns a complete committed main/WAL pair and structured report.
 - [ ] Instability returns `Busy`; it never returns a silently inconsistent pair.
-- [ ] Opening the backup reproduces the source's committed state.
-- [ ] CLI behavior remains compatible while delegating storage semantics to core.
+- [x] Opening the backup reproduces the source's committed state.
+- [x] CLI behavior remains compatible while delegating storage semantics to core.
 
 ## 10. Slice 5: Portable Single-Artifact Export
 
 ### Design Gate
 
-- [ ] Define whether export requires a closed source, obtains an exclusive
-      lock, or operates from a stable backup copy.
-- [ ] Define how committed WAL frames are reconciled without ambiguously
-      mutating the source.
+- [x] Define export as a stable backup copied to a private staging path,
+      checkpointed there, and published without mutating the source.
+- [x] Define committed WAL reconciliation as recovery plus WAL truncation on
+      the staging copy only.
 - [ ] Define destination replacement, fsync, rename, and directory durability
       guarantees for supported filesystems.
 
+The current API refuses an existing destination, publishes the validated
+single file with rename, and does not promise directory fsync durability. It
+does not require the source handle to be closed; source changes that prevent a
+stable pair are reported through the existing structured `FileBusy` error.
+
 ### Implementation
 
-- [ ] Add a library-level export operation returning a structured
+- [x] Add a library-level export operation returning a structured
       `PortableExportReport`.
-- [ ] Reconcile all committed WAL frames into the destination main file.
-- [ ] Ensure the successful destination requires no WAL sidecar.
-- [ ] Verify the destination header, pages, overflow chains, and B+ tree before
+- [x] Reconcile all committed WAL frames into the staging main file.
+- [x] Ensure the successful destination requires no WAL sidecar.
+- [x] Verify the destination header, pages, overflow chains, and B+ tree before
       publishing the final path.
-- [ ] Report blocking readers/writers or unreconciled WAL as structured failure.
-- [ ] Preserve the source database and sidecar state unless the API explicitly
-      documents a source checkpoint operation.
-- [ ] Test failure cleanup and destination non-replacement.
+- [x] Report source instability or unreconciled WAL as structured failure.
+- [x] Preserve the source database and sidecar state; export never checkpoints
+      the source.
+- [x] Test failure cleanup and destination non-replacement.
 
 ### Acceptance Criteria
 
-- [ ] The exported file can be copied alone to a new directory and opened.
-- [ ] All committed keys and hashes match the source logical state.
-- [ ] Verification succeeds with every source-side sidecar hidden or removed.
-- [ ] Success never requires an undocumented companion file.
+- [x] The exported file can be copied alone to a new directory and opened.
+- [x] All committed keys and hashes match the source logical state.
+- [x] Verification succeeds with every source-side sidecar hidden or removed.
+- [x] Success never requires an undocumented companion file.
 - [ ] WAL reconciliation failure is explicit and leaves no published partial
       artifact.
 
@@ -289,11 +304,12 @@ cargo test -p tosumu-cli backup
 
 ### Implementation
 
-- [ ] Inventory public core inspection reports versus CLI-only payload shaping.
-- [ ] Define one stable incubation-level Rust report for header, WAL, page,
-      overflow, and B+ tree verification observations.
-- [ ] Keep reportable findings separate from fatal inspection failures.
-- [ ] Give findings stable codes/categories; descriptions remain supplemental.
+- [x] Inventory public core inspection reports versus CLI-only payload shaping.
+- [x] Define one stable incubation-level Rust report for header, WAL, page, and
+      B+ tree verification observations.
+- [x] Keep reportable findings separate from fatal inspection failures.
+- [x] Give page and B+ tree findings stable typed categories; descriptions
+      remain supplemental.
 - [ ] Preserve distinctions for corrupt page, corrupt overflow chain,
       unsupported format, wrong key, file busy, and incomplete B+ tree checks.
 - [ ] Refactor CLI JSON rendering to consume the same core observations where
@@ -302,9 +318,9 @@ cargo test -p tosumu-cli backup
 
 ### Acceptance Criteria
 
-- [ ] Tokimu can render storage diagnostics from structured core reports.
-- [ ] No consumer must import `Pager` or scrape CLI/human-readable output.
-- [ ] Findings and fatal failures are distinct in types and status.
+- [x] Tokimu can render storage diagnostics from structured core reports.
+- [x] No consumer must import `Pager` or scrape CLI/human-readable output.
+- [x] Findings and fatal failures are distinct in types and status.
 - [ ] Portable artifact verification exercises physical format, pages,
       overflow, and B+ tree validity.
 
@@ -312,46 +328,64 @@ cargo test -p tosumu-cli backup
 
 ### Checklist
 
-- [ ] Document that Tosumu `format_version` governs physical storage only.
-- [ ] Document that Tokimu owns `.tasset` schema and adapter codec versions.
-- [ ] Preserve explicit unsupported physical-version rejection.
-- [ ] Add no automatic physical migration to open paths.
-- [ ] Expose validated physical version/header information through the admitted
+- [x] Document that Tosumu `format_version` governs physical storage only.
+- [x] Document that Tokimu owns `.tasset` schema and adapter codec versions.
+- [x] Preserve explicit unsupported physical-version rejection.
+- [x] Add no automatic physical migration to open paths.
+- [x] Expose validated physical version/header information through the admitted
       inspection boundary.
-- [ ] Demonstrate transactionally storing and changing application-owned
+- [x] Demonstrate transactionally storing and changing application-owned
       schema/version records as ordinary values.
-- [ ] Add adapter guidance for mapping physical incompatibility separately from
+- [x] Add adapter guidance for mapping physical incompatibility separately from
       application-schema incompatibility.
 
 ### Acceptance Criteria
 
-- [ ] Physical and application schema incompatibilities are distinct failures.
-- [ ] Tosumu assigns no semantic meaning to `.tasset` schema records.
-- [ ] A newer unsupported physical format remains a structured open/inspect
+- [x] Physical and application schema incompatibilities are distinct failures.
+- [x] Tosumu assigns no semantic meaning to `.tasset` schema records.
+- [x] A newer unsupported physical format remains a structured open/inspect
       error, not an attempted migration.
 
 ## 13. Slice 8: Shared Consumer Fixture and Evidence
 
 ### Checklist
 
-- [ ] Add a deterministic fixture specification under `docs/CRs/Tokimu/`.
-- [ ] Record Tosumu crate version, physical format version, fixture schema
+- [x] Add a deterministic fixture specification under `docs/CRs/Tokimu/`.
+- [x] Record Tosumu crate version, physical format version, fixture schema
       version, keys, payload sizes, and expected hashes.
-- [ ] Add a core integration test that builds the fixture without Tokimu code.
-- [ ] Round-trip create, commit, reopen, verify, stable backup, portable export,
+- [x] Add a core integration test that builds the fixture without Tokimu code.
+- [x] Round-trip create, commit, reopen, verify, stable backup, portable export,
       and independent reopen.
 - [ ] Exercise corruption, wrong-key, newer-format, busy, and identity-isolation
       cases from the CR evidence matrix.
 - [ ] Publish machine-readable fixture metadata if both projects need automated
       comparison.
-- [ ] Update the CR evidence matrix with commands, results, and artifact hashes.
+- [x] Update the CR evidence matrix with commands, results, and artifact hashes.
+
+Current Slice 8 evidence is recorded in
+`docs/CRs/Tokimu/tokimu-001-fixture.md`. The focused command
+`cargo test -p tosumu-core --test provider_boundary
+external_consumer_fixture_round_trips_backup_export_and_verification` passed;
+the exact value hashes are listed in that fixture document. The broader
+provider-boundary run was not counted as complete because the existing 64 MiB
+maximum-value test exceeded the available validation window.
+
+Additional public-boundary tests now verify newer physical-version rejection,
+wrong-key rejection, and identity isolation:
+`external_consumer_gets_structured_error_for_newer_physical_format`,
+`external_consumer_gets_wrong_key_for_encrypted_store`, and
+`external_consumer_keeps_database_identities_isolated`.
+`external_consumer_gets_structured_finding_for_corrupt_page` also verifies a
+typed page-auth finding through embedded verification. Distinct overflow-chain
+findings remain deferred because the current embedded report does not expose
+that category.
 
 ### Acceptance Criteria
 
-- [ ] Tosumu runs the fixture using only core public APIs.
+- [x] Tosumu runs the fixture using only core public APIs.
 - [ ] Tokimu can reproduce equivalent logical observations through its adapter.
-- [ ] Matching keys, values, versions, and hashes establish the shared boundary.
-- [ ] The fixture proves backup and portable export are different guarantees.
+- [x] Matching keys, values, versions, and hashes establish the shared boundary.
+- [x] The fixture proves backup and portable export are different guarantees.
 - [ ] Every CR evidence-matrix row is passed or explicitly deferred with owner
       and rationale.
 

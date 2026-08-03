@@ -131,8 +131,16 @@ impl BTree {
     /// Look up `key`. Returns `Some(value)` if found and live, `None` otherwise.
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let leaf_pgno = self.find_leaf(key)?;
-        self.pager
-            .with_page(leaf_pgno, |page| leaf_get(page, leaf_pgno, key))
+        let value = self
+            .pager
+            .with_page(leaf_pgno, |page| leaf_get(page, leaf_pgno, key))?;
+        match value {
+            Some(LeafValue::Inline(value)) => Ok(Some(value)),
+            Some(LeafValue::Overflow { head, length }) => {
+                Ok(Some(self.read_overflow_chain(head, length)?))
+            }
+            None => Ok(None),
+        }
     }
 
     /// Insert or update `key` → `value`.
@@ -145,12 +153,29 @@ impl BTree {
                 "key exceeds u16 maximum length",
             ));
         }
-        if value.len() > u16::MAX as usize {
-            return Err(TosumuError::InvalidArgument(
-                "value exceeds u16 maximum length",
-            ));
+        if value.len() > MAX_VALUE_SIZE {
+            return Err(TosumuError::ValueTooLarge {
+                actual: value.len() as u64,
+                maximum: MAX_VALUE_SIZE as u64,
+            });
         }
-        let record = encode_live(key, value);
+        let leaf_pgno = self.find_leaf(key)?;
+        let previous_overflow = self.pager.with_page(leaf_pgno, |page| {
+            Ok(match leaf_get(page, leaf_pgno, key)? {
+                Some(LeafValue::Overflow { head, length }) => Some((head, length)),
+                _ => None,
+            })
+        })?;
+        let record = if key
+            .len()
+            .checked_add(value.len())
+            .map_or(true, |size| size > RECORD_MAX_KV)
+        {
+            let head = self.allocate_overflow_chain(value)?;
+            encode_overflow(key, value.len(), head)
+        } else {
+            encode_live(key, value)
+        };
         let root = self.pager.root_page();
         if let Some((promoted_key, new_pgno)) = self.insert_record(root, key, &record)? {
             // Root split — allocate a new root internal page.
@@ -161,6 +186,9 @@ impl BTree {
                 internal_slot_insert_sorted(page, &promoted_key, new_pgno)
             })?;
             self.pager.set_root_page(new_root)?;
+        }
+        if let Some((head, length)) = previous_overflow {
+            self.free_overflow_chain(head, length)?;
         }
         Ok(())
     }
@@ -173,12 +201,17 @@ impl BTree {
         let leaf_pgno = self.find_leaf(key)?;
 
         // Check the key is actually present.
-        let exists = self.pager.with_page(leaf_pgno, |page| {
-            Ok(leaf_get(page, leaf_pgno, key)?.is_some())
-        })?;
-        if !exists {
+        let previous = self
+            .pager
+            .with_page(leaf_pgno, |page| leaf_get(page, leaf_pgno, key))?;
+        if previous.is_none() {
             return Ok(());
         }
+        let previous_overflow = match previous {
+            Some(LeafValue::Overflow { head, length }) => Some((head, length)),
+            Some(LeafValue::Inline(_)) => None,
+            None => unreachable!(),
+        };
 
         let tomb = encode_tombstone(key);
         let needed = SLOT_SIZE + tomb.len();
@@ -188,18 +221,22 @@ impl BTree {
 
         if fits {
             self.pager
-                .with_page_mut(leaf_pgno, |page| leaf_slot_append(page, &tomb))
+                .with_page_mut(leaf_pgno, |page| leaf_slot_append(page, &tomb))?;
         } else {
             // Compact: rewrite leaf without the deleted key.
             let (mut live, next) = self.pager.with_page(leaf_pgno, |page| {
-                let live = leaf_read_all_live(page);
+                let live = leaf_read_all_refs(page);
                 let next = read_u64(page, HDR_LEFTMOST);
                 Ok((live, next))
             })?;
             live.retain(|(k, _)| k.as_slice() != key);
             self.pager
-                .with_page_mut(leaf_pgno, |page| leaf_rewrite(page, next, &live))
+                .with_page_mut(leaf_pgno, |page| leaf_rewrite_refs(page, next, &live))?;
         }
+        if let Some((head, length)) = previous_overflow {
+            self.free_overflow_chain(head, length)?;
+        }
+        Ok(())
     }
 
     // ── Range scan ───────────────────────────────────────────────────────────
@@ -218,18 +255,24 @@ impl BTree {
 
         loop {
             let (pairs, next) = self.pager.with_page(cursor, |page| {
-                Ok((leaf_read_all_live(page), read_u64(page, HDR_LEFTMOST)))
+                Ok((leaf_read_all_refs(page), read_u64(page, HDR_LEFTMOST)))
             })?;
-            // pairs is sorted by key (BTreeMap iteration order from leaf_read_all_live).
+            // pairs is sorted by key (BTreeMap iteration order from leaf_read_all_refs).
             // Insert in-range entries; stop scanning at the first key beyond `end`.
             let mut past_end = false;
-            for (k, v) in pairs {
+            for (k, value) in pairs {
                 if k.as_slice() > end {
                     past_end = true;
                     break;
                 }
                 if k.as_slice() >= start {
-                    results.insert(k, v);
+                    let value = match value {
+                        LeafValue::Inline(value) => value,
+                        LeafValue::Overflow { head, length } => {
+                            self.read_overflow_chain(head, length)?
+                        }
+                    };
+                    results.insert(k, value);
                 }
             }
             if next == 0 || past_end {
@@ -251,7 +294,7 @@ impl BTree {
     /// assumption.  If page reuse / compaction is added in future stages, this
     /// scan must be revisited.
     pub fn scan_physical(&self) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        let mut map: std::collections::BTreeMap<Vec<u8>, Option<Vec<u8>>> = Default::default();
+        let mut map: std::collections::BTreeMap<Vec<u8>, Option<LeafValue>> = Default::default();
         for pgno in 1..self.pager.page_count() {
             self.pager.with_page(pgno, |page| {
                 match page[HDR_PAGE_TYPE] {
@@ -289,7 +332,16 @@ impl BTree {
                             if 5 + kl + vl == rec.len() {
                                 let k = rec[5..5 + kl].to_vec();
                                 let v = rec[5 + kl..5 + kl + vl].to_vec();
-                                map.insert(k, Some(v));
+                                map.insert(k, Some(LeafValue::Inline(v)));
+                            }
+                        }
+                        RECORD_OVERFLOW if rec.len() >= 19 => {
+                            let kl = u16::from_le_bytes([rec[1], rec[2]]) as usize;
+                            let length = u64::from_le_bytes(rec[3..11].try_into().unwrap());
+                            let head = u64::from_le_bytes(rec[11..19].try_into().unwrap());
+                            if 19 + kl == rec.len() {
+                                let k = rec[19..19 + kl].to_vec();
+                                map.insert(k, Some(LeafValue::Overflow { head, length }));
                             }
                         }
                         RECORD_TOMBSTONE if rec.len() >= 3 => {
@@ -305,15 +357,127 @@ impl BTree {
                 Ok(())
             })?;
         }
-        Ok(map
-            .into_iter()
-            .filter_map(|(k, v)| v.map(|val| (k, val)))
-            .collect())
+        map.into_iter()
+            .filter_map(|(key, value)| match value {
+                Some(LeafValue::Inline(value)) => Some(Ok((key, value))),
+                Some(LeafValue::Overflow { head, length }) => {
+                    Some(self.read_overflow_chain(head, length).map(|value| (key, value)))
+                }
+                None => None,
+            })
+            .collect()
     }
 
     /// Return the current page count (header page + data pages).
     pub fn page_count(&self) -> u64 {
         self.pager.page_count()
+    }
+
+    fn allocate_overflow_chain(&mut self, value: &[u8]) -> Result<u64> {
+        let page_count = value.len().div_ceil(OVERFLOW_PAYLOAD_SIZE);
+        let mut pages = Vec::with_capacity(page_count);
+        for _ in 0..page_count {
+            pages.push(self.pager.allocate(PAGE_TYPE_OVERFLOW)?);
+        }
+
+        for (index, pgno) in pages.iter().copied().enumerate() {
+            let next = pages.get(index + 1).copied().unwrap_or(0);
+            let start = index * OVERFLOW_PAYLOAD_SIZE;
+            let end = (start + OVERFLOW_PAYLOAD_SIZE).min(value.len());
+            self.pager.with_page_mut(pgno, |page| {
+                write_u64(page, HDR_LEFTMOST, next);
+                page[PAGE_HEADER_SIZE..PAGE_HEADER_SIZE + end - start]
+                    .copy_from_slice(&value[start..end]);
+                Ok(())
+            })?;
+        }
+        Ok(pages[0])
+    }
+
+    fn read_overflow_chain(&self, head: u64, length: u64) -> Result<Vec<u8>> {
+        let length = usize::try_from(length).map_err(|_| TosumuError::OverflowChainCorrupt {
+            pgno: head,
+            length,
+            reason: "overflow logical length does not fit usize",
+        })?;
+        if length > MAX_VALUE_SIZE {
+            return Err(TosumuError::OverflowChainCorrupt {
+                pgno: head,
+                length: length as u64,
+                reason: "overflow logical length exceeds maximum",
+            });
+        }
+
+        let expected_pages = length.div_ceil(OVERFLOW_PAYLOAD_SIZE);
+        let mut value = Vec::with_capacity(length);
+        let mut current = head;
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..expected_pages {
+            if current == 0 || !seen.insert(current) {
+                return Err(TosumuError::OverflowChainCorrupt {
+                    pgno: current,
+                    length: length as u64,
+                    reason: "overflow chain is missing or cyclic",
+                });
+            }
+            let (next, payload) = self.pager.with_page(current, |page| {
+                if page[HDR_PAGE_TYPE] != PAGE_TYPE_OVERFLOW {
+                    return Err(TosumuError::OverflowChainCorrupt {
+                        pgno: current,
+                        length: length as u64,
+                        reason: "overflow chain references a non-overflow page",
+                    });
+                }
+                let remaining = length - value.len();
+                let count = remaining.min(OVERFLOW_PAYLOAD_SIZE);
+                Ok((read_u64(page, HDR_LEFTMOST), page[PAGE_HEADER_SIZE..PAGE_HEADER_SIZE + count].to_vec()))
+            })?;
+            value.extend_from_slice(&payload);
+            current = next;
+        }
+
+        if value.len() != length || current != 0 {
+            return Err(TosumuError::OverflowChainCorrupt {
+                pgno: current,
+                length: length as u64,
+                reason: "overflow chain length or termination mismatch",
+            });
+        }
+        Ok(value)
+    }
+
+    fn free_overflow_chain(&mut self, head: u64, length: u64) -> Result<()> {
+        let expected_pages = usize::try_from(length)
+            .map_err(|_| TosumuError::OverflowChainCorrupt {
+                pgno: head,
+                length,
+                reason: "overflow logical length does not fit usize",
+            })?
+            .div_ceil(OVERFLOW_PAYLOAD_SIZE);
+        let mut current = head;
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..expected_pages {
+            if current == 0 || !seen.insert(current) {
+                return Err(TosumuError::OverflowChainCorrupt {
+                    pgno: current,
+                    length,
+                    reason: "overflow chain is missing or cyclic",
+                });
+            }
+            let next = self
+                .pager
+                .with_page(current, |page| Ok(read_u64(page, HDR_LEFTMOST)))?;
+            self.pager.release_page(current)?;
+            current = next;
+        }
+        if current != 0 {
+            return Err(TosumuError::OverflowChainCorrupt {
+                pgno: current,
+                length,
+                reason: "overflow chain has extra segments",
+            });
+        }
+        Ok(())
     }
 
     /// Return the root page number.
@@ -477,7 +641,7 @@ impl BTree {
     ) -> Result<Option<(Vec<u8>, u64)>> {
         // Collect all live records from the old leaf (LWW-deduplicated).
         let (mut records, old_next) = self.pager.with_page(pgno, |page| {
-            Ok((leaf_read_all_live(page), read_u64(page, HDR_LEFTMOST)))
+            Ok((leaf_read_all_refs(page), read_u64(page, HDR_LEFTMOST)))
         })?;
 
         // Insert new record in key-sorted position (replacing existing key if present).
@@ -486,20 +650,16 @@ impl BTree {
         let pos = records.partition_point(|(k, _)| k.as_slice() < sort_key);
 
         // Decode the new record to extract value for the records list.
-        match new_record[0] {
-            RECORD_LIVE if new_record.len() >= 5 => {
-                let kl = u16::from_le_bytes([new_record[1], new_record[2]]) as usize;
-                let vl = u16::from_le_bytes([new_record[3], new_record[4]]) as usize;
-                if 5 + kl + vl == new_record.len() {
-                    let v = new_record[5 + kl..5 + kl + vl].to_vec();
-                    records.insert(pos, (sort_key_vec, v));
-                }
-            }
-            RECORD_TOMBSTONE => {
+        match decode_leaf_record(new_record) {
+            Some((_, value)) => records.insert(pos, (sort_key_vec, value)),
+            None if new_record.first() == Some(&RECORD_TOMBSTONE) => {
                 // Tombstone on a full page: key was already removed by retain above.
                 // Just rewrite without it.
             }
-            _ => {}
+            None => return Err(TosumuError::Corrupt {
+                pgno,
+                reason: "invalid record during leaf split",
+            }),
         }
 
         if records.is_empty() {
@@ -516,12 +676,12 @@ impl BTree {
         let new_pgno = self.pager.allocate(PAGE_TYPE_LEAF)?;
         let right: Vec<_> = records[mid..].to_vec();
         self.pager
-            .with_page_mut(new_pgno, |page| leaf_rewrite(page, old_next, &right))?;
+            .with_page_mut(new_pgno, |page| leaf_rewrite_refs(page, old_next, &right))?;
 
         // Rewrite left half into old page; link it to new leaf.
         let left: Vec<_> = records[..mid].to_vec();
         self.pager
-            .with_page_mut(pgno, |page| leaf_rewrite(page, new_pgno, &left))?;
+            .with_page_mut(pgno, |page| leaf_rewrite_refs(page, new_pgno, &left))?;
 
         Ok(Some((split_key, new_pgno)))
     }
@@ -629,13 +789,13 @@ impl BTree {
             PAGE_TYPE_LEAF => {
                 let live_keys = self.pager.with_page(pgno, |page| {
                     inv_check_slots(page, pgno)?;
-                    let keys: Vec<Vec<u8>> = leaf_read_all_live(page)
+                    let keys: Vec<Vec<u8>> = leaf_read_all_refs(page)
                         .into_iter()
                         .map(|(k, _)| k)
                         .collect();
                     Ok(keys)
                 })?;
-                // leaf_read_all_live uses BTreeMap so keys emerge sorted.
+                // leaf_read_all_refs uses BTreeMap so keys emerge sorted.
                 // Verify explicitly for the invariant record.
                 for i in 1..live_keys.len() {
                     if live_keys[i] <= live_keys[i - 1] {
@@ -782,7 +942,7 @@ impl BTree {
                         reason: "non-leaf page encountered in leaf chain",
                     });
                 }
-                let keys: Vec<Vec<u8>> = leaf_read_all_live(page)
+                let keys: Vec<Vec<u8>> = leaf_read_all_refs(page)
                     .into_iter()
                     .map(|(k, _)| k)
                     .collect();
@@ -920,9 +1080,15 @@ fn internal_slot_insert_sorted(
 /// Return the most recent live value for `key` in a leaf page, or `Ok(None)` if absent.
 ///
 /// Returns `Err(Corrupt)` if any slot has an out-of-bounds offset or length.
-fn leaf_get(page: &[u8; PAGE_PLAINTEXT_SIZE], pgno: u64, key: &[u8]) -> Result<Option<Vec<u8>>> {
+#[derive(Clone)]
+enum LeafValue {
+    Inline(Vec<u8>),
+    Overflow { head: u64, length: u64 },
+}
+
+fn leaf_get(page: &[u8; PAGE_PLAINTEXT_SIZE], pgno: u64, key: &[u8]) -> Result<Option<LeafValue>> {
     let slot_count = read_u16(page, HDR_SLOT_COUNT) as usize;
-    let mut result: Option<Option<Vec<u8>>> = None;
+    let mut result: Option<Option<LeafValue>> = None;
 
     for i in 0..slot_count {
         let slot_pos = PAGE_HEADER_SIZE + i * SLOT_SIZE;
@@ -943,7 +1109,15 @@ fn leaf_get(page: &[u8; PAGE_PLAINTEXT_SIZE], pgno: u64, key: &[u8]) -> Result<O
                 let kl = u16::from_le_bytes([rec[1], rec[2]]) as usize;
                 let vl = u16::from_le_bytes([rec[3], rec[4]]) as usize;
                 if 5 + kl + vl == rec.len() && &rec[5..5 + kl] == key {
-                    result = Some(Some(rec[5 + kl..5 + kl + vl].to_vec()));
+                    result = Some(Some(LeafValue::Inline(rec[5 + kl..5 + kl + vl].to_vec())));
+                }
+            }
+            RECORD_OVERFLOW if rec.len() >= 19 => {
+                let kl = u16::from_le_bytes([rec[1], rec[2]]) as usize;
+                let length = u64::from_le_bytes(rec[3..11].try_into().unwrap());
+                let head = u64::from_le_bytes(rec[11..19].try_into().unwrap());
+                if 19 + kl == rec.len() && &rec[19..19 + kl] == key {
+                    result = Some(Some(LeafValue::Overflow { head, length }));
                 }
             }
             RECORD_TOMBSTONE if rec.len() >= 3 => {
@@ -958,10 +1132,41 @@ fn leaf_get(page: &[u8; PAGE_PLAINTEXT_SIZE], pgno: u64, key: &[u8]) -> Result<O
     Ok(result.flatten())
 }
 
-/// Read all live (key, value) pairs from a leaf, applying last-write-wins semantics.
-fn leaf_read_all_live(page: &[u8; PAGE_PLAINTEXT_SIZE]) -> Vec<(Vec<u8>, Vec<u8>)> {
+fn decode_leaf_record(record: &[u8]) -> Option<(Vec<u8>, LeafValue)> {
+    match record.first().copied()? {
+        RECORD_LIVE if record.len() >= 5 => {
+            let key_len = u16::from_le_bytes([record[1], record[2]]) as usize;
+            let value_len = u16::from_le_bytes([record[3], record[4]]) as usize;
+            if 5 + key_len + value_len != record.len() {
+                return None;
+            }
+            Some((
+                record[5..5 + key_len].to_vec(),
+                LeafValue::Inline(record[5 + key_len..].to_vec()),
+            ))
+        }
+        RECORD_OVERFLOW if record.len() >= 19 => {
+            let key_len = u16::from_le_bytes([record[1], record[2]]) as usize;
+            if 19 + key_len != record.len() {
+                return None;
+            }
+            Some((
+                record[19..].to_vec(),
+                LeafValue::Overflow {
+                    head: u64::from_le_bytes(record[11..19].try_into().ok()?),
+                    length: u64::from_le_bytes(record[3..11].try_into().ok()?),
+                },
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn leaf_read_all_refs(
+    page: &[u8; PAGE_PLAINTEXT_SIZE],
+) -> Vec<(Vec<u8>, LeafValue)> {
     let slot_count = read_u16(page, HDR_SLOT_COUNT) as usize;
-    let mut map: std::collections::BTreeMap<Vec<u8>, Option<Vec<u8>>> = Default::default();
+    let mut map: std::collections::BTreeMap<Vec<u8>, Option<LeafValue>> = Default::default();
 
     for i in 0..slot_count {
         let slot_pos = PAGE_HEADER_SIZE + i * SLOT_SIZE;
@@ -970,32 +1175,19 @@ fn leaf_read_all_live(page: &[u8; PAGE_PLAINTEXT_SIZE]) -> Vec<(Vec<u8>, Vec<u8>
         if off + len > PAGE_PLAINTEXT_SIZE {
             continue;
         }
-        let rec = &page[off..off + len];
-        if rec.is_empty() {
-            continue;
-        }
-        match rec[0] {
-            RECORD_LIVE if rec.len() >= 5 => {
-                let kl = u16::from_le_bytes([rec[1], rec[2]]) as usize;
-                let vl = u16::from_le_bytes([rec[3], rec[4]]) as usize;
-                if 5 + kl + vl == rec.len() {
-                    let k = rec[5..5 + kl].to_vec();
-                    let v = rec[5 + kl..5 + kl + vl].to_vec();
-                    map.insert(k, Some(v));
-                }
+        let record = &page[off..off + len];
+        if let Some((key, value)) = decode_leaf_record(record) {
+            map.insert(key, Some(value));
+        } else if record.first() == Some(&RECORD_TOMBSTONE) && record.len() >= 3 {
+            let key_len = u16::from_le_bytes([record[1], record[2]]) as usize;
+            if 3 + key_len == record.len() {
+                map.insert(record[3..].to_vec(), None);
             }
-            RECORD_TOMBSTONE if rec.len() >= 3 => {
-                let kl = u16::from_le_bytes([rec[1], rec[2]]) as usize;
-                if 3 + kl == rec.len() {
-                    let k = rec[3..3 + kl].to_vec();
-                    map.insert(k, None);
-                }
-            }
-            _ => {}
         }
     }
+
     map.into_iter()
-        .filter_map(|(k, v)| v.map(|val| (k, val)))
+        .filter_map(|(key, value)| value.map(|value| (key, value)))
         .collect()
 }
 
@@ -1023,13 +1215,10 @@ fn leaf_slot_append(page: &mut [u8; PAGE_PLAINTEXT_SIZE], record: &[u8]) -> Resu
     Ok(())
 }
 
-/// Clear a leaf page and rewrite it with the given live records.
-///
-/// `next` is the new value for HDR_LEFTMOST (leaf-chain pointer).
-fn leaf_rewrite(
+fn leaf_rewrite_refs(
     page: &mut [u8; PAGE_PLAINTEXT_SIZE],
     next: u64,
-    records: &[(Vec<u8>, Vec<u8>)],
+    records: &[(Vec<u8>, LeafValue)],
 ) -> Result<()> {
     *page = [0u8; PAGE_PLAINTEXT_SIZE];
     page[HDR_PAGE_TYPE] = PAGE_TYPE_LEAF;
@@ -1037,9 +1226,12 @@ fn leaf_rewrite(
     write_u16(page, HDR_FREE_START, PAGE_HEADER_SIZE as u16);
     write_u16(page, HDR_FREE_END, PAGE_PLAINTEXT_SIZE as u16);
     write_u64(page, HDR_LEFTMOST, next);
-    for (k, v) in records {
-        let rec = encode_live(k, v);
-        leaf_slot_append(page, &rec)?;
+    for (key, value) in records {
+        let record = match value {
+            LeafValue::Inline(value) => encode_live(key, value),
+            LeafValue::Overflow { head, length } => encode_overflow(key, *length as usize, *head),
+        };
+        leaf_slot_append(page, &record)?;
     }
     Ok(())
 }
@@ -1115,6 +1307,16 @@ fn encode_live(key: &[u8], value: &[u8]) -> Vec<u8> {
     r
 }
 
+fn encode_overflow(key: &[u8], length: usize, head: u64) -> Vec<u8> {
+    let mut r = Vec::with_capacity(19 + key.len());
+    r.push(RECORD_OVERFLOW);
+    r.extend_from_slice(&(key.len() as u16).to_le_bytes());
+    r.extend_from_slice(&(length as u64).to_le_bytes());
+    r.extend_from_slice(&head.to_le_bytes());
+    r.extend_from_slice(key);
+    r
+}
+
 fn encode_tombstone(key: &[u8]) -> Vec<u8> {
     let mut r = Vec::with_capacity(3 + key.len());
     r.push(RECORD_TOMBSTONE);
@@ -1128,6 +1330,7 @@ fn encode_tombstone(key: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::codes;
     use std::path::PathBuf;
 
     fn tmp(name: &str) -> PathBuf {
@@ -1190,6 +1393,48 @@ mod tests {
         t.put(b"k", b"v1").unwrap();
         t.put(b"k", b"v2").unwrap();
         assert_eq!(t.get(b"k").unwrap(), Some(b"v2".to_vec()));
+
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn overflow_chain_corruption_is_structured() {
+        let p = tmp("overflow_corruption");
+        let _ = std::fs::remove_file(&p);
+
+        let mut tree = BTree::create(&p).unwrap();
+        let payload = vec![7u8; OVERFLOW_PAYLOAD_SIZE * 2];
+        let head = tree.allocate_overflow_chain(&payload).unwrap();
+        tree.pager
+            .with_page_mut(head, |page| {
+                write_u64(page, HDR_LEFTMOST, head);
+                Ok(())
+            })
+            .unwrap();
+
+        let error = tree
+            .read_overflow_chain(head, payload.len() as u64)
+            .unwrap_err();
+        assert!(matches!(error, TosumuError::OverflowChainCorrupt { .. }));
+        assert_eq!(error.error_report().code, codes::OVERFLOW_CHAIN_CORRUPT);
+        assert_eq!(error.error_report().detail_u64("length"), Some(payload.len() as u64));
+
+        let missing = tree.read_overflow_chain(0, 1).unwrap_err();
+        assert_eq!(missing.error_report().code, codes::OVERFLOW_CHAIN_CORRUPT);
+
+        let truncated_head = tree
+            .allocate_overflow_chain(&vec![9u8; OVERFLOW_PAYLOAD_SIZE])
+            .unwrap();
+        let truncated = tree
+            .read_overflow_chain(truncated_head, (OVERFLOW_PAYLOAD_SIZE * 2) as u64)
+            .unwrap_err();
+        assert_eq!(truncated.error_report().code, codes::OVERFLOW_CHAIN_CORRUPT);
+
+        let extra_head = tree.allocate_overflow_chain(&payload).unwrap();
+        let extra = tree
+            .read_overflow_chain(extra_head, OVERFLOW_PAYLOAD_SIZE as u64)
+            .unwrap_err();
+        assert_eq!(extra.error_report().code, codes::OVERFLOW_CHAIN_CORRUPT);
 
         let _ = std::fs::remove_file(&p);
     }

@@ -10,6 +10,7 @@ use std::path::Path;
 
 use crate::error::{Result, TosumuError};
 use crate::format::*;
+use crate::btree::BTree;
 use crate::pager::Pager;
 use crate::wal::{wal_path, WalReader, WalRecord};
 
@@ -155,6 +156,30 @@ pub enum WalRecordSummaryKind {
     Checkpoint { up_to_lsn: u64 },
 }
 
+/// Whether recovery would replay or discard a parsed WAL transaction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecoveryDisposition {
+    /// The transaction has a valid commit record and will be replayed.
+    ReplayCommitted,
+    /// The transaction has no commit record and will be discarded.
+    DiscardUncommitted,
+}
+
+/// Structured observation of one WAL transaction relevant to recovery.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecoveryTransactionSummary {
+    pub txn_id: u64,
+    pub page_writes: u64,
+    pub disposition: RecoveryDisposition,
+}
+
+/// Structured recovery observations derived from the WAL without mutating it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecoverySummary {
+    pub wal_exists: bool,
+    pub transactions: Vec<RecoveryTransactionSummary>,
+}
+
 pub struct TreeNodeSummary {
     pub pgno: u64,
     pub page_version: u64,
@@ -222,6 +247,51 @@ pub fn inspect_wal(path: &Path) -> Result<WalSummary> {
         wal_exists: true,
         wal_path: wal.display().to_string(),
         records,
+    })
+}
+
+/// Classify WAL transactions as committed work to replay or uncommitted work
+/// to discard. This is an observation only; it does not apply or truncate WAL.
+pub fn inspect_recovery(path: &Path) -> Result<RecoverySummary> {
+    let wal = inspect_wal(path)?;
+    let mut transactions = Vec::new();
+    let mut current: Option<RecoveryTransactionSummary> = None;
+
+    for record in wal.records {
+        match record.kind {
+            WalRecordSummaryKind::Begin { txn_id } => {
+                if let Some(previous) = current.take() {
+                    transactions.push(previous);
+                }
+                current = Some(RecoveryTransactionSummary {
+                    txn_id,
+                    page_writes: 0,
+                    disposition: RecoveryDisposition::DiscardUncommitted,
+                });
+            }
+            WalRecordSummaryKind::PageWrite { .. } => {
+                if let Some(transaction) = current.as_mut() {
+                    transaction.page_writes += 1;
+                }
+            }
+            WalRecordSummaryKind::Commit { txn_id } => {
+                if let Some(mut transaction) = current.take() {
+                    transaction.txn_id = txn_id;
+                    transaction.disposition = RecoveryDisposition::ReplayCommitted;
+                    transactions.push(transaction);
+                }
+            }
+            WalRecordSummaryKind::Checkpoint { .. } => {}
+        }
+    }
+
+    if let Some(transaction) = current {
+        transactions.push(transaction);
+    }
+
+    Ok(RecoverySummary {
+        wal_exists: wal.wal_exists,
+        transactions,
     })
 }
 
@@ -557,6 +627,32 @@ pub struct VerifyReport {
     pub page_results: Vec<PageVerifyResult>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BTreeVerificationIssueKind {
+    Invalid,
+    Incomplete,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BTreeVerificationIssue {
+    pub kind: BTreeVerificationIssueKind,
+    pub description: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BTreeVerification {
+    pub checked: bool,
+    pub ok: bool,
+    pub issue: Option<BTreeVerificationIssue>,
+}
+
+pub struct VerificationReport {
+    pub header: HeaderInfo,
+    pub recovery: RecoverySummary,
+    pub pages: VerifyReport,
+    pub btree: BTreeVerification,
+}
+
 /// Open `path` and authenticate every data page (1..page_count).
 ///
 /// Does not short-circuit on first error — all pages are checked and all
@@ -565,6 +661,48 @@ pub struct VerifyReport {
 pub fn verify_file(path: &Path) -> Result<VerifyReport> {
     let pager = Pager::open_readonly(path)?;
     verify_pager(&pager)
+}
+
+/// Produce one structured verification snapshot without exposing storage
+/// implementation types to consumers.
+pub fn inspect_verification(path: &Path) -> Result<VerificationReport> {
+    let header = read_header_info(path)?;
+    let recovery = inspect_recovery(path)?;
+    let pager = Pager::open_readonly(path)?;
+    let pages = verify_pager(&pager)?;
+    let btree = if pages.issues.is_empty() {
+        match BTree::open_readonly(path).and_then(|tree| tree.check_invariants()) {
+            Ok(()) => BTreeVerification {
+                checked: true,
+                ok: true,
+                issue: None,
+            },
+            Err(error) => BTreeVerification {
+                checked: true,
+                ok: false,
+                issue: Some(BTreeVerificationIssue {
+                    kind: BTreeVerificationIssueKind::Invalid,
+                    description: error.to_string(),
+                }),
+            },
+        }
+    } else {
+        BTreeVerification {
+            checked: false,
+            ok: false,
+            issue: Some(BTreeVerificationIssue {
+                kind: BTreeVerificationIssueKind::Incomplete,
+                description: "skipped because page integrity issues were found".to_owned(),
+            }),
+        }
+    };
+
+    Ok(VerificationReport {
+        header,
+        recovery,
+        pages,
+        btree,
+    })
 }
 
 /// Authenticate every data page through an already-open pager.
@@ -646,10 +784,69 @@ pub fn verify_pager(pager: &Pager) -> Result<VerifyReport> {
 
 #[cfg(test)]
 mod tests {
-    use super::inspect_tree_node_from_pager;
+    use super::{
+        inspect_recovery, inspect_tree_node_from_pager, inspect_verification, RecoveryDisposition,
+    };
     use crate::error::TosumuError;
+    use crate::format::{FORMAT_VERSION, OFF_FORMAT_VERSION};
     use crate::page_store::PageStore;
     use crate::pager::Pager;
+    use crate::wal::{wal_path, WalRecord, WalWriter};
+
+    #[test]
+    fn inspect_verification_returns_structured_core_snapshot() {
+        let path = std::env::temp_dir().join(format!(
+            "tosumu_inspect_verification_{}.tsm",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(wal_path(&path));
+
+        let mut store = PageStore::create(&path).unwrap();
+        store.put(b"asset/manifest", b"schema-v1").unwrap();
+        drop(store);
+
+        let report = inspect_verification(&path).unwrap();
+        assert_eq!(report.header.format_version, 2);
+        assert!(report.recovery.wal_exists);
+        assert_eq!(report.pages.pages_ok, report.pages.pages_checked);
+        assert!(report.btree.checked);
+        assert!(report.btree.ok);
+        assert!(report.btree.issue.is_none());
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(wal_path(&path));
+    }
+
+    #[test]
+    fn inspect_verification_rejects_newer_physical_format_without_migration() {
+        let path = std::env::temp_dir().join(format!(
+            "tosumu_inspect_newer_format_{}.tsm",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(wal_path(&path));
+
+        PageStore::create(&path).unwrap();
+        let mut page0 = std::fs::read(&path).unwrap();
+        page0[OFF_FORMAT_VERSION..OFF_FORMAT_VERSION + 2].copy_from_slice(&3u16.to_le_bytes());
+        std::fs::write(&path, &page0).unwrap();
+
+        let error = match super::inspect_verification(&path) {
+            Ok(_) => panic!("newer physical format must be rejected"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error,
+            TosumuError::NewerFormat {
+                found: 3,
+                supported_max: FORMAT_VERSION
+            }
+        ));
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(wal_path(&path));
+    }
 
     #[test]
     fn inspect_tree_node_out_of_range_is_corrupt() {
@@ -678,5 +875,58 @@ mod tests {
         }
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn inspect_recovery_classifies_committed_and_uncommitted_transactions() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("tosumu_inspect_recovery_{nanos}.tsm"));
+        let wal = wal_path(&path);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&wal);
+        PageStore::create(&path).unwrap();
+        let _ = std::fs::remove_file(&wal);
+
+        let mut writer = WalWriter::create(&wal).unwrap();
+        writer.append(&WalRecord::Begin { txn_id: 11 }).unwrap();
+        writer
+            .append(&WalRecord::PageWrite {
+                pgno: 1,
+                page_version: 2,
+                frame: Box::new([0u8; crate::format::PAGE_SIZE]),
+            })
+            .unwrap();
+        writer.append(&WalRecord::Commit { txn_id: 11 }).unwrap();
+        writer.append(&WalRecord::Begin { txn_id: 12 }).unwrap();
+        writer
+            .append(&WalRecord::PageWrite {
+                pgno: 2,
+                page_version: 3,
+                frame: Box::new([0u8; crate::format::PAGE_SIZE]),
+            })
+            .unwrap();
+        writer.sync().unwrap();
+
+        let summary = inspect_recovery(&path).unwrap();
+        assert!(summary.wal_exists);
+        assert_eq!(summary.transactions.len(), 2);
+        assert_eq!(summary.transactions[0].txn_id, 11);
+        assert_eq!(summary.transactions[0].page_writes, 1);
+        assert_eq!(
+            summary.transactions[0].disposition,
+            RecoveryDisposition::ReplayCommitted
+        );
+        assert_eq!(summary.transactions[1].txn_id, 12);
+        assert_eq!(summary.transactions[1].page_writes, 1);
+        assert_eq!(
+            summary.transactions[1].disposition,
+            RecoveryDisposition::DiscardUncommitted
+        );
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&wal);
     }
 }

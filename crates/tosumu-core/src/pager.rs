@@ -952,8 +952,24 @@ impl Pager {
     /// header flush is deferred until `commit_txn`. Rollback restores `page_count`
     /// and discards the buffered frame — no orphaned pages are written to .tsm.
     ///
-    /// For MVP+1 the freelist is not yet checked; pages grow monotonically.
     pub fn allocate(&mut self, page_type: u8) -> Result<u64> {
+        if self.freelist_head != 0 {
+            let pgno = self.freelist_head;
+            let next = self.with_page(pgno, |page| {
+                if page[PAGE_OFF_TYPE] != PAGE_TYPE_FREE {
+                    return Err(TosumuError::Corrupt {
+                        pgno,
+                        reason: "freelist points to a non-free page",
+                    });
+                }
+                Ok(read_u64(page, PAGE_OFF_LEFTMOST))
+            })?;
+            self.freelist_head = next;
+            self.init_page(pgno, page_type)?;
+            self.flush_header()?;
+            return Ok(pgno);
+        }
+
         let pgno = self.page_count;
         // Write the initialised frame first, so the file is extended before
         // page_count advertises the new page.
@@ -961,6 +977,21 @@ impl Pager {
         self.page_count += 1;
         self.flush_header()?;
         Ok(pgno)
+    }
+
+    /// Release an existing data page onto the persistent freelist.
+    pub(crate) fn release_page(&mut self, pgno: u64) -> Result<()> {
+        if pgno == 0 || pgno >= self.page_count {
+            return Err(TosumuError::InvalidArgument("invalid page number for release"));
+        }
+        self.init_page(pgno, PAGE_TYPE_FREE)?;
+        let previous_head = self.freelist_head;
+        self.with_page_mut(pgno, |page| {
+            write_u64(page, PAGE_OFF_LEFTMOST, previous_head);
+            Ok(())
+        })?;
+        self.freelist_head = pgno;
+        self.flush_header()
     }
 
     /// Initialize a newly allocated page and write it to disk (or buffer in WAL

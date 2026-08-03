@@ -1,6 +1,4 @@
-use std::path::{Path, PathBuf};
-
-use tosumu_core::error::TosumuError;
+use std::path::Path;
 
 use super::inspect::collect_verify_snapshot;
 use crate::error_boundary::CliError;
@@ -239,143 +237,19 @@ fn verify_command_outcome(
 pub(crate) fn cmd_backup(src: &Path, dest: &Path) -> Result<(), CliError> {
     use tosumu_core::wal::wal_path;
 
-    const MAX_BACKUP_ATTEMPTS: u32 = 5;
-
     let dest_wal = wal_path(dest);
     if dest.exists() || dest_wal.exists() {
         return Err(CliError::backup_destination_exists(dest));
     }
 
-    let staged_main = backup_temp_path(dest, "main");
-    let staged_wal = backup_temp_path(&dest_wal, "wal");
-    let probe_main = backup_temp_path(dest, "main-probe");
-    let probe_wal = backup_temp_path(&dest_wal, "wal-probe");
-    let _ = std::fs::remove_file(&staged_main);
-    let _ = std::fs::remove_file(&staged_wal);
-    let _ = std::fs::remove_file(&probe_main);
-    let _ = std::fs::remove_file(&probe_wal);
-
     let src_wal = wal_path(src);
-    let mut copied_wal = false;
-    let mut stable = false;
-
-    for _ in 0..MAX_BACKUP_ATTEMPTS {
-        cleanup_backup_temp(&staged_main, &staged_wal);
-        cleanup_backup_temp(&probe_main, &probe_wal);
-
-        std::fs::copy(src, &staged_main).map_err(TosumuError::Io)?;
-        let copied_wal_a = copy_optional_file(&src_wal, &staged_wal)?;
-
-        std::fs::copy(src, &probe_main).map_err(|e| {
-            cleanup_backup_temp(&staged_main, &staged_wal);
-            TosumuError::Io(e)
-        })?;
-        let copied_wal_b = copy_optional_file(&src_wal, &probe_wal).map_err(|e| {
-            cleanup_backup_temp(&staged_main, &staged_wal);
-            cleanup_backup_temp(&probe_main, &probe_wal);
-            e
-        })?;
-
-        let wal_matches = copied_wal_a == copied_wal_b
-            && (!copied_wal_a || files_equal(&staged_wal, &probe_wal).map_err(TosumuError::Io)?);
-        let main_matches = files_equal(&staged_main, &probe_main).map_err(|e| {
-            cleanup_backup_temp(&staged_main, &staged_wal);
-            cleanup_backup_temp(&probe_main, &probe_wal);
-            TosumuError::Io(e)
-        })?;
-
-        if main_matches && wal_matches {
-            copied_wal = copied_wal_a;
-            stable = true;
-            break;
-        }
-    }
-
-    cleanup_backup_temp(&probe_main, &probe_wal);
-
-    if !stable {
-        cleanup_backup_temp(&staged_main, &staged_wal);
-        return Err(TosumuError::FileBusy {
-            path: src.to_path_buf(),
-            operation: "capturing a stable backup snapshot",
-        }
-        .into());
-    }
-
-    if copied_wal {
-        std::fs::rename(&staged_wal, &dest_wal).map_err(|e| {
-            let _ = std::fs::remove_file(&staged_main);
-            let _ = std::fs::remove_file(&staged_wal);
-            TosumuError::Io(e)
-        })?;
-    }
-
-    std::fs::rename(&staged_main, dest).map_err(|e| {
-        let _ = std::fs::remove_file(&staged_main);
-        if copied_wal {
-            let _ = std::fs::remove_file(&dest_wal);
-        }
-        TosumuError::Io(e)
-    })?;
+    let report = tosumu_core::backup::create_stable_backup(src, dest)?;
 
     println!("backed up {} → {}", src.display(), dest.display());
-    if src_wal.exists() {
+    if report.destination_wal.is_some() {
         println!("backed up {} → {}", src_wal.display(), dest_wal.display());
     }
     Ok(())
-}
-
-fn backup_temp_path(dest: &Path, kind: &str) -> PathBuf {
-    let file_name = dest
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("backup");
-    dest.with_file_name(format!(".{file_name}.{}.{}.tmp", std::process::id(), kind))
-}
-
-fn copy_optional_file(src: &Path, dest: &Path) -> Result<bool, TosumuError> {
-    let _ = std::fs::remove_file(dest);
-    if src.exists() {
-        std::fs::copy(src, dest).map_err(TosumuError::Io)?;
-        Ok(true)
-    } else {
-        Ok(false)
-    }
-}
-
-fn cleanup_backup_temp(main: &Path, wal: &Path) {
-    let _ = std::fs::remove_file(main);
-    let _ = std::fs::remove_file(wal);
-}
-
-fn files_equal(a: &Path, b: &Path) -> std::io::Result<bool> {
-    use std::fs::File;
-    use std::io::Read;
-
-    let meta_a = std::fs::metadata(a)?;
-    let meta_b = std::fs::metadata(b)?;
-    if meta_a.len() != meta_b.len() {
-        return Ok(false);
-    }
-
-    let mut fa = File::open(a)?;
-    let mut fb = File::open(b)?;
-    let mut buf_a = [0u8; 8192];
-    let mut buf_b = [0u8; 8192];
-
-    loop {
-        let read_a = fa.read(&mut buf_a)?;
-        let read_b = fb.read(&mut buf_b)?;
-        if read_a != read_b {
-            return Ok(false);
-        }
-        if read_a == 0 {
-            return Ok(true);
-        }
-        if buf_a[..read_a] != buf_b[..read_b] {
-            return Ok(false);
-        }
-    }
 }
 
 fn fmt_bytes(bytes: &[u8]) -> String {

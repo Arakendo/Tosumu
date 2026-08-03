@@ -181,3 +181,21 @@ Important payload fields:
 - UI shells should not infer extra meaning beyond what the contract states; Rust remains the source of truth for file semantics.
 
 The canonical Rust definition for the current envelope and payloads lives in [crates/tosumu-cli/src/inspect_contract.rs](crates/tosumu-cli/src/inspect_contract.rs).
+
+## Embedded Core Verification
+
+Embedded consumers can call `tosumu_core::inspect::inspect_verification` to
+obtain a structured snapshot without importing `Pager` or `BTree`.
+
+The returned report contains:
+
+- parsed physical header information;
+- WAL recovery observations;
+- per-page authentication and corruption results; and
+- a B-tree verification result with typed `Invalid` or `Incomplete` findings.
+
+Header-level failures remain `TosumuError` results. Reportable page and B-tree
+findings remain in the successful report so callers can distinguish a partial
+verification from an operation that could not produce a snapshot. The current
+API does not yet provide a distinct overflow-chain finding category or an
+unlock-parameter variant for encrypted embedded verification.

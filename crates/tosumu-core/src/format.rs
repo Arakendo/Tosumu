@@ -12,9 +12,9 @@ pub const MAGIC: &[u8; 8] = b"TOSUMUv0";
 pub const MAGIC_LEN: usize = 16;
 
 /// Current format version written by this engine.
-pub const FORMAT_VERSION: u16 = 1;
+pub const FORMAT_VERSION: u16 = 2;
 /// Oldest engine that can open files we write.
-pub const MIN_READER_VERSION: u16 = 1;
+pub const MIN_READER_VERSION: u16 = 2;
 
 // ── Page frame layout (§5.3) ──────────────────────────────────────────────────
 
@@ -55,6 +55,11 @@ pub const PAGE_OFF_LEFTMOST: usize = 14; // u64: dual-purpose:
 /// Available bytes for the slot array + heap combined.
 pub const PAGE_BODY_USABLE: usize = PAGE_PLAINTEXT_SIZE - PAGE_HEADER_SIZE; // 4034
 
+/// Payload bytes available in one overflow page after the common page header.
+pub const OVERFLOW_PAYLOAD_SIZE: usize = PAGE_BODY_USABLE;
+/// Maximum logical value size accepted by the overflow format.
+pub const MAX_VALUE_SIZE: usize = 64 * 1024 * 1024;
+
 /// Maximum live record size (key + value bytes, not including record header).
 /// Records larger than this are rejected with InvalidArgument.
 /// Accounts for: one slot entry (SLOT_SIZE) + record header bytes (5).
@@ -69,6 +74,8 @@ pub const PAGE_TYPE_FREE: u8 = 4;
 // Record type bytes (first byte of each record in the heap).
 pub const RECORD_LIVE: u8 = 0x01;
 pub const RECORD_TOMBSTONE: u8 = 0x02;
+/// Leaf record referencing a core-owned overflow chain.
+pub const RECORD_OVERFLOW: u8 = 0x03;
 
 // ── File header layout (§5.2) ─────────────────────────────────────────────────
 

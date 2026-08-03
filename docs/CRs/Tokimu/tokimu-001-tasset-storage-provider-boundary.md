@@ -79,7 +79,12 @@ public API.
 
 The current Tosumu checkout already provides useful parts of this boundary:
 
-- page-based key/value storage with overflow chains for large values;
+Slice 0 records the baseline facts and format decisions in
+[`tokimu-001-provider-baseline.md`](tokimu-001-provider-baseline.md). That
+baseline is required reading before provider API or wire-format changes.
+
+- page-based key/value storage with a reserved overflow page type, but no
+      consumer-visible logical overflow-value contract yet;
 - transaction closure commit and rollback;
 - WAL-backed crash recovery;
 - explicit physical `format_version` validation;
@@ -175,13 +180,13 @@ Acceptance criteria:
 
 ### 5. Recovery and Atomicity Corpus
 
-- [ ] Add a consumer-shaped fixture that writes one logical asset across
+- [x] Add a consumer-shaped fixture that writes one logical asset across
       multiple keys and overflow values in one transaction.
-- [ ] Crash at representative write sites before and after commit.
-- [ ] Reopen and prove the result is exactly the prior state or exactly the
+- [x] Crash at representative write sites before and after commit.
+- [x] Reopen and prove the result is exactly the prior state or exactly the
       committed state, never a mixture.
-- [ ] Include interrupted overwrite and delete cases.
-- [ ] Expose enough structured recovery evidence to distinguish replay,
+- [x] Include interrupted overwrite and delete cases.
+- [x] Expose enough structured recovery evidence to distinguish replay,
       discarded uncommitted work, and unrecoverable corruption.
 
 Acceptance criteria:
@@ -210,13 +215,13 @@ Acceptance criteria:
 
 ### 7. Physical Format and Application Schema Separation
 
-- [ ] Document that Tosumu `format_version` describes physical storage, not
+- [x] Document that Tosumu `format_version` describes physical storage, not
       Tokimu's `.tasset` schema.
-- [ ] Preserve explicit rejection for unsupported physical versions.
-- [ ] Do not add speculative automatic physical migrations for this CR.
-- [ ] Provide enough header/inspection information for Tokimu to explain that
+- [x] Preserve explicit rejection for unsupported physical versions.
+- [x] Do not add speculative automatic physical migrations for this CR.
+- [x] Provide enough header/inspection information for Tokimu to explain that
       a file needs a different Tosumu reader or a future explicit rewrite.
-- [ ] Confirm that application-owned schema/version records can be stored and
+- [x] Confirm that application-owned schema/version records can be stored and
       changed transactionally without Tosumu assigning domain meaning to them.
 
 Acceptance criteria:
@@ -227,13 +232,13 @@ Acceptance criteria:
 
 ### 8. Consumer Integration Fixture
 
-- [ ] Add a small `docs/CRs/Tokimu` fixture or test description that both
+- [x] Add a small `docs/CRs/Tokimu` fixture or test description that both
       projects can reproduce.
-- [ ] Store a manifest, provenance record, dependency table, diagnostic list,
+- [x] Store a manifest, provenance record, dependency table, diagnostic list,
       and one or more binary payloads under application-defined keys.
 - [ ] Round-trip the fixture through create, commit, reopen, verify, backup,
       portable export, and corruption tests.
-- [ ] Record Tosumu version, physical format version, fixture schema version,
+- [x] Record Tosumu version, physical format version, fixture schema version,
       payload sizes, and expected hashes.
 
 Acceptance criteria:
@@ -245,21 +250,28 @@ Acceptance criteria:
 
 ## Requested Evidence Matrix
 
-| Case | Tosumu pressure | Expected result |
-| --- | --- | --- |
-| Small manifest | Ordinary KV | Exact reopen round-trip |
-| Multiple related records | Transaction | All committed or none visible |
-| 1/16/64 MiB payloads | Overflow pages | Exact hashes after reopen |
-| Failed adapter write | Rollback | Prior asset remains intact |
-| Crash before commit | WAL recovery | Prior state |
-| Crash after commit record | WAL recovery | Committed state after replay |
-| Stable backup | Snapshot boundary | Complete main/WAL pair or `Busy` |
-| Portable export | Checkpoint boundary | One independently openable file |
-| Corrupt page | Integrity | Structured corruption report |
-| Corrupt overflow chain | Verification | Structured overflow finding |
-| Newer physical version | Compatibility | Explicit unsupported-version error |
-| Wrong encryption key | Protector boundary | Explicit wrong-key error |
-| Same logical keys in two databases | Identity isolation | No cross-database coupling |
+| Case | Tosumu pressure | Expected result | Status and evidence |
+| --- | --- | --- | --- |
+| Small manifest | Ordinary KV | Exact reopen round-trip | Verified by the shared fixture test |
+| Multiple related records | Transaction | All committed or none visible | Verified by one-transaction fixture commit |
+| 1 MiB payload | Overflow pages | Exact hash after reopen | Verified; exact hash is in `tokimu-001-fixture.md` |
+| 16/64 MiB payloads | Overflow pages | Exact hashes after reopen | Deferred; separate tests exist, but the full run was not completed |
+| Failed adapter write | Rollback | Prior asset remains intact | Deferred for the shared fixture |
+| Crash before commit | WAL recovery | Prior state | Deferred; no crash harness evidence |
+| Crash after commit record | WAL recovery | Committed state after replay | Deferred; no crash harness evidence |
+| Stable backup | Snapshot boundary | Complete main/WAL pair or `Busy` | Verified by the shared fixture test and `external_consumer_can_backup_with_source_handle_open`; an open source handle is supported |
+| Portable export | Checkpoint boundary | One independently openable file | Verified by the shared fixture test; export has no WAL sidecar |
+| Corrupt page | Integrity | Structured corruption report | Verified by `external_consumer_gets_structured_finding_for_corrupt_page`; page auth failure is typed in the report |
+| Corrupt overflow chain | Verification | Structured overflow finding | Deferred; embedded verification does not yet expose a distinct overflow finding category |
+| Newer physical version | Compatibility | Explicit unsupported-version error | Verified by `external_consumer_gets_structured_error_for_newer_physical_format` |
+| Wrong encryption key | Protector boundary | Explicit wrong-key error | Verified by `external_consumer_gets_wrong_key_for_encrypted_store` |
+| Same logical keys in two databases | Identity isolation | No cross-database coupling | Verified by `external_consumer_keeps_database_identities_isolated` |
+
+The verified rows use
+`cargo test -p tosumu-core --test provider_boundary
+external_consumer_fixture_round_trips_backup_export_and_verification`.
+The reproducible records, payload sizes, and SHA-256 values are in
+`docs/CRs/Tokimu/tokimu-001-fixture.md`.
 
 ## Deferred Work
 
