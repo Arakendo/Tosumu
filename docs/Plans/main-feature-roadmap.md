@@ -522,8 +522,8 @@ must remain visible when planning later milestones.
 - [x] Deterministic Tokimu-shaped fixture with exact hashes and independent
       reopen/backup/export evidence.
 - [x] Distinct embedded overflow-chain finding category.
-- [x] Unlock-aware embedded verification for passphrase-protected stores;
-      recovery-key and keyfile variants remain follow-up work.
+- [x] Unlock-aware embedded verification for sentinel, passphrase, recovery-key,
+      and keyfile-protected stores.
 - [ ] Complete the remaining TOKIMU-001 consumer-adapter and streaming-policy
       rows; the current evidence matrix and deferred-row ownership are complete.
 

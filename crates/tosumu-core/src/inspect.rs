@@ -691,6 +691,30 @@ pub fn inspect_verification_with_passphrase(
     )
 }
 
+/// Produce a verification snapshot for a recovery-key-protected database.
+pub fn inspect_verification_with_recovery_key(
+    path: &Path,
+    recovery_key: &str,
+) -> Result<VerificationReport> {
+    inspect_verification_with_openers(
+        path,
+        |path| Pager::open_with_recovery_key_readonly(path, recovery_key),
+        |path| BTree::open_with_recovery_key_readonly(path, recovery_key),
+    )
+}
+
+/// Produce a verification snapshot for a keyfile-protected database.
+pub fn inspect_verification_with_keyfile(
+    path: &Path,
+    keyfile_path: &Path,
+) -> Result<VerificationReport> {
+    inspect_verification_with_openers(
+        path,
+        |path| Pager::open_with_keyfile_readonly(path, keyfile_path),
+        |path| BTree::open_with_keyfile_readonly(path, keyfile_path),
+    )
+}
+
 fn inspect_verification_with_openers(
     path: &Path,
     open_pager: impl FnOnce(&Path) -> Result<Pager>,
@@ -907,6 +931,62 @@ mod tests {
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(wal_path(&path));
+    }
+
+    #[test]
+    fn inspect_verification_supports_recovery_key_and_keyfile_stores() {
+        let recovery_path = std::env::temp_dir().join(format!(
+            "tosumu_inspect_verification_recovery_{}.tsm",
+            std::process::id()
+        ));
+        let keyfile_path = std::env::temp_dir().join(format!(
+            "tosumu_inspect_verification_keyfile_{}.bin",
+            std::process::id()
+        ));
+        let keyfile_store_path = std::env::temp_dir().join(format!(
+            "tosumu_inspect_verification_keyfile_{}.tsm",
+            std::process::id()
+        ));
+        for path in [&recovery_path, &keyfile_path, &keyfile_store_path] {
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_file(wal_path(path));
+        }
+
+        let recovery_key = {
+            let mut store = PageStore::create_encrypted(&recovery_path, "main-pass").unwrap();
+            store.put(b"asset/manifest", b"recovery").unwrap();
+            drop(store);
+            PageStore::add_recovery_key_protector(&recovery_path, "main-pass").unwrap()
+        };
+        let recovery_report =
+            super::inspect_verification_with_recovery_key(&recovery_path, &recovery_key).unwrap();
+        assert!(recovery_report.btree.ok);
+
+        std::fs::write(&keyfile_path, [0xA5u8; 32]).unwrap();
+        {
+            let mut store = PageStore::create_encrypted(&keyfile_store_path, "main-pass").unwrap();
+            store.put(b"asset/manifest", b"keyfile").unwrap();
+            drop(store);
+            PageStore::add_keyfile_protector(&keyfile_store_path, "main-pass", &keyfile_path)
+                .unwrap();
+        }
+        let keyfile_report =
+            super::inspect_verification_with_keyfile(&keyfile_store_path, &keyfile_path).unwrap();
+        assert!(keyfile_report.btree.ok);
+
+        let wrong_key = match super::inspect_verification_with_recovery_key(
+            &recovery_path,
+            "AAAAAAAA-BBBBBBBB-CCCCCCCC-DDDDDDDD",
+        ) {
+            Ok(_) => panic!("wrong recovery key must be rejected"),
+            Err(error) => error,
+        };
+        assert!(matches!(wrong_key, TosumuError::WrongKey));
+
+        for path in [&recovery_path, &keyfile_path, &keyfile_store_path] {
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_file(wal_path(path));
+        }
     }
 
     #[test]
