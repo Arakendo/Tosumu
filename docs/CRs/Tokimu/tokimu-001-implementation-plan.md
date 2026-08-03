@@ -316,7 +316,8 @@ stable pair are reported through the existing structured `FileBusy` error.
       remain supplemental.
 - [x] Preserve distinctions for corrupt page, corrupt overflow chain,
       unsupported format, wrong key, and incomplete B+ tree checks.
-- [ ] Preserve a distinct file-busy finding through embedded verification.
+- [x] Preserve a distinct file-busy failure through embedded verification as
+      structured `TosumuError::FileBusy` / `FILE_OPEN_BUSY`.
 - [ ] Refactor CLI JSON rendering to consume the same core observations where
       practical rather than rebuilding storage meaning.
 - [ ] Verify both working databases and portable exports through the API.
@@ -361,7 +362,7 @@ stable pair are reported through the existing structured `FileBusy` error.
 - [x] Add a core integration test that builds the fixture without Tokimu code.
 - [x] Round-trip create, commit, reopen, verify, stable backup, portable export,
       and independent reopen.
-- [ ] Exercise corruption, wrong-key, newer-format, busy, and identity-isolation
+- [x] Exercise corruption, wrong-key, newer-format, busy, and identity-isolation
       cases from the CR evidence matrix.
 - [ ] Publish machine-readable fixture metadata if both projects need automated
       comparison.
@@ -381,9 +382,9 @@ wrong-key rejection, and identity isolation:
 `external_consumer_gets_wrong_key_for_encrypted_store`, and
 `external_consumer_keeps_database_identities_isolated`.
 `external_consumer_gets_structured_finding_for_corrupt_page` also verifies a
-typed page-auth finding through embedded verification. Distinct overflow-chain
-findings remain deferred because the current embedded report does not expose
-that category.
+typed page-auth finding through embedded verification. The focused
+`inspect_verification_preserves_busy_as_structured_error` test verifies that a
+busy WAL is returned as `FILE_OPEN_BUSY`, separate from reportable findings.
 
 ### Acceptance Criteria
 

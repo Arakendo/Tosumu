@@ -828,6 +828,31 @@ mod tests {
     }
 
     #[test]
+    fn inspect_verification_preserves_busy_as_structured_error() {
+        let _lock = crate::wal::fault_injection::LOCK.lock().unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "tosumu_inspect_verification_busy_{}.tsm",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(wal_path(&path));
+
+        PageStore::create(&path).unwrap();
+        crate::wal::fault_injection::arm(100);
+        let error = match inspect_verification(&path) {
+            Ok(_) => panic!("busy WAL access must prevent verification"),
+            Err(error) => error,
+        };
+        crate::wal::fault_injection::disarm();
+
+        assert!(matches!(error, TosumuError::FileBusy { .. }));
+        assert_eq!(error.error_report().code, "FILE_OPEN_BUSY");
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(wal_path(&path));
+    }
+
+    #[test]
     fn inspect_verification_rejects_newer_physical_format_without_migration() {
         let path = std::env::temp_dir().join(format!(
             "tosumu_inspect_newer_format_{}.tsm",

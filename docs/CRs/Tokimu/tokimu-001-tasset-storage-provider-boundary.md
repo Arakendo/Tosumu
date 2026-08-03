@@ -260,6 +260,7 @@ Acceptance criteria:
 | Crash before commit | WAL recovery | Prior state | Verified by consumer-shaped recovery test |
 | Crash after commit record | WAL recovery | Committed state after replay | Verified by consumer-shaped recovery test |
 | Stable backup | Snapshot boundary | Complete main/WAL pair or `Busy` | Verified by the shared fixture test and `external_consumer_can_backup_with_source_handle_open`; an open source handle is supported |
+| Embedded verification busy | Inspection boundary | Structured `FILE_OPEN_BUSY` failure | Verified by `inspect_verification_preserves_busy_as_structured_error`; inspection-blocking failures remain separate from reportable findings |
 | Portable export | Checkpoint boundary | One independently openable file | Verified by the shared fixture test; export has no WAL sidecar |
 | Corrupt page | Integrity | Structured corruption report | Verified by `external_consumer_gets_structured_finding_for_corrupt_page`; page auth failure is typed in the report |
 | Corrupt overflow chain | Verification | Structured overflow finding | Verified by overflow-chain verification regression and embedded inspection |

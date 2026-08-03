@@ -546,8 +546,9 @@ without moving Tokimu-specific schema or runtime meaning into `tosumu-core`.
       cases have focused structured-error tests.
 - [x] Stable-backup instability returns bounded structured `FILE_OPEN_BUSY`
       without publishing a destination pair or leaving staging files.
-- [ ] Busy classification is exposed through the stable embedded report and
-      passed or explicitly deferred with an owner and rationale.
+- [x] Busy classification is exposed through the stable embedded verification
+      boundary as structured `FILE_OPEN_BUSY`, separate from reportable
+      findings.
 - [x] Overflow-chain corruption and portable-artifact verification are exposed
       or exercised through the stable embedded report.
 - [ ] A real Tokimu adapter reproduces equivalent logical observations while
