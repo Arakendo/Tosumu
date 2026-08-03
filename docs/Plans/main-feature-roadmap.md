@@ -537,7 +537,7 @@ without moving Tokimu-specific schema or runtime meaning into `tosumu-core`.
       backup, portable export, and structured verification.
 - [x] 1 MiB and 16 MiB overflow values have focused byte-for-byte reopen
       evidence; the 64 MiB maximum-value test is retained separately.
-- [ ] 1 MiB, 16 MiB, and 64 MiB overflow values have focused recovery evidence,
+- [x] 1 MiB, 16 MiB, and 64 MiB overflow values have focused recovery evidence,
       not only reopen evidence.
 - [ ] Repeatable copy-volume, timing, and peak-allocation measurements resolve
       whether whole-value buffering is acceptable or streaming is required.

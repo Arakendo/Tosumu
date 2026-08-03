@@ -768,15 +768,31 @@ mod tests {
 
     #[test]
     fn large_overflow_transaction_recovers_after_commit_flush_failure() {
+        recover_large_value_after_commit_flush_failure("one_megabyte", 1024 * 1024);
+    }
+
+    #[test]
+    #[ignore = "large Tokimu recovery evidence; run explicitly with --ignored"]
+    fn tokimu_large_value_recovery_evidence_matrix() {
+        for (label, size) in [
+            ("one_megabyte", 1024 * 1024),
+            ("sixteen_megabyte", 16 * 1024 * 1024),
+            ("sixty_four_megabyte", crate::format::MAX_VALUE_SIZE),
+        ] {
+            recover_large_value_after_commit_flush_failure(label, size);
+        }
+    }
+
+    fn recover_large_value_after_commit_flush_failure(label: &str, size: usize) {
         use crate::test_helpers::{CrashFile, CrashPhase};
         use sha2::{Digest, Sha256};
 
-        let path = temp_path("txn_large_flush_fail");
+        let path = temp_path(&format!("txn_large_flush_fail_{label}"));
         let wal = diff_wal_path(&path);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&wal);
 
-        let large: Vec<u8> = (0u8..=255).cycle().take(1024 * 1024).collect();
+        let large: Vec<u8> = (0u8..=255).cycle().take(size).collect();
         let expected_hash: [u8; 32] = Sha256::digest(&large).into();
         let mut store = PageStore::create(&path).unwrap();
         let file = OpenOptions::new()

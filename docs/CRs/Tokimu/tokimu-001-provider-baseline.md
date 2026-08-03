@@ -103,6 +103,7 @@ separately validated.
 - `cargo test -p tosumu-core --test provider_boundary external_consumer_round_trips_one_megabyte_value_after_reopen`: passed.
 - `cargo test -p tosumu-core --test provider_boundary external_consumer_round_trips_sixteen_megabyte_value_after_reopen`: passed in 34.36 seconds.
 - `cargo test -p tosumu-core --test provider_boundary external_consumer_round_trips_maximum_value_after_reopen`: passed in 138.36 seconds.
+- `cargo test -p tosumu-core tokimu_large_value_recovery_evidence_matrix -- --ignored --nocapture`: passed for 1 MiB, 16 MiB, and 64 MiB overflow payloads after committed flush failure and reopen recovery.
 - Provider split, compaction, overwrite/delete, scan, and page-count reuse regressions pass.
 - `cargo test -p tosumu-core overflow_chain_corruption_is_structured`: passed for missing, cyclic, and extra-segment chains.
 - The inline-boundary and over-limit tests pass; over-limit input leaves the

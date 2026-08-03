@@ -424,7 +424,7 @@ TOKIMU-001 is complete only when all of the following are true:
 
 - [ ] The admitted provider API is documented and tested as an external crate.
 - [ ] A multi-record logical asset commits or rolls back atomically.
-- [ ] 1 MiB, 16 MiB, and 64 MiB values pass reopen and recovery tests.
+- [x] 1 MiB, 16 MiB, and 64 MiB values pass reopen and recovery tests.
 - [ ] Stable backup is available from `tosumu-core` with a structured report.
 - [ ] Portable export produces one independently verifiable file.
 - [ ] Embedded verification returns structured observations and failures.
