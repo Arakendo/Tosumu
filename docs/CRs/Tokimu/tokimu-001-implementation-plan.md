@@ -320,7 +320,12 @@ stable pair are reported through the existing structured `FileBusy` error.
       structured `TosumuError::FileBusy` / `FILE_OPEN_BUSY`.
 - [ ] Refactor CLI JSON rendering to consume the same core observations where
       practical rather than rebuilding storage meaning.
-- [ ] Verify both working databases and portable exports through the API.
+- [x] Verify both working databases and portable exports through the API.
+
+The embedded verification boundary supports sentinel stores through
+`inspect_verification` and passphrase-protected stores through
+`inspect_verification_with_passphrase`. Recovery-key and keyfile inspection
+remain a follow-up extension of the same opener pattern.
 
 ### Acceptance Criteria
 
@@ -385,6 +390,8 @@ wrong-key rejection, and identity isolation:
 typed page-auth finding through embedded verification. The focused
 `inspect_verification_preserves_busy_as_structured_error` test verifies that a
 busy WAL is returned as `FILE_OPEN_BUSY`, separate from reportable findings.
+`inspect_verification_supports_passphrase_protected_store` verifies encrypted
+verification and typed wrong-key rejection.
 
 ### Acceptance Criteria
 
@@ -402,7 +409,7 @@ busy WAL is returned as `FILE_OPEN_BUSY`, separate from reportable findings.
 | Tokimu adapter reproduces the fixture | Tokimu consumer project | Deferred until the consumer-side adapter exists; Tosumu has validated the admitted public boundary without importing consumer semantics | Run the equivalent Tokimu adapter fixture and compare keys, schema/version records, payload hashes, and reopen observations |
 | Peak allocation and streaming policy | Tosumu + Tokimu | Deferred; elapsed time and logical copy volume are measured for 1, 16, and 64 MiB, but allocator/peak-RSS evidence is not claimed | Repeat the three ignored measurement tests with an agreed peak-allocation/RSS recorder, then record the buffering decision |
 | Machine-readable fixture metadata | Tosumu + Tokimu | Optional until both projects require automated comparison; the Markdown fixture remains reproducible and authoritative for incubation | Publish versioned metadata alongside `tokimu-001-fixture.md` and compare it in both projects |
-| Unlock-aware embedded verification | Tosumu | Deferred to the encryption/inspection follow-up; current embedded verification covers sentinel fixtures and returns structured wrong-key errors at open | Add an inspection API accepting the admitted unlock contract and run encrypted corrupt-page/overflow cases |
+| Unlock-aware embedded verification | Tosumu | Passphrase verification is implemented and tested; recovery-key and keyfile variants remain deferred | Add recovery-key and keyfile overloads and run encrypted corrupt-page/overflow cases for each unlock mode |
 
 ## 14. Cross-Cutting Error Contract
 

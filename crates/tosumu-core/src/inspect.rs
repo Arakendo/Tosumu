@@ -667,12 +667,41 @@ pub fn verify_file(path: &Path) -> Result<VerifyReport> {
 /// Produce one structured verification snapshot without exposing storage
 /// implementation types to consumers.
 pub fn inspect_verification(path: &Path) -> Result<VerificationReport> {
+    inspect_verification_with_openers(
+        path,
+        Pager::open_readonly,
+        BTree::open_readonly,
+    )
+}
+
+/// Produce a verification snapshot for a passphrase-protected database.
+///
+/// The passphrase is used only to open read-only verification handles. The
+/// returned report has the same structure and findings as
+/// [`inspect_verification`]; an invalid passphrase remains a typed
+/// [`TosumuError::WrongKey`] failure.
+pub fn inspect_verification_with_passphrase(
+    path: &Path,
+    passphrase: &str,
+) -> Result<VerificationReport> {
+    inspect_verification_with_openers(
+        path,
+        |path| Pager::open_with_passphrase_readonly(path, passphrase),
+        |path| BTree::open_with_passphrase_readonly(path, passphrase),
+    )
+}
+
+fn inspect_verification_with_openers(
+    path: &Path,
+    open_pager: impl FnOnce(&Path) -> Result<Pager>,
+    open_tree: impl FnOnce(&Path) -> Result<BTree>,
+) -> Result<VerificationReport> {
     let header = read_header_info(path)?;
     let recovery = inspect_recovery(path)?;
-    let pager = Pager::open_readonly(path)?;
+    let pager = open_pager(path)?;
     let pages = verify_pager(&pager)?;
     let btree = if pages.issues.is_empty() {
-        match BTree::open_readonly(path).and_then(|tree| tree.check_invariants()) {
+        match open_tree(path).and_then(|tree| tree.check_invariants()) {
             Ok(()) => BTreeVerification {
                 checked: true,
                 ok: true,
@@ -847,6 +876,34 @@ mod tests {
 
         assert!(matches!(error, TosumuError::FileBusy { .. }));
         assert_eq!(error.error_report().code, "FILE_OPEN_BUSY");
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(wal_path(&path));
+    }
+
+    #[test]
+    fn inspect_verification_supports_passphrase_protected_store() {
+        let path = std::env::temp_dir().join(format!(
+            "tosumu_inspect_verification_passphrase_{}.tsm",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(wal_path(&path));
+
+        let mut store = PageStore::create_encrypted(&path, "correct-horse").unwrap();
+        store.put(b"asset/manifest", b"schema-v1").unwrap();
+        drop(store);
+
+        let report = super::inspect_verification_with_passphrase(&path, "correct-horse").unwrap();
+        assert!(report.pages.issues.is_empty());
+        assert!(report.btree.checked);
+        assert!(report.btree.ok);
+
+        let error = match super::inspect_verification_with_passphrase(&path, "wrong-horse") {
+            Ok(_) => panic!("wrong passphrase must be rejected"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, TosumuError::WrongKey));
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(wal_path(&path));
