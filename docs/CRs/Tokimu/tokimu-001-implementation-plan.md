@@ -160,9 +160,12 @@ chunking unless that is chosen and documented as the provider contract.
 - [x] Cover put/get/overwrite/delete/reopen/scan for overflow-backed values.
 - [x] Reclaim overwritten/deleted overflow storage without leaving reachable
       stale records or violating freelist/B+ tree invariants.
-- [ ] Measure one overwrite and logical copy volume for 1 MiB, 16 MiB, and
-      64 MiB operations in the repeatable diagnostic test
-      `large_value_write_measurements_record_one_overwrite_per_size`.
+- [x] Measure one overwrite and logical copy volume for 1 MiB and 16 MiB in
+      the repeatable diagnostic tests
+      `large_value_write_measurement_one_megabyte` and
+      `large_value_write_measurement_sixteen_megabytes`; the 64 MiB probe is
+      independently runnable as
+      `large_value_write_measurement_maximum_value`.
 - [ ] Defer streaming unless measurements show whole-value buffering blocks
       realistic Tokimu assets.
 
@@ -188,9 +191,11 @@ chunking unless that is chosen and documented as the provider contract.
 - [x] Delete and overwrite preserve B+ tree and overflow invariants.
 - [x] Over-limit input fails before unbounded allocation or partial mutation.
 - [ ] Logical copy-volume and timing measurements are recorded for Tokimu's
-      streaming decision; the current probe recorded 1 MiB in 3.1 s and 16 MiB
-      in 50.4 s, while the 64 MiB overwrite exceeded five minutes. Exact
-      allocator/peak-RSS counts remain unclaimed.
+      streaming decision for 1 MiB (1,048,576 bytes; 3,287.9 ms) and 16 MiB
+      (16,777,216 bytes; 49,666.2 ms). The independently runnable 64 MiB
+      overwrite remains unmeasured because the earlier combined probe exceeded
+      five minutes. Exact allocator/peak-RSS counts remain unclaimed, so the
+      streaming decision remains open.
 
 ## 8. Slice 3: Consumer Atomicity and Recovery Corpus
 

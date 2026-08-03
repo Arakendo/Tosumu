@@ -539,8 +539,10 @@ without moving Tokimu-specific schema or runtime meaning into `tosumu-core`.
       evidence; the 64 MiB maximum-value test is retained separately.
 - [x] 1 MiB, 16 MiB, and 64 MiB overflow values have focused recovery evidence,
       not only reopen evidence.
-- [ ] Repeatable copy-volume, timing, and peak-allocation measurements resolve
-      whether whole-value buffering is acceptable or streaming is required.
+- [ ] Repeatable copy-volume and timing evidence now exists for 1 MiB and
+      16 MiB overwrites; peak-allocation evidence, the 64 MiB run, and the
+      decision whether whole-value buffering is acceptable or streaming is
+      required remain open.
 - [x] Newer-format, wrong-key, identity-isolation, and corrupt-page boundary
       cases have focused structured-error tests.
 - [x] Stable-backup instability returns bounded structured `FILE_OPEN_BUSY`

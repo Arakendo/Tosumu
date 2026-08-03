@@ -542,29 +542,38 @@ fn external_consumer_fixture_hashes_survive_commit_overwrite_scan_and_reopen() {
 
 #[test]
 #[ignore = "expensive size measurement; run explicitly with --ignored --nocapture"]
-fn large_value_write_measurements_record_one_overwrite_per_size() {
-    for (label, size) in [
-        ("1 MiB", 1024 * 1024),
-        ("16 MiB", 16 * 1024 * 1024),
-        ("64 MiB", tosumu_core::MAX_VALUE_SIZE),
-    ] {
-        let path = temp_store_path("size_measurement");
-        remove_store_files(&path);
-        let value: Vec<u8> = (0u8..=255).cycle().take(size).collect();
-        let mut store = KvStore::create(&path).unwrap();
-        store.put(b"payload", &value).unwrap();
+fn large_value_write_measurement_one_megabyte() {
+    measure_large_value_overwrite("1 MiB", 1024 * 1024);
+}
 
-        let start = Instant::now();
-        store.put(b"payload", &value).unwrap();
-        let elapsed = start.elapsed();
-        eprintln!(
-            "large-value overwrite: {label}, bytes={size}, elapsed_ms={:.1}, logical_copy_volume_bytes={}",
-            elapsed.as_secs_f64() * 1000.0,
-            size
-        );
-        assert!(!elapsed.is_zero());
-        remove_store_files(&path);
-    }
+#[test]
+#[ignore = "expensive size measurement; run explicitly with --ignored --nocapture"]
+fn large_value_write_measurement_sixteen_megabytes() {
+    measure_large_value_overwrite("16 MiB", 16 * 1024 * 1024);
+}
+
+#[test]
+#[ignore = "expensive size measurement; run explicitly with --ignored --nocapture"]
+fn large_value_write_measurement_maximum_value() {
+    measure_large_value_overwrite("64 MiB", tosumu_core::MAX_VALUE_SIZE);
+}
+
+fn measure_large_value_overwrite(label: &str, size: usize) {
+    let path = temp_store_path("size_measurement");
+    remove_store_files(&path);
+    let value: Vec<u8> = (0u8..=255).cycle().take(size).collect();
+    let mut store = KvStore::create(&path).unwrap();
+    store.put(b"payload", &value).unwrap();
+
+    let start = Instant::now();
+    store.put(b"payload", &value).unwrap();
+    let elapsed = start.elapsed();
+    eprintln!(
+        "large-value overwrite: {label}, bytes={size}, elapsed_ms={:.1}, logical_copy_volume_bytes={size}",
+        elapsed.as_secs_f64() * 1000.0,
+    );
+    assert!(!elapsed.is_zero());
+    remove_store_files(&path);
 }
 
 #[test]
