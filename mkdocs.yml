@@ -54,6 +54,7 @@ nav:
       - Architectural Review Template: Architectural Reviews/TEMPLATE.md
       - Implementation Plans:
           - Index: Plans/README.md
+          - Main Feature Roadmap: Plans/main-feature-roadmap.md
           - Initial SQL Layer: Plans/initial-sql-layer.md
           - Template: Plans/TEMPLATE.md
       - Change Requests: CRs/README.md

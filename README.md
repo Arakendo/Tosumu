@@ -8,7 +8,11 @@ The name is a conlang word: `to` (knowledge) + `su` (organized structure) + `mu`
 
 ## Status
 
-**MVP +8 complete.** The core storage engine, full encryption/key-management stack, and interactive TUI viewer are implemented and covered by unit, integration, property, fuzz, and adversarial tests.
+**MVP+9 baseline complete.** The core storage engine, encryption/key-management
+stack, interactive TUI viewer, and narrow primary-key SQL path are implemented.
+Audit/logical-scan scope remains open before MVP+10 implementation begins. See
+the [Main Feature Roadmap](docs/Plans/main-feature-roadmap.md) for the canonical
+delivery checklist.
 
 | MVP | Capability | State |
 |---|---|---|
@@ -21,7 +25,7 @@ The name is a conlang word: `to` (knowledge) + `su` (organized structure) + `mu`
 | +6 | Envelope encryption: per-page AEAD, single passphrase protector, KATs | ✅ done |
 | +7 | Multiple protectors: up to 8 keyslots, recovery key, KEK rotation, `protector` CLI | ✅ done |
 | +8 | Interactive TUI viewer (`tosumu view`) | ✅ done |
-| +9 | Initial SQL layer and `tosumu sql` CLI | ✅ done |
+| +9 | Initial SQL layer and `tosumu sql` CLI | baseline done; audit/scan open |
 | +10 | MVCC / multiple readers | 🔲 planned |
 
 ## Warning

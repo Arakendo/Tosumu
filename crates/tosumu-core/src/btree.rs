@@ -787,14 +787,19 @@ impl BTree {
         let page_type = self.pager.with_page(pgno, |p| Ok(p[HDR_PAGE_TYPE]))?;
         match page_type {
             PAGE_TYPE_LEAF => {
-                let live_keys = self.pager.with_page(pgno, |page| {
+                let live_refs = self.pager.with_page(pgno, |page| {
                     inv_check_slots(page, pgno)?;
-                    let keys: Vec<Vec<u8>> = leaf_read_all_refs(page)
-                        .into_iter()
-                        .map(|(k, _)| k)
-                        .collect();
-                    Ok(keys)
+                    Ok(leaf_read_all_refs(page))
                 })?;
+                for (_, value) in &live_refs {
+                    if let LeafValue::Overflow { head, length } = value {
+                        self.read_overflow_chain(*head, *length)?;
+                    }
+                }
+                let live_keys: Vec<Vec<u8>> = live_refs
+                    .into_iter()
+                    .map(|(key, _)| key)
+                    .collect();
                 // leaf_read_all_refs uses BTreeMap so keys emerge sorted.
                 // Verify explicitly for the invariant record.
                 for i in 1..live_keys.len() {
@@ -1436,7 +1441,42 @@ mod tests {
             .unwrap_err();
         assert_eq!(extra.error_report().code, codes::OVERFLOW_CHAIN_CORRUPT);
 
+        let checked_path = tmp("overflow_invariant");
+        let _ = std::fs::remove_file(&checked_path);
+        let mut checked_tree = BTree::create(&checked_path).unwrap();
+        checked_tree
+            .put(b"payload", &vec![8u8; OVERFLOW_PAYLOAD_SIZE * 2])
+            .unwrap();
+        let root = checked_tree.pager.root_page();
+        let (head, length) = checked_tree
+            .pager
+            .with_page(root, |page| match &leaf_read_all_refs(page)[0].1 {
+                LeafValue::Overflow { head, length } => Ok((*head, *length)),
+                LeafValue::Inline(_) => Err(TosumuError::Corrupt {
+                    pgno: root,
+                    reason: "expected overflow test value",
+                }),
+            })
+            .unwrap();
+        checked_tree
+            .pager
+            .with_page_mut(head, |page| {
+                write_u64(page, HDR_LEFTMOST, head);
+                Ok(())
+            })
+            .unwrap();
+        let invariant_error = checked_tree.check_invariants().unwrap_err();
+        assert!(matches!(
+            invariant_error,
+            TosumuError::OverflowChainCorrupt {
+                pgno: _,
+                length: found_length,
+                ..
+            } if found_length == length
+        ));
+
         let _ = std::fs::remove_file(&p);
+        let _ = std::fs::remove_file(&checked_path);
     }
 
     #[test]

@@ -310,8 +310,9 @@ stable pair are reported through the existing structured `FileBusy` error.
 - [x] Keep reportable findings separate from fatal inspection failures.
 - [x] Give page and B+ tree findings stable typed categories; descriptions
       remain supplemental.
-- [ ] Preserve distinctions for corrupt page, corrupt overflow chain,
-      unsupported format, wrong key, file busy, and incomplete B+ tree checks.
+- [x] Preserve distinctions for corrupt page, corrupt overflow chain,
+      unsupported format, wrong key, and incomplete B+ tree checks.
+- [ ] Preserve a distinct file-busy finding through embedded verification.
 - [ ] Refactor CLI JSON rendering to consume the same core observations where
       practical rather than rebuilding storage meaning.
 - [ ] Verify both working databases and portable exports through the API.
@@ -321,7 +322,7 @@ stable pair are reported through the existing structured `FileBusy` error.
 - [x] Tokimu can render storage diagnostics from structured core reports.
 - [x] No consumer must import `Pager` or scrape CLI/human-readable output.
 - [x] Findings and fatal failures are distinct in types and status.
-- [ ] Portable artifact verification exercises physical format, pages,
+- [x] Portable artifact verification exercises physical format, pages,
       overflow, and B+ tree validity.
 
 ## 12. Slice 7: Physical Format vs Application Schema

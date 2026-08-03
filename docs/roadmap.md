@@ -4,7 +4,7 @@ This page is the public roadmap summary. It is intentionally shorter than the re
 
 ## Now
 
-- stabilize the MVP +9 storage, inspection, and initial SQL slice
+- close or deliberately defer the remaining MVP+9 audit and logical-scan scope
 - keep the CLI, inspect contract, and TUI viewer coherent
 - keep crash, crypto, and verification behavior visible through tests and tooling
 - improve the trust surface around docs, diagnostics, and website guidance
@@ -32,4 +32,6 @@ This page is the public roadmap summary. It is intentionally shorter than the re
 
 ## For the full roadmap
 
-The full MVP and stage breakdown lives in the repository design document. Use that when you need milestone-by-milestone detail.
+Use the [Main Feature Roadmap](Plans/main-feature-roadmap.md) for the canonical
+delivery checklist and current completion status. The full normative MVP and
+stage definitions remain in `DESIGN.md`.

@@ -1617,7 +1617,7 @@ Delivered in four sub-slices, ordered by cost-to-build:
 | +6 | Passphrase-encrypted DB, Argon2id, DEK wrap, header MAC, KATs, crypto fuzz targets | Crypto works end-to-end | Stage 4a | ✅ done |
 | +7 | Multiple protectors (up to 8), RecoveryKey (Base32), `rekey-kek`, CLI `protector` subcommand; 9 new KATs, 8 new integration tests incl. protector-swap attack | Key management works | Stage 4b | ✅ done |
 | +8 | TUI viewer (`tosumu view`) | Interactive inspection | Stage 2–4 crosscut | ✅ done |
-| +9 | Initial SQL (`CREATE TABLE`, `SELECT`) | Real query foundation | Stage 5 | |
+| +9 | Initial SQL (`CREATE TABLE`, `SELECT`) | Real query foundation | Stage 5 | baseline done; audit/scan scope open |
 | +10 | MVCC readers, conditional writes, secondary indexes, `VACUUM` | Concurrency and optimistic write safety | Stage 6 | |
 | +11 | iOS/Android FFI, Keychain/Keystore | Mobile portability | Stage 7 | |
 | +12 | K3s cluster: server + witnesses + observer sidecar | Audit/witness in real deployment | Stage 8 | |

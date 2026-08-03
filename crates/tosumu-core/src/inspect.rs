@@ -631,6 +631,7 @@ pub struct VerifyReport {
 pub enum BTreeVerificationIssueKind {
     Invalid,
     Incomplete,
+    OverflowChainCorrupt,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -676,6 +677,14 @@ pub fn inspect_verification(path: &Path) -> Result<VerificationReport> {
                 checked: true,
                 ok: true,
                 issue: None,
+            },
+            Err(TosumuError::OverflowChainCorrupt { .. }) => BTreeVerification {
+                checked: true,
+                ok: false,
+                issue: Some(BTreeVerificationIssue {
+                    kind: BTreeVerificationIssueKind::OverflowChainCorrupt,
+                    description: "overflow chain corruption was found".to_owned(),
+                }),
             },
             Err(error) => BTreeVerification {
                 checked: true,

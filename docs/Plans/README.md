@@ -13,6 +13,9 @@ validation, and exit states.
 
 ## Current And Retained Plans
 
+- [Main Feature Roadmap](main-feature-roadmap.md) -- canonical implementation
+  status tracker; MVP 0-8 complete, MVP+9 baseline complete, MVP+10 is the next
+  planning gate.
 - [Initial SQL Layer](initial-sql-layer.md) -- MVP+9 baseline complete; retained
   as implementation history and a source for deferred SQL work.
 
