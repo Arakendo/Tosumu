@@ -423,15 +423,25 @@ envelope while leaving page and B-tree classification in `tosumu-core`.
 
 ## 14. Cross-Cutting Error Contract
 
-- [ ] Reuse existing `TosumuError` variants and public codes where phenomena
+- [x] Reuse existing `TosumuError` variants and public codes where phenomena
       already match.
-- [ ] Add new variants/codes only for stable cross-boundary phenomena such as
+- [x] Add new variants/codes only for stable cross-boundary phenomena such as
       value-too-large, backup instability, export reconciliation failure, or
       overflow-chain corruption.
-- [ ] Create errors where the failure is understood and preserve source errors.
-- [ ] Keep CLI exit codes and human text at the CLI boundary.
-- [ ] Add code-catalog tests for every newly public structured code.
-- [ ] Keep aspirational codes out of `ERRORS.md` until code emits them.
+- [x] Create errors where the failure is understood and preserve source errors.
+- [x] Keep CLI exit codes and human text at the CLI boundary.
+- [x] Add code-catalog tests for every newly public structured code.
+- [x] Keep aspirational codes out of `ERRORS.md` until code emits them.
+
+The public core catalog is defined by `tosumu_core::error::codes::PUBLIC_CODES`.
+`documented_public_codes_match_exported_constants` keeps `ERRORS.md` aligned
+with that catalog, while `every_public_code_is_emitted_by_an_error_report`
+proves every catalog entry has a concrete `TosumuError::error_report()` path.
+`TosumuError::Io` and `CommittedButFlushFailed` preserve their underlying I/O
+causes in structured details. CLI exit-code selection and human rendering stay
+in `tosumu-cli`'s `main.rs` boundary; backup instability reuses
+`FILE_OPEN_BUSY`, and malformed export reconciliation reuses the structured
+corruption codes rather than adding speculative variants.
 
 ## 15. Final Validation
 

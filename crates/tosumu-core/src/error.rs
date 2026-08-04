@@ -427,4 +427,62 @@ mod tests {
         assert_eq!(report.detail_u64("pgno"), Some(9));
         assert_eq!(report.detail_u64("page_count"), Some(4));
     }
+
+    #[test]
+    fn every_public_code_is_emitted_by_an_error_report() {
+        let emitted_codes = [
+            TosumuError::Io(std::io::Error::other("test")),
+            TosumuError::CorruptRecord {
+                offset: 1,
+                reason: "test",
+            },
+            TosumuError::Corrupt {
+                pgno: 1,
+                reason: "test",
+            },
+            TosumuError::OverflowChainCorrupt {
+                pgno: 1,
+                length: 1,
+                reason: "test",
+            },
+            TosumuError::AuthFailed { pgno: Some(1) },
+            TosumuError::EncryptFailed,
+            TosumuError::RngFailed,
+            TosumuError::FileTruncated {
+                expected: 2,
+                found: 1,
+            },
+            TosumuError::Poisoned,
+            TosumuError::NotATosumFile,
+            TosumuError::NewerFormat {
+                found: 3,
+                supported_max: 2,
+            },
+            TosumuError::PageSizeMismatch {
+                found: 1024,
+                expected: 4096,
+            },
+            TosumuError::OutOfSpace,
+            TosumuError::ValueTooLarge {
+                actual: 2,
+                maximum: 1,
+            },
+            TosumuError::InvalidArgument("test"),
+            TosumuError::InspectPageOutOfRange {
+                pgno: 2,
+                page_count: 1,
+            },
+            TosumuError::FileBusy {
+                path: "test.tsm".into(),
+                operation: "test",
+            },
+            TosumuError::WrongKey,
+            TosumuError::CommittedButFlushFailed {
+                source: std::io::Error::other("test"),
+            },
+        ]
+        .map(|error| error.error_report().code);
+
+        assert_eq!(emitted_codes, codes::PUBLIC_CODES);
+    }
 }
