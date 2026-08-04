@@ -102,8 +102,12 @@ mod tests {
     use std::path::PathBuf;
 
     fn paths(name: &str) -> (PathBuf, PathBuf) {
-        let root = std::env::temp_dir().join(format!("tosumu_export_{name}_{}", std::process::id()));
-        (root.with_extension("src.tsm"), root.with_extension("dest.tsm"))
+        let root =
+            std::env::temp_dir().join(format!("tosumu_export_{name}_{}", std::process::id()));
+        (
+            root.with_extension("src.tsm"),
+            root.with_extension("dest.tsm"),
+        )
     }
 
     fn cleanup(path: &PathBuf) {
@@ -186,17 +190,17 @@ mod tests {
         assert!(!destination.exists());
         assert!(!wal_path(&destination).exists());
 
-        let staging_prefix = format!(
-            ".{}.",
-            destination.file_name().unwrap().to_string_lossy()
-        );
+        let staging_prefix = format!(".{}.", destination.file_name().unwrap().to_string_lossy());
         let staged_files: Vec<_> = std::fs::read_dir(destination.parent().unwrap())
             .unwrap()
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
             .filter(|name| name.starts_with(&staging_prefix) && name.ends_with(".export.tmp"))
             .collect();
-        assert!(staged_files.is_empty(), "staging files remain: {staged_files:?}");
+        assert!(
+            staged_files.is_empty(),
+            "staging files remain: {staged_files:?}"
+        );
 
         cleanup(&source);
         cleanup(&destination);

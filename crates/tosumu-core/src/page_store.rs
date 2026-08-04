@@ -493,7 +493,11 @@ mod tests {
 
     fn assert_asset(store: &PageStore, asset: &AssetGeneration) {
         for (key, value) in asset.records() {
-            assert_eq!(store.get(key).unwrap(), Some(value.to_vec()), "asset key {key:?}");
+            assert_eq!(
+                store.get(key).unwrap(),
+                Some(value.to_vec()),
+                "asset key {key:?}"
+            );
         }
         assert_eq!(store.scan().unwrap().len(), asset.records().len());
         store.tree.check_invariants().unwrap();
@@ -816,7 +820,10 @@ mod tests {
 
         drop(store);
         let reopened = PageStore::open(&path).unwrap();
-        assert_eq!(reopened.get(b"manifest").unwrap(), Some(b"schema-v1".to_vec()));
+        assert_eq!(
+            reopened.get(b"manifest").unwrap(),
+            Some(b"schema-v1".to_vec())
+        );
         let recovered = reopened.get(b"payload").unwrap().unwrap();
         assert_eq!(Sha256::digest(&recovered).as_slice(), expected_hash);
         assert_eq!(recovered, large);
@@ -844,7 +851,10 @@ mod tests {
             },
             &mut crash,
         );
-        assert!(matches!(result, Err(TosumuError::CommittedButFlushFailed { .. })));
+        assert!(matches!(
+            result,
+            Err(TosumuError::CommittedButFlushFailed { .. })
+        ));
         drop(crash);
         drop(store);
 
@@ -877,13 +887,19 @@ mod tests {
             },
             &mut crash,
         );
-        assert!(matches!(result, Err(TosumuError::CommittedButFlushFailed { .. })));
+        assert!(matches!(
+            result,
+            Err(TosumuError::CommittedButFlushFailed { .. })
+        ));
         drop(crash);
         drop(store);
 
         let reopened = PageStore::open(&path).unwrap();
         assert_asset(&reopened, &new_asset);
-        assert_ne!(reopened.get(b"asset/manifest").unwrap(), Some(old_asset.manifest));
+        assert_ne!(
+            reopened.get(b"asset/manifest").unwrap(),
+            Some(old_asset.manifest)
+        );
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&wal);
@@ -910,7 +926,10 @@ mod tests {
             },
             &mut crash,
         );
-        assert!(matches!(result, Err(TosumuError::CommittedButFlushFailed { .. })));
+        assert!(matches!(
+            result,
+            Err(TosumuError::CommittedButFlushFailed { .. })
+        ));
         drop(crash);
         drop(store);
 

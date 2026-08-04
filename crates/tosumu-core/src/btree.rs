@@ -360,9 +360,10 @@ impl BTree {
         map.into_iter()
             .filter_map(|(key, value)| match value {
                 Some(LeafValue::Inline(value)) => Some(Ok((key, value))),
-                Some(LeafValue::Overflow { head, length }) => {
-                    Some(self.read_overflow_chain(head, length).map(|value| (key, value)))
-                }
+                Some(LeafValue::Overflow { head, length }) => Some(
+                    self.read_overflow_chain(head, length)
+                        .map(|value| (key, value)),
+                ),
                 None => None,
             })
             .collect()
@@ -430,7 +431,10 @@ impl BTree {
                 }
                 let remaining = length - value.len();
                 let count = remaining.min(OVERFLOW_PAYLOAD_SIZE);
-                Ok((read_u64(page, HDR_LEFTMOST), page[PAGE_HEADER_SIZE..PAGE_HEADER_SIZE + count].to_vec()))
+                Ok((
+                    read_u64(page, HDR_LEFTMOST),
+                    page[PAGE_HEADER_SIZE..PAGE_HEADER_SIZE + count].to_vec(),
+                ))
             })?;
             value.extend_from_slice(&payload);
             current = next;
@@ -656,10 +660,12 @@ impl BTree {
                 // Tombstone on a full page: key was already removed by retain above.
                 // Just rewrite without it.
             }
-            None => return Err(TosumuError::Corrupt {
-                pgno,
-                reason: "invalid record during leaf split",
-            }),
+            None => {
+                return Err(TosumuError::Corrupt {
+                    pgno,
+                    reason: "invalid record during leaf split",
+                })
+            }
         }
 
         if records.is_empty() {
@@ -796,10 +802,7 @@ impl BTree {
                         self.read_overflow_chain(*head, *length)?;
                     }
                 }
-                let live_keys: Vec<Vec<u8>> = live_refs
-                    .into_iter()
-                    .map(|(key, _)| key)
-                    .collect();
+                let live_keys: Vec<Vec<u8>> = live_refs.into_iter().map(|(key, _)| key).collect();
                 // leaf_read_all_refs uses BTreeMap so keys emerge sorted.
                 // Verify explicitly for the invariant record.
                 for i in 1..live_keys.len() {
@@ -1167,9 +1170,7 @@ fn decode_leaf_record(record: &[u8]) -> Option<(Vec<u8>, LeafValue)> {
     }
 }
 
-fn leaf_read_all_refs(
-    page: &[u8; PAGE_PLAINTEXT_SIZE],
-) -> Vec<(Vec<u8>, LeafValue)> {
+fn leaf_read_all_refs(page: &[u8; PAGE_PLAINTEXT_SIZE]) -> Vec<(Vec<u8>, LeafValue)> {
     let slot_count = read_u16(page, HDR_SLOT_COUNT) as usize;
     let mut map: std::collections::BTreeMap<Vec<u8>, Option<LeafValue>> = Default::default();
 
@@ -1422,7 +1423,10 @@ mod tests {
             .unwrap_err();
         assert!(matches!(error, TosumuError::OverflowChainCorrupt { .. }));
         assert_eq!(error.error_report().code, codes::OVERFLOW_CHAIN_CORRUPT);
-        assert_eq!(error.error_report().detail_u64("length"), Some(payload.len() as u64));
+        assert_eq!(
+            error.error_report().detail_u64("length"),
+            Some(payload.len() as u64)
+        );
 
         let missing = tree.read_overflow_chain(0, 1).unwrap_err();
         assert_eq!(missing.error_report().code, codes::OVERFLOW_CHAIN_CORRUPT);

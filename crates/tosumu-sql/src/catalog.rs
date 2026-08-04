@@ -36,22 +36,22 @@ pub fn meta_key(key: &str) -> String {
 /// Serialize a TableDef to its wire format.
 pub fn serialize_table_def(table_def: &TableDef) -> Vec<u8> {
     let mut buf = Vec::new();
-    
+
     // Version
     buf.push(CATALOG_VERSION);
-    
+
     // Table name
     let name_bytes = table_def.name.as_bytes();
     buf.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
     buf.extend_from_slice(name_bytes);
-    
+
     // Column count
     buf.extend_from_slice(&(table_def.columns.len() as u16).to_le_bytes());
-    
+
     // Primary key index (stored as u16 for wire compatibility)
     let pk_u16 = table_def.primary_key_index as u16;
     buf.extend_from_slice(&pk_u16.to_le_bytes());
-    
+
     // Root page present flag and value
     if let Some(root_page) = table_def.root_page {
         buf.push(1);
@@ -59,20 +59,20 @@ pub fn serialize_table_def(table_def: &TableDef) -> Vec<u8> {
     } else {
         buf.push(0);
     }
-    
+
     // Columns
     for col in &table_def.columns {
         let name_bytes = col.name.as_bytes();
         buf.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
         buf.extend_from_slice(name_bytes);
-        
+
         // Type tag
         buf.push(col.data_type.as_u8());
-        
+
         // Is primary key
         buf.push(if col.is_primary_key { 1 } else { 0 });
     }
-    
+
     buf
 }
 
@@ -85,34 +85,42 @@ pub fn deserialize_table_def(data: &[u8]) -> SqlResult<TableDef> {
             data.first().map(|v| *v as i32).unwrap_or(-1)
         )));
     }
-    
+
     let mut pos = 1; // skip version
-    
+
     // Table name
     let name_len = u16::from_le_bytes([data[pos], data[pos + 1]]) as usize;
     pos += 2;
     let name = String::from_utf8(data[pos..pos + name_len].to_vec())
         .map_err(|e| SqlError::RowEncoding(format!("invalid table name: {e}")))?;
     pos += name_len;
-    
+
     // Column count
     let col_count = u16::from_le_bytes([data[pos], data[pos + 1]]) as usize;
     pos += 2;
-    
+
     // Primary key index (stored as u16 for wire compatibility)
     let pk_index = u16::from_le_bytes([data[pos], data[pos + 1]]) as usize;
     pos += 2;
-    
+
     // Root page (8 bytes if present)
     let root_page = if data[pos] == 1 {
         pos += 1;
         // Ensure we have enough bytes for u64
         if pos + 8 > data.len() {
-            return Err(SqlError::RowEncoding("truncated root page data".to_string()));
+            return Err(SqlError::RowEncoding(
+                "truncated root page data".to_string(),
+            ));
         }
         let rp = u64::from_le_bytes([
-            data[pos], data[pos + 1], data[pos + 2], data[pos + 3],
-            data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7],
+            data[pos],
+            data[pos + 1],
+            data[pos + 2],
+            data[pos + 3],
+            data[pos + 4],
+            data[pos + 5],
+            data[pos + 6],
+            data[pos + 7],
         ]);
         pos += 8; // advance past the root page value
         Some(rp)
@@ -120,7 +128,7 @@ pub fn deserialize_table_def(data: &[u8]) -> SqlResult<TableDef> {
         pos += 1;
         None
     };
-    
+
     // Columns
     let mut columns = Vec::with_capacity(col_count);
     for _ in 0..col_count {
@@ -129,21 +137,22 @@ pub fn deserialize_table_def(data: &[u8]) -> SqlResult<TableDef> {
         let col_name = String::from_utf8(data[pos..pos + col_name_len].to_vec())
             .map_err(|e| SqlError::RowEncoding(format!("invalid column name: {e}")))?;
         pos += col_name_len;
-        
-        let data_type = DataType::from_u8(data[pos])
-            .ok_or_else(|| SqlError::RowEncoding(format!("unsupported column type: {}", data[pos])))?;
+
+        let data_type = DataType::from_u8(data[pos]).ok_or_else(|| {
+            SqlError::RowEncoding(format!("unsupported column type: {}", data[pos]))
+        })?;
         pos += 1;
-        
+
         let is_primary_key = data[pos] == 1;
         pos += 1;
-        
+
         columns.push(ColumnDef {
             name: col_name,
             data_type,
             is_primary_key,
         });
     }
-    
+
     Ok(TableDef {
         name,
         columns,
@@ -176,10 +185,10 @@ mod tests {
             primary_key_index: 0,
             root_page: None,
         };
-        
+
         let serialized = serialize_table_def(&table_def);
         let deserialized = deserialize_table_def(&serialized).unwrap();
-        
+
         assert_eq!(deserialized.name, "users");
         assert_eq!(deserialized.columns.len(), 2);
         assert_eq!(deserialized.primary_key_index, 0);
@@ -198,10 +207,10 @@ mod tests {
             primary_key_index: 0,
             root_page: Some(42),
         };
-        
+
         let serialized = serialize_table_def(&table_def);
         let deserialized = deserialize_table_def(&serialized).unwrap();
-        
+
         assert_eq!(deserialized.root_page, Some(42));
     }
 
@@ -217,10 +226,10 @@ mod tests {
             primary_key_index: 0,
             root_page: None,
         };
-        
+
         let serialized = serialize_table_def(&table_def);
         let deserialized = deserialize_table_def(&serialized).unwrap();
-        
+
         assert_eq!(deserialized.columns[0].data_type, DataType::Blob);
     }
 
@@ -294,10 +303,10 @@ mod tests {
             primary_key_index: 0,
             root_page: None,
         };
-        
+
         let serialized = serialize_table_def(&table_def);
         let deserialized = deserialize_table_def(&serialized).unwrap();
-        
+
         assert_eq!(deserialized.columns.len(), 0);
     }
 
@@ -306,7 +315,7 @@ mod tests {
         assert_eq!(DataType::Integer.as_u8(), 1);
         assert_eq!(DataType::Text.as_u8(), 2);
         assert_eq!(DataType::Blob.as_u8(), 3);
-        
+
         assert_eq!(DataType::from_u8(1), Some(DataType::Integer));
         assert_eq!(DataType::from_u8(2), Some(DataType::Text));
         assert_eq!(DataType::from_u8(3), Some(DataType::Blob));

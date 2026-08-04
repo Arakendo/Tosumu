@@ -40,7 +40,10 @@ fn fixture_records() -> Vec<(Vec<u8>, Vec<u8>)> {
             b"asset/diagnostics".to_vec(),
             b"warning:fixture-only\nstatus:clean".to_vec(),
         ),
-        (b"asset/payload-small".to_vec(), vec![0x00, 0x01, 0xfe, 0xff]),
+        (
+            b"asset/payload-small".to_vec(),
+            vec![0x00, 0x01, 0xfe, 0xff],
+        ),
         (
             b"asset/payload-large".to_vec(),
             (0u8..=255).cycle().take(1024 * 1024).collect(),
@@ -84,7 +87,10 @@ fn external_consumer_can_commit_and_reopen_multiple_records() {
         store.get(b"payload/a").unwrap(),
         Some(vec![0x00, 0x01, 0xff])
     );
-    assert_eq!(store.get(b"payload/b").unwrap(), Some(b"binary-data".to_vec()));
+    assert_eq!(
+        store.get(b"payload/b").unwrap(),
+        Some(b"binary-data".to_vec())
+    );
 
     remove_store_files(&path);
 }
@@ -147,8 +153,7 @@ fn external_consumer_gets_structured_error_for_newer_physical_format() {
 
     PageStore::create(&path).unwrap();
     let mut page0 = std::fs::read(&path).unwrap();
-    page0[OFF_FORMAT_VERSION..OFF_FORMAT_VERSION + 2]
-        .copy_from_slice(&newer_version.to_le_bytes());
+    page0[OFF_FORMAT_VERSION..OFF_FORMAT_VERSION + 2].copy_from_slice(&newer_version.to_le_bytes());
     std::fs::write(&path, page0).unwrap();
 
     let error = match tosumu_core::inspect::inspect_verification(&path) {
@@ -183,7 +188,10 @@ fn external_consumer_gets_structured_finding_for_corrupt_page() {
     assert_eq!(report.pages.issues.len(), 1);
     assert_eq!(report.pages.issues[0].pgno, 1);
     assert_eq!(report.pages.issues[0].kind, VerifyIssueKind::AuthFailed);
-    assert_eq!(report.pages.page_results[0].issue_kind, Some(VerifyIssueKind::AuthFailed));
+    assert_eq!(
+        report.pages.page_results[0].issue_kind,
+        Some(VerifyIssueKind::AuthFailed)
+    );
     assert!(!report.btree.checked);
 
     remove_store_files(&path);
@@ -424,7 +432,9 @@ fn external_consumer_keeps_large_value_when_leaf_splits() {
     let mut store = KvStore::create(&path).unwrap();
     store.put(b"large", &large).unwrap();
     for index in 0..500u32 {
-        store.put(format!("key-{index:03}").as_bytes(), b"small").unwrap();
+        store
+            .put(format!("key-{index:03}").as_bytes(), b"small")
+            .unwrap();
     }
 
     assert_eq!(store.get(b"large").unwrap(), Some(large));
@@ -440,7 +450,9 @@ fn external_consumer_keeps_large_value_when_leaf_compacts() {
     let mut store = KvStore::create(&path).unwrap();
     store.put(b"large", &large).unwrap();
     for index in 0..120u32 {
-        store.put(format!("key-{index:03}").as_bytes(), &[index as u8; 100]).unwrap();
+        store
+            .put(format!("key-{index:03}").as_bytes(), &[index as u8; 100])
+            .unwrap();
     }
     for index in 0..80u32 {
         store.delete(format!("key-{index:03}").as_bytes()).unwrap();
@@ -614,7 +626,10 @@ fn external_consumer_fixture_round_trips_backup_export_and_verification() {
     assert_eq!(fixture_hashes(&exported.scan().unwrap()), expected_hashes);
 
     let verification = tosumu_core::inspect::inspect_verification(&export).unwrap();
-    assert_eq!(verification.pages.pages_ok, verification.pages.pages_checked);
+    assert_eq!(
+        verification.pages.pages_ok,
+        verification.pages.pages_checked
+    );
     assert!(verification.btree.checked);
     assert!(verification.btree.ok);
 

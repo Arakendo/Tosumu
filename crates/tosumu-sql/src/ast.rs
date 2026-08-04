@@ -129,15 +129,9 @@ impl Stmt {
     pub fn parameter_count(&self) -> usize {
         match self {
             Stmt::CreateTable { .. } => 0,
-            Stmt::Insert { values, .. } => {
-                values.iter().filter(|e| e.is_parameter()).count()
-            }
-            Stmt::Select { predicate, .. } => {
-                predicate.as_ref().map_or(0, |e| e.parameter_count())
-            }
-            Stmt::Delete { predicate, .. } => {
-                predicate.as_ref().map_or(0, |e| e.parameter_count())
-            }
+            Stmt::Insert { values, .. } => values.iter().filter(|e| e.is_parameter()).count(),
+            Stmt::Select { predicate, .. } => predicate.as_ref().map_or(0, |e| e.parameter_count()),
+            Stmt::Delete { predicate, .. } => predicate.as_ref().map_or(0, |e| e.parameter_count()),
         }
     }
 }

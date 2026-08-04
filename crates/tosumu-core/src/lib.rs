@@ -3,8 +3,8 @@
 //! Pre-alpha. See `DESIGN.md` at the repository root for the source of truth.
 #![forbid(unsafe_code)]
 
-pub mod btree;
 pub mod backup;
+pub mod btree;
 pub mod crypto;
 pub mod error;
 pub mod export;

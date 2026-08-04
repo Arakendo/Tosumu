@@ -982,7 +982,9 @@ impl Pager {
     /// Release an existing data page onto the persistent freelist.
     pub(crate) fn release_page(&mut self, pgno: u64) -> Result<()> {
         if pgno == 0 || pgno >= self.page_count {
-            return Err(TosumuError::InvalidArgument("invalid page number for release"));
+            return Err(TosumuError::InvalidArgument(
+                "invalid page number for release",
+            ));
         }
         self.init_page(pgno, PAGE_TYPE_FREE)?;
         let previous_head = self.freelist_head;

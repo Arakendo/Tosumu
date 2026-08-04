@@ -84,14 +84,18 @@ impl Planner {
     }
 
     /// Plan a statement with catalog context for PK-aware predicate validation.
-    pub fn plan_with_catalog(&self, stmt: &Stmt, catalog: Option<&TableDef>) -> SqlResult<PlanOutput> {
+    pub fn plan_with_catalog(
+        &self,
+        stmt: &Stmt,
+        catalog: Option<&TableDef>,
+    ) -> SqlResult<PlanOutput> {
         match stmt {
-            Stmt::CreateTable { name, .. } => {
-                Ok(PlanOutput {
-                    plan: PlanNode::CreateTable { table: name.clone() },
-                    warnings: vec![],
-                })
-            }
+            Stmt::CreateTable { name, .. } => Ok(PlanOutput {
+                plan: PlanNode::CreateTable {
+                    table: name.clone(),
+                },
+                warnings: vec![],
+            }),
             Stmt::Insert { table, values } => {
                 let pk_expr = match catalog {
                     Some(table_def) => values.get(table_def.primary_key_index),
@@ -115,17 +119,24 @@ impl Planner {
                     warnings: vec![],
                 })
             }
-            Stmt::Select { table, columns, predicate } => {
+            Stmt::Select {
+                table,
+                columns,
+                predicate,
+            } => {
                 let mut warnings = vec![];
 
                 if matches!(columns, Projection::All) {
-                    warnings.push(PlanWarning::SelectStar { table: table.clone() });
+                    warnings.push(PlanWarning::SelectStar {
+                        table: table.clone(),
+                    });
                 }
 
                 // Validate that WHERE clause exists
                 if predicate.is_none() {
                     return Err(SqlError::unsupported_query_shape(
-                        "baseline SQL requires WHERE clause with primary-key equality for SELECT".to_string(),
+                        "baseline SQL requires WHERE clause with primary-key equality for SELECT"
+                            .to_string(),
                     ));
                 }
 
@@ -157,7 +168,8 @@ impl Planner {
                 // Validate that WHERE clause exists
                 if predicate.is_none() {
                     return Err(SqlError::unsupported_query_shape(
-                        "baseline SQL requires WHERE clause with primary-key equality for DELETE".to_string(),
+                        "baseline SQL requires WHERE clause with primary-key equality for DELETE"
+                            .to_string(),
                     ));
                 }
 
@@ -193,9 +205,10 @@ impl Planner {
         operation: &str,
     ) -> SqlResult<(Expr, Option<Expr>)> {
         let pk_expr = match predicate {
-            Some(Expr::Eq(left, right)) => {
-                (Self::validate_pk_equality(left, right, catalog, operation)?, None)
-            }
+            Some(Expr::Eq(left, right)) => (
+                Self::validate_pk_equality(left, right, catalog, operation)?,
+                None,
+            ),
             Some(Expr::And(left, right)) => {
                 let pk_expr = match left.as_ref() {
                     Expr::Eq(pk_left, pk_right) => {
@@ -217,7 +230,9 @@ impl Planner {
         operation: &str,
     ) -> SqlResult<Vec<Expr>> {
         let mut terms = Vec::new();
-        let expression = predicate.as_ref().ok_or_else(|| Self::unsupported_predicate(operation))?;
+        let expression = predicate
+            .as_ref()
+            .ok_or_else(|| Self::unsupported_predicate(operation))?;
         Self::collect_or_terms(expression, &mut terms);
         if terms.len() < 2 {
             return Err(Self::unsupported_predicate(operation));
@@ -226,7 +241,9 @@ impl Planner {
         terms
             .into_iter()
             .map(|term| match term {
-                Expr::Eq(left, right) => Self::validate_pk_equality(&left, &right, catalog, operation),
+                Expr::Eq(left, right) => {
+                    Self::validate_pk_equality(&left, &right, catalog, operation)
+                }
                 _ => Err(Self::unsupported_predicate(operation)),
             })
             .collect()
@@ -250,37 +267,41 @@ impl Planner {
     ) -> SqlResult<Expr> {
         let col_name = match left {
             Expr::Column(name) => name.clone(),
-            _ => return Err(SqlError::unsupported_query_shape(
-                format!("expected column on left side of = for {operation}"),
-            )),
+            _ => {
+                return Err(SqlError::unsupported_query_shape(format!(
+                    "expected column on left side of = for {operation}"
+                )))
+            }
         };
 
-                // Use catalog to determine if this column is the PK, or fall back to heuristics
-                let is_pk_column = match catalog {
-                    Some(table_def) => {
-                        // Check against actual schema
-                        table_def.columns.get(table_def.primary_key_index)
-                            .map(|c| c.name == col_name)
-                            .unwrap_or(false)
-                    }
-                    None => {
-                        // Fallback: use string heuristics only when no catalog available
-                        col_name == "id" || col_name.contains("pk") || col_name.contains("key")
-                    }
-                };
+        // Use catalog to determine if this column is the PK, or fall back to heuristics
+        let is_pk_column = match catalog {
+            Some(table_def) => {
+                // Check against actual schema
+                table_def
+                    .columns
+                    .get(table_def.primary_key_index)
+                    .map(|c| c.name == col_name)
+                    .unwrap_or(false)
+            }
+            None => {
+                // Fallback: use string heuristics only when no catalog available
+                col_name == "id" || col_name.contains("pk") || col_name.contains("key")
+            }
+        };
 
-                if !is_pk_column {
-                    return Err(SqlError::unsupported_query_shape(
+        if !is_pk_column {
+            return Err(SqlError::unsupported_query_shape(
                         format!("baseline SQL supports only primary-key equality lookups (column '{col_name}' is not the primary key)"),
                     ));
-                }
+        }
 
-                match right {
-                    Expr::Literal(_) | Expr::Parameter(_) => Ok(right.clone()),
-                    _ => Err(SqlError::unsupported_query_shape(
-                        format!("baseline SQL supports only pk = ? or pk = <literal> predicates for {operation}"),
-                    )),
-                }
+        match right {
+            Expr::Literal(_) | Expr::Parameter(_) => Ok(right.clone()),
+            _ => Err(SqlError::unsupported_query_shape(format!(
+                "baseline SQL supports only pk = ? or pk = <literal> predicates for {operation}"
+            ))),
+        }
     }
 
     fn unsupported_predicate(operation: &str) -> SqlError {
@@ -315,7 +336,9 @@ mod tests {
             values: vec![Expr::Literal(Value::Integer(1))],
         };
         let output = planner.plan(&stmt).unwrap();
-        assert!(matches!(output.plan, PlanNode::InsertRow { ref values, .. } if matches!(values.first(), Some(Expr::Literal(Value::Integer(1))))));
+        assert!(
+            matches!(output.plan, PlanNode::InsertRow { ref values, .. } if matches!(values.first(), Some(Expr::Literal(Value::Integer(1)))))
+        );
     }
 
     #[test]
@@ -330,7 +353,13 @@ mod tests {
             )),
         };
         let output = planner.plan(&stmt).unwrap();
-        assert!(matches!(output.plan, PlanNode::PkLookup { pk_expr: Expr::Literal(Value::Integer(42)), .. }));
+        assert!(matches!(
+            output.plan,
+            PlanNode::PkLookup {
+                pk_expr: Expr::Literal(Value::Integer(42)),
+                ..
+            }
+        ));
         assert_eq!(output.warnings.len(), 1); // SELECT * warning
     }
 
@@ -370,7 +399,13 @@ mod tests {
             )),
         };
         let output = planner.plan(&stmt).unwrap();
-        assert!(matches!(output.plan, PlanNode::DeleteByPk { pk_expr: Expr::Literal(Value::Integer(1)), .. }));
+        assert!(matches!(
+            output.plan,
+            PlanNode::DeleteByPk {
+                pk_expr: Expr::Literal(Value::Integer(1)),
+                ..
+            }
+        ));
     }
 
     #[test]

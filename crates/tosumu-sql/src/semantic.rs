@@ -2,9 +2,9 @@
 //!
 //! Validates statements against a catalog before execution.
 
-use crate::error::{SqlError, SqlResult};
 use crate::ast::{DataType, Stmt};
 use crate::catalog::TableDef;
+use crate::error::{SqlError, SqlResult};
 
 /// Catalog trait for semantic checking.
 pub trait Catalog {
@@ -45,7 +45,9 @@ impl<C: Catalog> SemanticChecker<C> {
                 }
             }
             if !has_pk {
-                return Err(SqlError::MissingPrimaryKey { table: name.clone() });
+                return Err(SqlError::MissingPrimaryKey {
+                    table: name.clone(),
+                });
             }
         }
         Ok(())
@@ -68,7 +70,8 @@ impl<C: Catalog> SemanticChecker<C> {
         if let Stmt::Select { predicate, .. } = stmt {
             if predicate.is_none() {
                 return Err(SqlError::unsupported_query_shape(
-                    "baseline SQL requires WHERE clause with primary-key equality for SELECT".to_string(),
+                    "baseline SQL requires WHERE clause with primary-key equality for SELECT"
+                        .to_string(),
                 ));
             }
         }
@@ -80,7 +83,8 @@ impl<C: Catalog> SemanticChecker<C> {
         if let Stmt::Delete { predicate, .. } = stmt {
             if predicate.is_none() {
                 return Err(SqlError::unsupported_query_shape(
-                    "baseline SQL requires WHERE clause with primary-key equality for DELETE".to_string(),
+                    "baseline SQL requires WHERE clause with primary-key equality for DELETE"
+                        .to_string(),
                 ));
             }
         }
@@ -104,12 +108,16 @@ impl<C: Catalog> SemanticChecker<C> {
 
     /// Resolve the primary key column name from a table definition.
     pub fn pk_column_name<'a>(&self, table_def: &'a TableDef) -> Option<&'a str> {
-        table_def.columns.get(table_def.primary_key_index).map(|c| c.name.as_str())
+        table_def
+            .columns
+            .get(table_def.primary_key_index)
+            .map(|c| c.name.as_str())
     }
 
     /// Check that a table exists in the catalog.
     pub fn ensure_table_exists(&self, table: &str) -> SqlResult<TableDef> {
-        self.catalog.get_table(table)
+        self.catalog
+            .get_table(table)
             .ok_or_else(|| SqlError::table_not_found(table))
     }
 }
@@ -122,8 +130,12 @@ mod tests {
     struct EmptyCatalog;
 
     impl Catalog for EmptyCatalog {
-        fn get_table(&self, _name: &str) -> Option<TableDef> { None }
-        fn table_exists(&self, _name: &str) -> bool { false }
+        fn get_table(&self, _name: &str) -> Option<TableDef> {
+            None
+        }
+        fn table_exists(&self, _name: &str) -> bool {
+            false
+        }
     }
 
     #[test]
@@ -232,8 +244,16 @@ mod tests {
         let stmt = Stmt::CreateTable {
             name: "users".to_string(),
             columns: vec![
-                crate::ast::ColumnDef { name: "id".to_string(), data_type: DataType::Integer, is_primary_key: true },
-                crate::ast::ColumnDef { name: "id".to_string(), data_type: DataType::Text, is_primary_key: false },
+                crate::ast::ColumnDef {
+                    name: "id".to_string(),
+                    data_type: DataType::Integer,
+                    is_primary_key: true,
+                },
+                crate::ast::ColumnDef {
+                    name: "id".to_string(),
+                    data_type: DataType::Text,
+                    is_primary_key: false,
+                },
             ],
         };
         assert!(checker.check_create_table(&stmt).is_err());
@@ -244,9 +264,11 @@ mod tests {
         let checker = SemanticChecker::new(EmptyCatalog);
         let stmt = Stmt::CreateTable {
             name: "users".to_string(),
-            columns: vec![
-                crate::ast::ColumnDef { name: "name".to_string(), data_type: DataType::Text, is_primary_key: false },
-            ],
+            columns: vec![crate::ast::ColumnDef {
+                name: "name".to_string(),
+                data_type: DataType::Text,
+                is_primary_key: false,
+            }],
         };
         assert!(checker.check_create_table(&stmt).is_err());
     }
@@ -261,13 +283,23 @@ mod tests {
         let table_def = TableDef {
             name: "users".to_string(),
             columns: vec![
-                crate::ast::ColumnDef { name: "id".to_string(), data_type: DataType::Integer, is_primary_key: true },
-                crate::ast::ColumnDef { name: "name".to_string(), data_type: DataType::Text, is_primary_key: false },
+                crate::ast::ColumnDef {
+                    name: "id".to_string(),
+                    data_type: DataType::Integer,
+                    is_primary_key: true,
+                },
+                crate::ast::ColumnDef {
+                    name: "name".to_string(),
+                    data_type: DataType::Text,
+                    is_primary_key: false,
+                },
             ],
             primary_key_index: 0,
             root_page: None,
         };
-        assert!(checker.check_insert_against_schema(&stmt, &table_def).is_err());
+        assert!(checker
+            .check_insert_against_schema(&stmt, &table_def)
+            .is_err());
     }
 
     #[test]
@@ -283,13 +315,23 @@ mod tests {
         let table_def = TableDef {
             name: "users".to_string(),
             columns: vec![
-                crate::ast::ColumnDef { name: "id".to_string(), data_type: DataType::Integer, is_primary_key: true },
-                crate::ast::ColumnDef { name: "name".to_string(), data_type: DataType::Text, is_primary_key: false },
+                crate::ast::ColumnDef {
+                    name: "id".to_string(),
+                    data_type: DataType::Integer,
+                    is_primary_key: true,
+                },
+                crate::ast::ColumnDef {
+                    name: "name".to_string(),
+                    data_type: DataType::Text,
+                    is_primary_key: false,
+                },
             ],
             primary_key_index: 0,
             root_page: None,
         };
-        assert!(checker.check_insert_against_schema(&stmt, &table_def).is_ok());
+        assert!(checker
+            .check_insert_against_schema(&stmt, &table_def)
+            .is_ok());
     }
 
     #[test]
@@ -298,8 +340,16 @@ mod tests {
         let table_def = TableDef {
             name: "users".to_string(),
             columns: vec![
-                crate::ast::ColumnDef { name: "id".to_string(), data_type: DataType::Integer, is_primary_key: true },
-                crate::ast::ColumnDef { name: "name".to_string(), data_type: DataType::Text, is_primary_key: false },
+                crate::ast::ColumnDef {
+                    name: "id".to_string(),
+                    data_type: DataType::Integer,
+                    is_primary_key: true,
+                },
+                crate::ast::ColumnDef {
+                    name: "name".to_string(),
+                    data_type: DataType::Text,
+                    is_primary_key: false,
+                },
             ],
             primary_key_index: 0,
             root_page: None,

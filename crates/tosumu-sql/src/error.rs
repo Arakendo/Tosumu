@@ -31,7 +31,11 @@ pub enum SqlError {
 
     /// A column type is not supported by the baseline SQL layer.
     #[error("unsupported type '{ty}' for column '{column}' in table '{table}'")]
-    UnsupportedType { table: String, column: String, ty: String },
+    UnsupportedType {
+        table: String,
+        column: String,
+        ty: String,
+    },
 
     /// The query shape is not supported by the MVP+9 baseline.
     #[error("{0}")]
@@ -60,7 +64,11 @@ pub enum SqlError {
 
     /// The SQL input could not be tokenized or parsed.
     #[error("parse error at line {line}, column {col}: {message}")]
-    ParseError { message: String, line: usize, col: usize },
+    ParseError {
+        message: String,
+        line: usize,
+        col: usize,
+    },
 }
 
 impl SqlError {
@@ -71,7 +79,9 @@ impl SqlError {
 
     /// Create a new `TableNotFound` error.
     pub fn table_not_found(table: impl Into<String>) -> Self {
-        SqlError::TableNotFound { table: table.into() }
+        SqlError::TableNotFound {
+            table: table.into(),
+        }
     }
 
     /// Create a new `ColumnNotFound` error.
@@ -92,7 +102,9 @@ impl SqlError {
 
     /// Create a new `MissingPrimaryKey` error.
     pub fn missing_primary_key(table: impl Into<String>) -> Self {
-        SqlError::MissingPrimaryKey { table: table.into() }
+        SqlError::MissingPrimaryKey {
+            table: table.into(),
+        }
     }
 
     /// Create a new `ParseError`.

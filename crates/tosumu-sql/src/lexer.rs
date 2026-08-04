@@ -86,9 +86,9 @@ impl Token {
 /// Lexer state.
 pub struct Lexer {
     source: String,
-    pos: usize,       // byte position
-    line: usize,      // 1-based
-    col: usize,       // 1-based
+    pos: usize,  // byte position
+    line: usize, // 1-based
+    col: usize,  // 1-based
 }
 
 impl Lexer {
@@ -153,7 +153,9 @@ impl Lexer {
             } else if c == '-' && self.peek_char(1) == Some('-') {
                 // Line comment
                 while let Some(c) = self.current_char() {
-                    if c == '\n' { break; }
+                    if c == '\n' {
+                        break;
+                    }
                     self.advance();
                 }
             } else if c == ';' {
@@ -170,11 +172,26 @@ impl Lexer {
         let col = self.col;
 
         match self.current_char() {
-            Some('(') => { self.advance(); Ok(Token::new(TokenKind::LParen, line, col)) }
-            Some(')') => { self.advance(); Ok(Token::new(TokenKind::RParen, line, col)) }
-            Some(',') => { self.advance(); Ok(Token::new(TokenKind::Comma, line, col)) }
-            Some('*') => { self.advance(); Ok(Token::new(TokenKind::Star, line, col)) }
-            Some('?') => { self.advance(); Ok(Token::new(TokenKind::Parameter, line, col)) }
+            Some('(') => {
+                self.advance();
+                Ok(Token::new(TokenKind::LParen, line, col))
+            }
+            Some(')') => {
+                self.advance();
+                Ok(Token::new(TokenKind::RParen, line, col))
+            }
+            Some(',') => {
+                self.advance();
+                Ok(Token::new(TokenKind::Comma, line, col))
+            }
+            Some('*') => {
+                self.advance();
+                Ok(Token::new(TokenKind::Star, line, col))
+            }
+            Some('?') => {
+                self.advance();
+                Ok(Token::new(TokenKind::Parameter, line, col))
+            }
             Some('\'') => self.read_string_literal(line, col),
             Some(c) if c.is_ascii_digit() => self.read_integer(line, col),
             Some('=') => {
@@ -371,7 +388,10 @@ mod tests {
         assert_eq!(tokens[4].kind, TokenKind::LParen);
         assert_eq!(tokens[5].kind, TokenKind::LiteralInteger(1));
         assert_eq!(tokens[6].kind, TokenKind::Comma);
-        assert_eq!(tokens[7].kind, TokenKind::LiteralString("alice".to_string()));
+        assert_eq!(
+            tokens[7].kind,
+            TokenKind::LiteralString("alice".to_string())
+        );
         assert_eq!(tokens[8].kind, TokenKind::RParen);
     }
 
@@ -401,7 +421,10 @@ mod tests {
     fn tokenize_string_with_escaped_quote() {
         let mut lexer = Lexer::new("INSERT INTO t VALUES ( 'o''reilly' )");
         let tokens = lexer.tokenize().unwrap();
-        assert_eq!(tokens[5].kind, TokenKind::LiteralString("o'reilly".to_string()));
+        assert_eq!(
+            tokens[5].kind,
+            TokenKind::LiteralString("o'reilly".to_string())
+        );
     }
 
     #[test]
@@ -440,7 +463,10 @@ mod tests {
     fn tokenize_multiple_parameters() {
         let mut lexer = Lexer::new("SELECT * FROM t WHERE a = ? AND b = ?");
         let tokens = lexer.tokenize().unwrap();
-        let param_count = tokens.iter().filter(|t| t.kind == TokenKind::Parameter).count();
+        let param_count = tokens
+            .iter()
+            .filter(|t| t.kind == TokenKind::Parameter)
+            .count();
         assert_eq!(param_count, 2);
     }
 
@@ -448,7 +474,10 @@ mod tests {
     fn tokenize_blob_type() {
         let mut lexer = Lexer::new("CREATE TABLE t ( id INTEGER PRIMARY KEY, data BLOB )");
         let tokens = lexer.tokenize().unwrap();
-        let blob_idx = tokens.iter().position(|t| t.kind == TokenKind::Blob).unwrap();
+        let blob_idx = tokens
+            .iter()
+            .position(|t| t.kind == TokenKind::Blob)
+            .unwrap();
         assert_eq!(tokens[blob_idx].kind, TokenKind::Blob);
     }
 
@@ -464,7 +493,10 @@ mod tests {
     fn tokenize_line_comment_skipped() {
         let mut lexer = Lexer::new("SELECT * FROM t -- comment\nWHERE id = 1");
         let tokens = lexer.tokenize().unwrap();
-        let where_idx = tokens.iter().position(|t| t.kind == TokenKind::Where).unwrap();
+        let where_idx = tokens
+            .iter()
+            .position(|t| t.kind == TokenKind::Where)
+            .unwrap();
         assert_eq!(tokens[where_idx].kind, TokenKind::Where);
     }
 
@@ -495,8 +527,12 @@ mod tests {
     fn tokenize_identifier_with_underscore() {
         let mut lexer = Lexer::new("CREATE TABLE my_table ( user_name INTEGER PRIMARY KEY )");
         let tokens = lexer.tokenize().unwrap();
-        let idents: Vec<&str> = tokens.iter()
-            .filter_map(|t| match &t.kind { TokenKind::Ident(s) => Some(s.as_str()), _ => None })
+        let idents: Vec<&str> = tokens
+            .iter()
+            .filter_map(|t| match &t.kind {
+                TokenKind::Ident(s) => Some(s.as_str()),
+                _ => None,
+            })
             .collect();
         assert!(idents.contains(&"my_table"));
         assert!(idents.contains(&"user_name"));
@@ -506,7 +542,15 @@ mod tests {
     fn tokenize_all_type_keywords() {
         let mut lexer = Lexer::new("CREATE TABLE t ( a INTEGER PRIMARY KEY, b TEXT, c BLOB )");
         let tokens = lexer.tokenize().unwrap();
-        let type_count = tokens.iter().filter(|t| matches!(&t.kind, TokenKind::Integer | TokenKind::Text | TokenKind::Blob)).count();
+        let type_count = tokens
+            .iter()
+            .filter(|t| {
+                matches!(
+                    &t.kind,
+                    TokenKind::Integer | TokenKind::Text | TokenKind::Blob
+                )
+            })
+            .count();
         assert_eq!(type_count, 3);
     }
 

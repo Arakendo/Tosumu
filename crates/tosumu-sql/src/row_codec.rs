@@ -26,10 +26,10 @@ pub fn row_key(table: &str, pk: &Value) -> String {
 /// ```
 pub fn encode_row_values(columns: &[&str], types: &[u8], values: &[Value]) -> SqlResult<Vec<u8>> {
     let mut buf = Vec::new();
-    
+
     // Version
     buf.push(1);
-    
+
     // Column count (total columns including PK)
     let total_count = if columns.is_empty() && types.is_empty() {
         values.len()
@@ -37,21 +37,29 @@ pub fn encode_row_values(columns: &[&str], types: &[u8], values: &[Value]) -> Sq
         columns.len().max(types.len()).max(values.len())
     };
     buf.extend_from_slice(&(total_count as u16).to_le_bytes());
-    
+
     // Columns
     for i in 0..total_count {
-        let value = if i < values.len() { &values[i] } else { &Value::Blob(vec![]) };
-        
+        let value = if i < values.len() {
+            &values[i]
+        } else {
+            &Value::Blob(vec![])
+        };
+
         // Type tag
-        let type_tag = if i < types.len() { types[i] } else { value_type_tag(value) };
+        let type_tag = if i < types.len() {
+            types[i]
+        } else {
+            value_type_tag(value)
+        };
         buf.push(type_tag);
-        
+
         // Payload
         let payload = value_payload(value, type_tag)?;
         buf.extend_from_slice(&(payload.len() as u32).to_le_bytes());
         buf.extend_from_slice(&payload);
     }
-    
+
     Ok(buf)
 }
 
@@ -63,34 +71,33 @@ pub fn decode_row_values(data: &[u8]) -> SqlResult<Vec<Value>> {
             data.first().map(|v| *v as i32).unwrap_or(-1)
         )));
     }
-    
+
     let mut pos = 1;
-    
+
     // Column count
     let col_count = u16::from_le_bytes([data[pos], data[pos + 1]]) as usize;
     pos += 2;
-    
+
     let mut values = Vec::with_capacity(col_count);
-    
+
     for _ in 0..col_count {
         // Type tag
         let type_tag = data[pos];
         pos += 1;
-        
+
         // Payload length
-        let payload_len = u32::from_le_bytes([
-            data[pos], data[pos + 1], data[pos + 2], data[pos + 3],
-        ]) as usize;
+        let payload_len =
+            u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
         pos += 4;
-        
+
         // Payload
         let payload = &data[pos..pos + payload_len];
         pos += payload_len;
-        
+
         let value = decode_value(type_tag, payload)?;
         values.push(value);
     }
-    
+
     Ok(values)
 }
 
@@ -120,9 +127,12 @@ fn decode_value(type_tag: u8, payload: &[u8]) -> SqlResult<Value> {
     match type_tag {
         1 => {
             if payload.len() != 8 {
-                return Err(SqlError::RowEncoding("INTEGER requires 8 bytes".to_string()));
+                return Err(SqlError::RowEncoding(
+                    "INTEGER requires 8 bytes".to_string(),
+                ));
             }
-            let bytes: [u8; 8] = payload.try_into()
+            let bytes: [u8; 8] = payload
+                .try_into()
                 .map_err(|_| SqlError::RowEncoding("invalid INTEGER bytes".to_string()))?;
             Ok(Value::Integer(i64::from_le_bytes(bytes)))
         }
@@ -132,7 +142,9 @@ fn decode_value(type_tag: u8, payload: &[u8]) -> SqlResult<Value> {
             Ok(Value::Text(s))
         }
         3 => Ok(Value::Blob(payload.to_vec())),
-        _ => Err(SqlError::RowEncoding(format!("unsupported type tag: {type_tag}"))),
+        _ => Err(SqlError::RowEncoding(format!(
+            "unsupported type tag: {type_tag}"
+        ))),
     }
 }
 

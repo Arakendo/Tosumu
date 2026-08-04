@@ -225,8 +225,8 @@ impl From<tosumu_sql::SqlError> for CliError {
 
 #[cfg(test)]
 mod tests {
-    use super::codes::SQL_UNSUPPORTED_QUERY_SHAPE;
     use super::codes::PUBLIC_CODES;
+    use super::codes::SQL_UNSUPPORTED_QUERY_SHAPE;
 
     #[test]
     fn documented_cli_public_codes_match_exported_constants() {

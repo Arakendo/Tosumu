@@ -135,11 +135,7 @@ fn backup_temp_path(destination: &Path, kind: &str) -> PathBuf {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("backup");
-    destination.with_file_name(format!(
-        ".{file_name}.{}.{}.tmp",
-        std::process::id(),
-        kind
-    ))
+    destination.with_file_name(format!(".{file_name}.{}.{}.tmp", std::process::id(), kind))
 }
 
 fn copy_optional_file(source: &Path, destination: &Path) -> Result<bool> {
@@ -186,16 +182,18 @@ fn files_equal(first: &Path, second: &Path) -> std::io::Result<bool> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        backup_temp_path, create_stable_backup, create_stable_backup_with_probe,
-    };
+    use super::{backup_temp_path, create_stable_backup, create_stable_backup_with_probe};
     use crate::error::TosumuError;
     use crate::page_store::PageStore;
     use std::path::PathBuf;
 
     fn paths(name: &str) -> (PathBuf, PathBuf) {
-        let root = std::env::temp_dir().join(format!("tosumu_backup_{name}_{}", std::process::id()));
-        (root.with_extension("src.tsm"), root.with_extension("dest.tsm"))
+        let root =
+            std::env::temp_dir().join(format!("tosumu_backup_{name}_{}", std::process::id()));
+        (
+            root.with_extension("src.tsm"),
+            root.with_extension("dest.tsm"),
+        )
     }
 
     fn cleanup(path: &PathBuf) {
@@ -220,7 +218,10 @@ mod tests {
         assert!(report.destination_wal.is_some());
 
         let copied = PageStore::open(&destination).unwrap();
-        assert_eq!(copied.get(b"asset/manifest").unwrap(), Some(b"schema-v1".to_vec()));
+        assert_eq!(
+            copied.get(b"asset/manifest").unwrap(),
+            Some(b"schema-v1".to_vec())
+        );
 
         cleanup(&source);
         cleanup(&destination);

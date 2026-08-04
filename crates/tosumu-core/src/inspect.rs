@@ -8,9 +8,9 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
+use crate::btree::BTree;
 use crate::error::{Result, TosumuError};
 use crate::format::*;
-use crate::btree::BTree;
 use crate::pager::Pager;
 use crate::wal::{wal_path, WalReader, WalRecord};
 
@@ -667,11 +667,7 @@ pub fn verify_file(path: &Path) -> Result<VerifyReport> {
 /// Produce one structured verification snapshot without exposing storage
 /// implementation types to consumers.
 pub fn inspect_verification(path: &Path) -> Result<VerificationReport> {
-    inspect_verification_with_openers(
-        path,
-        Pager::open_readonly,
-        BTree::open_readonly,
-    )
+    inspect_verification_with_openers(path, Pager::open_readonly, BTree::open_readonly)
 }
 
 /// Produce a verification snapshot for a passphrase-protected database.
@@ -735,35 +731,35 @@ fn inspect_verification_with_openers(
                 }),
             },
             Ok(tree) => match tree.check_invariants() {
-            Ok(()) => BTreeVerification {
-                checked: true,
-                ok: true,
-                issue: None,
-            },
-            Err(TosumuError::OverflowChainCorrupt { .. }) => BTreeVerification {
-                checked: true,
-                ok: false,
-                issue: Some(BTreeVerificationIssue {
-                    kind: BTreeVerificationIssueKind::OverflowChainCorrupt,
-                    description: "overflow chain corruption was found".to_owned(),
-                }),
-            },
-            Err(TosumuError::Corrupt { pgno: 0, reason }) => BTreeVerification {
-                checked: false,
-                ok: false,
-                issue: Some(BTreeVerificationIssue {
-                    kind: BTreeVerificationIssueKind::Incomplete,
-                    description: reason.to_owned(),
-                }),
-            },
-            Err(error) => BTreeVerification {
-                checked: true,
-                ok: false,
-                issue: Some(BTreeVerificationIssue {
-                    kind: BTreeVerificationIssueKind::Invalid,
-                    description: error.to_string(),
-                }),
-            },
+                Ok(()) => BTreeVerification {
+                    checked: true,
+                    ok: true,
+                    issue: None,
+                },
+                Err(TosumuError::OverflowChainCorrupt { .. }) => BTreeVerification {
+                    checked: true,
+                    ok: false,
+                    issue: Some(BTreeVerificationIssue {
+                        kind: BTreeVerificationIssueKind::OverflowChainCorrupt,
+                        description: "overflow chain corruption was found".to_owned(),
+                    }),
+                },
+                Err(TosumuError::Corrupt { pgno: 0, reason }) => BTreeVerification {
+                    checked: false,
+                    ok: false,
+                    issue: Some(BTreeVerificationIssue {
+                        kind: BTreeVerificationIssueKind::Incomplete,
+                        description: reason.to_owned(),
+                    }),
+                },
+                Err(error) => BTreeVerification {
+                    checked: true,
+                    ok: false,
+                    issue: Some(BTreeVerificationIssue {
+                        kind: BTreeVerificationIssueKind::Invalid,
+                        description: error.to_string(),
+                    }),
+                },
             },
         }
     } else {

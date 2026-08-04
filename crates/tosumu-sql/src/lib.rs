@@ -24,14 +24,14 @@
 #![forbid(unsafe_code)]
 
 pub mod ast;
+pub mod catalog;
 pub mod error;
+pub mod executor;
 pub mod lexer;
 pub mod parser;
-pub mod semantic;
 pub mod planner;
-pub mod catalog;
 pub mod row_codec;
-pub mod executor;
+pub mod semantic;
 
 /// SQL value representation. Re-exported from `ast` for convenience.
 pub use ast::{DataType, Expr, Projection, Stmt, Value};
@@ -66,15 +66,13 @@ pub struct SqlDatabase {
 impl SqlDatabase {
     /// Open an existing database file at the given path.
     pub fn open(path: &std::path::Path) -> SqlResult<Self> {
-        let store = PageStore::open(path)
-            .map_err(SqlError::CatalogStorage)?;
+        let store = PageStore::open(path).map_err(SqlError::CatalogStorage)?;
         Ok(SqlDatabase { store })
     }
 
     /// Create a new database file at the given path (fails if exists).
     pub fn create(path: &std::path::Path) -> SqlResult<Self> {
-        let store = PageStore::create(path)
-            .map_err(SqlError::CatalogStorage)?;
+        let store = PageStore::create(path).map_err(SqlError::CatalogStorage)?;
         Ok(SqlDatabase { store })
     }
 
@@ -84,7 +82,10 @@ impl SqlDatabase {
     pub fn prepare(&self, sql: &str) -> SqlResult<PreparedStatement> {
         let stmt = parser::parse(sql)?;
         let parameter_count = stmt.parameter_count();
-        Ok(PreparedStatement { stmt, parameter_count })
+        Ok(PreparedStatement {
+            stmt,
+            parameter_count,
+        })
     }
 
     /// Execute a prepared statement with the given bindings.
@@ -204,8 +205,12 @@ impl SqlDatabase {
 struct EmptyCatalogForExec;
 
 impl crate::semantic::Catalog for EmptyCatalogForExec {
-    fn get_table(&self, _name: &str) -> Option<catalog::TableDef> { None }
-    fn table_exists(&self, _name: &str) -> bool { false }
+    fn get_table(&self, _name: &str) -> Option<catalog::TableDef> {
+        None
+    }
+    fn table_exists(&self, _name: &str) -> bool {
+        false
+    }
 }
 
 /// A prepared SQL statement.
@@ -247,33 +252,44 @@ mod tests {
     #[test]
     fn create_table_and_insert_and_select() {
         let (path, _dir) = test_db_path();
-        
+
         // Create a new database
         let mut db = SqlDatabase::create(&path).unwrap();
-        
+
         // Create table
         let result = db.execute("CREATE TABLE users ( id INTEGER PRIMARY KEY, name TEXT )");
         assert!(result.is_ok());
-        
+
         // Insert a row
         let result = db.execute("INSERT INTO users VALUES ( 1, 'alice' )");
         assert!(result.is_ok());
-        if let ExecutionOutcome { result: QueryResult::Affected { rows }, .. } = result.unwrap() {
+        if let ExecutionOutcome {
+            result: QueryResult::Affected { rows },
+            ..
+        } = result.unwrap()
+        {
             assert_eq!(rows, 1);
         } else {
             panic!("expected Affected result");
         }
-        
+
         // Select the row back
         let result = db.execute("SELECT * FROM users WHERE id = 1");
         assert!(result.is_ok());
-        if let ExecutionOutcome { result: QueryResult::Select { columns, rows }, .. } = result.unwrap() {
+        if let ExecutionOutcome {
+            result: QueryResult::Select { columns, rows },
+            ..
+        } = result.unwrap()
+        {
             // SELECT * returns actual column names from catalog (id, name)
             assert_eq!(columns.len(), 2);
             assert_eq!(columns[0], "id");
             assert_eq!(columns[1], "name");
             assert_eq!(rows.len(), 1);
-            assert_eq!(rows[0], vec![Value::Integer(1), Value::Text("alice".to_string())]);
+            assert_eq!(
+                rows[0],
+                vec![Value::Integer(1), Value::Text("alice".to_string())]
+            );
         } else {
             panic!("expected Select result");
         }
@@ -301,7 +317,8 @@ mod tests {
         let (path, _dir) = test_db_path();
         let mut db = SqlDatabase::create(&path).unwrap();
 
-        db.execute("CREATE TABLE users ( id INTEGER PRIMARY KEY, name TEXT )").unwrap();
+        db.execute("CREATE TABLE users ( id INTEGER PRIMARY KEY, name TEXT )")
+            .unwrap();
 
         let insert = db.prepare("INSERT INTO users VALUES ( ?, ? )").unwrap();
         db.execute_prepared(
@@ -313,8 +330,15 @@ mod tests {
         let select = db.prepare("SELECT * FROM users WHERE id = ?").unwrap();
         let result = db.execute_prepared(&select, &[Value::Integer(7)]).unwrap();
 
-        if let ExecutionOutcome { result: QueryResult::Select { rows, .. }, .. } = result {
-            assert_eq!(rows, vec![vec![Value::Integer(7), Value::Text("alice".to_string())]]);
+        if let ExecutionOutcome {
+            result: QueryResult::Select { rows, .. },
+            ..
+        } = result
+        {
+            assert_eq!(
+                rows,
+                vec![vec![Value::Integer(7), Value::Text("alice".to_string())]]
+            );
         } else {
             panic!("expected Select result");
         }
@@ -325,7 +349,9 @@ mod tests {
         let (path, _dir) = test_db_path();
         let mut db = SqlDatabase::create(&path).unwrap();
 
-        let error = db.execute("INSERT INTO users VALUES ( 1, 'alice' )").unwrap_err();
+        let error = db
+            .execute("INSERT INTO users VALUES ( 1, 'alice' )")
+            .unwrap_err();
         assert!(matches!(error, SqlError::TableNotFound { table } if table == "users"));
     }
 
@@ -334,12 +360,18 @@ mod tests {
         let (path, _dir) = test_db_path();
         let mut db = SqlDatabase::create(&path).unwrap();
 
-        db.execute("CREATE TABLE users ( id INTEGER PRIMARY KEY, name TEXT )").unwrap();
-        db.execute("INSERT INTO users VALUES ( 1, 'alice' )").unwrap();
+        db.execute("CREATE TABLE users ( id INTEGER PRIMARY KEY, name TEXT )")
+            .unwrap();
+        db.execute("INSERT INTO users VALUES ( 1, 'alice' )")
+            .unwrap();
 
         let result = db.execute("SELECT name FROM users WHERE id = 1").unwrap();
 
-        if let ExecutionOutcome { result: QueryResult::Select { columns, rows }, .. } = result {
+        if let ExecutionOutcome {
+            result: QueryResult::Select { columns, rows },
+            ..
+        } = result
+        {
             assert_eq!(columns, vec!["name".to_string()]);
             assert_eq!(rows, vec![vec![Value::Text("alice".to_string())]]);
         } else {
@@ -438,12 +470,7 @@ mod tests {
             .unwrap();
         db.execute("INSERT INTO users VALUES ( 1, 42 )").unwrap();
 
-        for (operator, expected_rows) in [
-            ("<", 0),
-            ("<=", 1),
-            (">", 0),
-            (">=", 1),
-        ] {
+        for (operator, expected_rows) in [("<", 0), ("<=", 1), (">", 0), (">=", 1)] {
             let result = db
                 .execute(&format!(
                     "SELECT age FROM users WHERE id = 1 AND age {operator} 42"
@@ -481,8 +508,7 @@ mod tests {
             .unwrap();
         db.execute("INSERT INTO users VALUES ( 1, 'alice' )")
             .unwrap();
-        db.execute("INSERT INTO users VALUES ( 2, 'bob' )")
-            .unwrap();
+        db.execute("INSERT INTO users VALUES ( 2, 'bob' )").unwrap();
 
         let result = db
             .execute("SELECT name FROM users WHERE id = 1 OR id = 2")
@@ -507,8 +533,7 @@ mod tests {
             .unwrap();
         db.execute("INSERT INTO users VALUES ( 1, 'alice' )")
             .unwrap();
-        db.execute("INSERT INTO users VALUES ( 2, 'bob' )")
-            .unwrap();
+        db.execute("INSERT INTO users VALUES ( 2, 'bob' )").unwrap();
 
         let statement = db
             .prepare("SELECT name FROM users WHERE id = ? OR id = ?")
@@ -536,10 +561,11 @@ mod tests {
             .unwrap();
         db.execute("INSERT INTO users VALUES ( 1, 'alice' )")
             .unwrap();
-        db.execute("INSERT INTO users VALUES ( 2, 'bob' )")
-            .unwrap();
+        db.execute("INSERT INTO users VALUES ( 2, 'bob' )").unwrap();
 
-        let result = db.execute("DELETE FROM users WHERE id = 1 OR id = 2").unwrap();
+        let result = db
+            .execute("DELETE FROM users WHERE id = 1 OR id = 2")
+            .unwrap();
 
         assert!(matches!(result.result, QueryResult::Affected { rows: 2 }));
         let remaining = db.execute("SELECT * FROM users WHERE id = 1").unwrap();
@@ -575,7 +601,9 @@ mod tests {
         db.execute("CREATE TABLE users ( id INTEGER PRIMARY KEY )")
             .unwrap();
 
-        let error = db.execute("SELECT missing FROM users WHERE id = 1").unwrap_err();
+        let error = db
+            .execute("SELECT missing FROM users WHERE id = 1")
+            .unwrap_err();
 
         assert!(matches!(
             error,
@@ -592,8 +620,7 @@ mod tests {
             .unwrap();
         db.execute("INSERT INTO users VALUES ( 1, 'alice' )")
             .unwrap();
-        db.execute("INSERT INTO users VALUES ( 1, 'bob' )")
-            .unwrap();
+        db.execute("INSERT INTO users VALUES ( 1, 'bob' )").unwrap();
 
         let result = db.execute("SELECT name FROM users WHERE id = 1").unwrap();
 
@@ -609,8 +636,10 @@ mod tests {
         let (path, _dir) = test_db_path();
         let mut db = SqlDatabase::create(&path).unwrap();
 
-        db.execute("CREATE TABLE users ( id INTEGER PRIMARY KEY, name TEXT )").unwrap();
-        db.execute("INSERT INTO users VALUES ( 1, 'alice' )").unwrap();
+        db.execute("CREATE TABLE users ( id INTEGER PRIMARY KEY, name TEXT )")
+            .unwrap();
+        db.execute("INSERT INTO users VALUES ( 1, 'alice' )")
+            .unwrap();
 
         let result = db.execute("SELECT * FROM users WHERE id = 1").unwrap();
         assert_eq!(result.warnings.len(), 1);
@@ -637,12 +666,17 @@ mod tests {
     fn select_nonexistent_key_returns_empty() {
         let (path, _dir) = test_db_path();
         let mut db = SqlDatabase::create(&path).unwrap();
-        
-        db.execute("CREATE TABLE t ( id INTEGER PRIMARY KEY )").unwrap();
-        
+
+        db.execute("CREATE TABLE t ( id INTEGER PRIMARY KEY )")
+            .unwrap();
+
         let result = db.execute("SELECT * FROM t WHERE id = 999");
         assert!(result.is_ok());
-        if let ExecutionOutcome { result: QueryResult::Select { rows, .. }, .. } = result.unwrap() {
+        if let ExecutionOutcome {
+            result: QueryResult::Select { rows, .. },
+            ..
+        } = result.unwrap()
+        {
             assert!(rows.is_empty());
         } else {
             panic!("expected Select result");
@@ -653,7 +687,7 @@ mod tests {
     fn unsupported_query_shape_rejected() {
         let (path, _dir) = test_db_path();
         let mut db = SqlDatabase::create(&path).unwrap();
-        
+
         // SELECT without WHERE should be rejected
         let result = db.execute("SELECT * FROM users");
         assert!(result.is_err());

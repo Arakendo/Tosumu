@@ -6,7 +6,7 @@ use crate::ast::{Expr, Projection, Value};
 use crate::catalog::{serialize_table_def, table_key, TableDef};
 use crate::error::{SqlError, SqlResult};
 use crate::planner::{PlanNode, PlanWarning};
-use crate::row_codec::{row_key, encode_row_values, decode_row_values};
+use crate::row_codec::{decode_row_values, encode_row_values, row_key};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use tosumu_core::page_store::PageStore;
@@ -48,19 +48,50 @@ impl Executor {
         catalog_context: Option<&TableDef>,
     ) -> SqlResult<ExecutionOutcome> {
         match plan {
-            PlanNode::CreateTable { table } => Self::exec_create_table(table, store, catalog_context),
+            PlanNode::CreateTable { table } => {
+                Self::exec_create_table(table, store, catalog_context)
+            }
             PlanNode::InsertRow { table, values } => {
                 Self::exec_insert(&table, &values, bindings, store, catalog_context)
             }
-            PlanNode::PkLookup { table, pk_expr, filter, projection } => {
-                Self::exec_select(&table, &pk_expr, filter.as_ref(), &projection, bindings, store, catalog_context)
-            }
-            PlanNode::PkLookupMany { table, pk_exprs, projection } => {
-                Self::exec_select_many(&table, &pk_exprs, &projection, bindings, store, catalog_context)
-            }
-            PlanNode::DeleteByPk { table, pk_expr, filter } => {
-                Self::exec_delete(&table, &pk_expr, filter.as_ref(), bindings, store, catalog_context)
-            }
+            PlanNode::PkLookup {
+                table,
+                pk_expr,
+                filter,
+                projection,
+            } => Self::exec_select(
+                &table,
+                &pk_expr,
+                filter.as_ref(),
+                &projection,
+                bindings,
+                store,
+                catalog_context,
+            ),
+            PlanNode::PkLookupMany {
+                table,
+                pk_exprs,
+                projection,
+            } => Self::exec_select_many(
+                &table,
+                &pk_exprs,
+                &projection,
+                bindings,
+                store,
+                catalog_context,
+            ),
+            PlanNode::DeleteByPk {
+                table,
+                pk_expr,
+                filter,
+            } => Self::exec_delete(
+                &table,
+                &pk_expr,
+                filter.as_ref(),
+                bindings,
+                store,
+                catalog_context,
+            ),
             PlanNode::DeleteByPkMany { table, pk_exprs } => {
                 Self::exec_delete_many(&table, &pk_exprs, bindings, store)
             }
@@ -68,8 +99,8 @@ impl Executor {
     }
 
     fn exec_create_table(
-        table_name: String, 
-        store: &mut PageStore, 
+        table_name: String,
+        store: &mut PageStore,
         catalog_context: Option<&TableDef>,
     ) -> SqlResult<ExecutionOutcome> {
         // CreateTable execution: write catalog entry (executor owns this).
@@ -96,14 +127,19 @@ impl Executor {
         let pk = resolved_values
             .get(table_def.primary_key_index)
             .cloned()
-            .ok_or_else(|| SqlError::RowEncoding("missing primary key value in INSERT".to_string()))?;
+            .ok_or_else(|| {
+                SqlError::RowEncoding("missing primary key value in INSERT".to_string())
+            })?;
         let row_key_str = row_key(table, &pk);
 
         let column_names: Vec<&str> = table_def.columns.iter().map(|c| c.name.as_str()).collect();
-        let column_types: Vec<u8> = table_def.columns.iter().map(|c| c.data_type.as_u8()).collect();
-        let payload = encode_row_values(&column_names, &column_types, &resolved_values).map_err(|e| {
-            SqlError::RowEncoding(format!("INSERT row encoding failed: {e}"))
-        })?;
+        let column_types: Vec<u8> = table_def
+            .columns
+            .iter()
+            .map(|c| c.data_type.as_u8())
+            .collect();
+        let payload = encode_row_values(&column_names, &column_types, &resolved_values)
+            .map_err(|e| SqlError::RowEncoding(format!("INSERT row encoding failed: {e}")))?;
 
         store.put(row_key_str.as_bytes(), &payload)?;
         Ok(ExecutionOutcome {
@@ -127,25 +163,29 @@ impl Executor {
         let key_str = row_key(table, &pk);
         let data = match store.get(key_str.as_bytes())? {
             Some(data) => data,
-            None => return Ok(ExecutionOutcome {
-                result: QueryResult::Select {
-                    columns,
-                    rows: vec![],
-                },
-                warnings: vec![],
-            }),
+            None => {
+                return Ok(ExecutionOutcome {
+                    result: QueryResult::Select {
+                        columns,
+                        rows: vec![],
+                    },
+                    warnings: vec![],
+                })
+            }
         };
 
         // Decode the row values.
-        let decoded = decode_row_values(&data).map_err(|e| {
-            SqlError::RowEncoding(format!("SELECT row decoding failed: {e}"))
-        })?;
+        let decoded = decode_row_values(&data)
+            .map_err(|e| SqlError::RowEncoding(format!("SELECT row decoding failed: {e}")))?;
 
         let mut binding_index = 1;
         if let Some(filter) = filter {
             if !evaluate_predicate(filter, &decoded, table_def, bindings, &mut binding_index)? {
                 return Ok(ExecutionOutcome {
-                    result: QueryResult::Select { columns, rows: vec![] },
+                    result: QueryResult::Select {
+                        columns,
+                        rows: vec![],
+                    },
                     warnings: vec![],
                 });
             }
@@ -188,7 +228,13 @@ impl Executor {
                         SqlError::RowEncoding(format!("DELETE row decoding failed: {e}"))
                     })?;
                     let mut binding_index = 1;
-                    if !evaluate_predicate(filter, &decoded, table_def, bindings, &mut binding_index)? {
+                    if !evaluate_predicate(
+                        filter,
+                        &decoded,
+                        table_def,
+                        bindings,
+                        &mut binding_index,
+                    )? {
                         return Ok(ExecutionOutcome {
                             result: QueryResult::Affected { rows: 0 },
                             warnings: vec![],
@@ -231,16 +277,17 @@ impl Executor {
             let Some(data) = store.get(key_str.as_bytes())? else {
                 continue;
             };
-            let decoded = decode_row_values(&data).map_err(|e| {
-                SqlError::RowEncoding(format!("SELECT row decoding failed: {e}"))
-            })?;
+            let decoded = decode_row_values(&data)
+                .map_err(|e| SqlError::RowEncoding(format!("SELECT row decoding failed: {e}")))?;
             let row = projected_indexes
                 .iter()
-                .map(|&index| decoded.get(index).cloned().ok_or_else(|| {
-                    SqlError::RowEncoding(format!(
-                        "decoded row missing value for projected column index {index}"
-                    ))
-                }))
+                .map(|&index| {
+                    decoded.get(index).cloned().ok_or_else(|| {
+                        SqlError::RowEncoding(format!(
+                            "decoded row missing value for projected column index {index}"
+                        ))
+                    })
+                })
                 .collect::<SqlResult<Vec<_>>>()?;
             rows.push(row);
         }
@@ -324,9 +371,11 @@ fn evaluate_predicate(
         Expr::Eq(left, right) => {
             let column = match left.as_ref() {
                 Expr::Column(name) => name,
-                _ => return Err(SqlError::unsupported_query_shape(
-                    "filters require a column on the left side of =",
-                )),
+                _ => {
+                    return Err(SqlError::unsupported_query_shape(
+                        "filters require a column on the left side of =",
+                    ))
+                }
             };
             let index = table_def
                 .columns
@@ -339,9 +388,11 @@ fn evaluate_predicate(
         Expr::NotEq(left, right) => {
             let column = match left.as_ref() {
                 Expr::Column(name) => name,
-                _ => return Err(SqlError::unsupported_query_shape(
-                    "filters require a column on the left side of !=",
-                )),
+                _ => {
+                    return Err(SqlError::unsupported_query_shape(
+                        "filters require a column on the left side of !=",
+                    ))
+                }
             };
             let index = table_def
                 .columns
@@ -352,29 +403,47 @@ fn evaluate_predicate(
             Ok(row.get(index) != Some(&expected))
         }
         Expr::Lt(left, right) => evaluate_ordered_filter(
-            left, right, row, table_def, bindings, binding_index, |ordering| {
-                ordering == Ordering::Less
-            },
+            left,
+            right,
+            row,
+            table_def,
+            bindings,
+            binding_index,
+            |ordering| ordering == Ordering::Less,
         ),
         Expr::LtEq(left, right) => evaluate_ordered_filter(
-            left, right, row, table_def, bindings, binding_index, |ordering| {
-                ordering != Ordering::Greater
-            },
+            left,
+            right,
+            row,
+            table_def,
+            bindings,
+            binding_index,
+            |ordering| ordering != Ordering::Greater,
         ),
         Expr::Gt(left, right) => evaluate_ordered_filter(
-            left, right, row, table_def, bindings, binding_index, |ordering| {
-                ordering == Ordering::Greater
-            },
+            left,
+            right,
+            row,
+            table_def,
+            bindings,
+            binding_index,
+            |ordering| ordering == Ordering::Greater,
         ),
         Expr::GtEq(left, right) => evaluate_ordered_filter(
-            left, right, row, table_def, bindings, binding_index, |ordering| {
-                ordering != Ordering::Less
-            },
+            left,
+            right,
+            row,
+            table_def,
+            bindings,
+            binding_index,
+            |ordering| ordering != Ordering::Less,
         ),
-        Expr::And(left, right) => Ok(
-            evaluate_predicate(left, row, table_def, bindings, binding_index)?
-                && evaluate_predicate(right, row, table_def, bindings, binding_index)?,
-        ),
+        Expr::And(left, right) => {
+            Ok(
+                evaluate_predicate(left, row, table_def, bindings, binding_index)?
+                    && evaluate_predicate(right, row, table_def, bindings, binding_index)?,
+            )
+        }
         _ => Err(SqlError::unsupported_query_shape(
             "filters support only equality and AND predicates",
         )),
@@ -392,9 +461,11 @@ fn evaluate_ordered_filter(
 ) -> SqlResult<bool> {
     let column = match left {
         Expr::Column(name) => name,
-        _ => return Err(SqlError::unsupported_query_shape(
-            "ordered filters require a column on the left side of the comparison",
-        )),
+        _ => {
+            return Err(SqlError::unsupported_query_shape(
+                "ordered filters require a column on the left side of the comparison",
+            ))
+        }
     };
     let index = table_def
         .columns
@@ -402,21 +473,28 @@ fn evaluate_ordered_filter(
         .position(|candidate| candidate.name == *column)
         .ok_or_else(|| SqlError::column_not_found(&table_def.name, column))?;
     let actual = row.get(index).ok_or_else(|| {
-        SqlError::RowEncoding(format!("decoded row missing value for filtered column index {index}"))
+        SqlError::RowEncoding(format!(
+            "decoded row missing value for filtered column index {index}"
+        ))
     })?;
     let expected = resolve_expr(right, bindings, binding_index)?;
     let ordering = match (actual, &expected) {
         (Value::Integer(actual), Value::Integer(expected)) => actual.cmp(expected),
         (Value::Text(actual), Value::Text(expected)) => actual.cmp(expected),
         (Value::Blob(actual), Value::Blob(expected)) => actual.cmp(expected),
-        _ => return Err(SqlError::unsupported_query_shape(
-            "ordered filters require comparable values of the same type",
-        )),
+        _ => {
+            return Err(SqlError::unsupported_query_shape(
+                "ordered filters require comparable values of the same type",
+            ))
+        }
     };
     Ok(accepts(ordering))
 }
 
-fn projection_layout(projection: &Projection, table_def: &TableDef) -> SqlResult<(Vec<String>, Vec<usize>)> {
+fn projection_layout(
+    projection: &Projection,
+    table_def: &TableDef,
+) -> SqlResult<(Vec<String>, Vec<usize>)> {
     match projection {
         Projection::All => Ok((
             table_def.columns.iter().map(|c| c.name.clone()).collect(),
@@ -453,7 +531,7 @@ mod tests {
     fn executor_create_table_writes_catalog() {
         let (path, _dir) = test_db_path();
         let mut store = PageStore::create(&path).unwrap();
-        
+
         // Create table via catalog write
         let result = store.transaction(|s| {
             let key = table_key("users");
@@ -472,7 +550,7 @@ mod tests {
             Ok(())
         });
         assert!(result.is_ok());
-        
+
         // Verify catalog entry exists
         let data = store.get(table_key("users").as_bytes()).unwrap();
         assert!(data.is_some());
@@ -482,10 +560,15 @@ mod tests {
     fn executor_insert_and_select() {
         let (path, _dir) = test_db_path();
         let mut store = PageStore::create(&path).unwrap();
-        
+
         // Insert a row
-        store.put(b"__sql_row__/users/1", &[1, 0, 1, 0, 5, 0, 0, 0, 2, b'a', b'l', b'i', b'c', b'e']).unwrap();
-        
+        store
+            .put(
+                b"__sql_row__/users/1",
+                &[1, 0, 1, 0, 5, 0, 0, 0, 2, b'a', b'l', b'i', b'c', b'e'],
+            )
+            .unwrap();
+
         // Select the row back
         let data = store.get(b"__sql_row__/users/1").unwrap();
         assert!(data.is_some());
@@ -495,13 +578,18 @@ mod tests {
     fn executor_delete_removes_row() {
         let (path, _dir) = test_db_path();
         let mut store = PageStore::create(&path).unwrap();
-        
+
         // Insert a row
-        store.put(b"__sql_row__/users/1", &[1, 0, 1, 0, 5, 0, 0, 0, 2, b'a', b'l', b'i', b'c', b'e']).unwrap();
-        
+        store
+            .put(
+                b"__sql_row__/users/1",
+                &[1, 0, 1, 0, 5, 0, 0, 0, 2, b'a', b'l', b'i', b'c', b'e'],
+            )
+            .unwrap();
+
         // Delete the row
         store.delete(b"__sql_row__/users/1").unwrap();
-        
+
         // Verify it's gone
         let data = store.get(b"__sql_row__/users/1").unwrap();
         assert!(data.is_none());
@@ -511,17 +599,14 @@ mod tests {
     fn executor_select_nonexistent_returns_empty() {
         let (path, _dir) = test_db_path();
         let store = PageStore::create(&path).unwrap();
-        
+
         let data = store.get(b"__sql_row__/users/999").unwrap();
         assert!(data.is_none());
     }
 
     #[test]
     fn row_codec_round_trip() {
-        let values = vec![
-            Value::Integer(42),
-            Value::Text("alice".to_string()),
-        ];
+        let values = vec![Value::Integer(42), Value::Text("alice".to_string())];
         let encoded = encode_row_values(&["id", "name"], &[1, 2], &values).unwrap();
         let decoded = decode_row_values(&encoded).unwrap();
         assert_eq!(decoded, values);

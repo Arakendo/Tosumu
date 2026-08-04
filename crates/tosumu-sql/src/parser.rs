@@ -2,9 +2,9 @@
 //!
 //! Recursive descent parser for the baseline grammar: CREATE TABLE, INSERT, SELECT, DELETE.
 
+use crate::ast::{ColumnDef, DataType, Expr, Projection, Stmt, Value};
 use crate::error::{SqlError, SqlResult};
 use crate::lexer::{Lexer, Token, TokenKind};
-use crate::ast::{Stmt, Expr, Projection, Value, DataType, ColumnDef};
 
 /// Parse SQL input into a statement AST.
 pub fn parse(sql: &str) -> SqlResult<Stmt> {
@@ -24,9 +24,10 @@ struct ParserInner {
 
 impl ParserInner {
     fn current(&self) -> SqlResult<Token> {
-        self.tokens.get(self.pos).cloned().ok_or_else(|| {
-            SqlError::parse_error("unexpected end of input".to_string(), 0, 0)
-        })
+        self.tokens
+            .get(self.pos)
+            .cloned()
+            .ok_or_else(|| SqlError::parse_error("unexpected end of input".to_string(), 0, 0))
     }
 
     fn peek_kind(&self) -> SqlResult<TokenKind> {
@@ -44,9 +45,11 @@ impl ParserInner {
         if current.kind == kind {
             Ok(current)
         } else {
-            let msg = format!("expected {}, found {:?}", 
-                format_token_kind(&kind), 
-                format_token_kind(&current.kind));
+            let msg = format!(
+                "expected {}, found {:?}",
+                format_token_kind(&kind),
+                format_token_kind(&current.kind)
+            );
             Err(SqlError::parse_error(msg, 0, 0))
         }
     }
@@ -80,8 +83,17 @@ impl ParserInner {
         self.expect_kind(TokenKind::Create)?;
         self.expect_kind(TokenKind::Table)?;
         let name = match self.peek_kind()? {
-            TokenKind::Ident(s) => { self.advance(); s }
-            _ => return Err(SqlError::parse_error("expected table name".to_string(), 0, 0)),
+            TokenKind::Ident(s) => {
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(SqlError::parse_error(
+                    "expected table name".to_string(),
+                    0,
+                    0,
+                ))
+            }
         };
 
         self.expect_kind(TokenKind::LParen)?;
@@ -102,15 +114,39 @@ impl ParserInner {
 
     fn parse_column_def(&mut self) -> SqlResult<ColumnDef> {
         let name = match self.peek_kind()? {
-            TokenKind::Ident(s) => { self.advance(); s }
-            _ => return Err(SqlError::parse_error("expected column name".to_string(), 0, 0)),
+            TokenKind::Ident(s) => {
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(SqlError::parse_error(
+                    "expected column name".to_string(),
+                    0,
+                    0,
+                ))
+            }
         };
 
         let data_type = match self.peek_kind()? {
-            TokenKind::Integer => { self.advance(); DataType::Integer }
-            TokenKind::Text => { self.advance(); DataType::Text }
-            TokenKind::Blob => { self.advance(); DataType::Blob }
-            _ => return Err(SqlError::parse_error("expected column type".to_string(), 0, 0)),
+            TokenKind::Integer => {
+                self.advance();
+                DataType::Integer
+            }
+            TokenKind::Text => {
+                self.advance();
+                DataType::Text
+            }
+            TokenKind::Blob => {
+                self.advance();
+                DataType::Blob
+            }
+            _ => {
+                return Err(SqlError::parse_error(
+                    "expected column type".to_string(),
+                    0,
+                    0,
+                ))
+            }
         };
 
         let mut is_primary_key = false;
@@ -118,15 +154,28 @@ impl ParserInner {
             is_primary_key = true;
         }
 
-        Ok(ColumnDef { name, data_type, is_primary_key })
+        Ok(ColumnDef {
+            name,
+            data_type,
+            is_primary_key,
+        })
     }
 
     fn parse_insert(&mut self) -> SqlResult<Stmt> {
         self.expect_kind(TokenKind::Insert)?;
         self.expect_kind(TokenKind::Into)?;
         let table = match self.peek_kind()? {
-            TokenKind::Ident(s) => { self.advance(); s }
-            _ => return Err(SqlError::parse_error("expected table name".to_string(), 0, 0)),
+            TokenKind::Ident(s) => {
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(SqlError::parse_error(
+                    "expected table name".to_string(),
+                    0,
+                    0,
+                ))
+            }
         };
 
         self.expect_kind(TokenKind::Values)?;
@@ -162,19 +211,40 @@ impl ParserInner {
                                 let _name = self.advance();
                                 cols.push(s);
                             }
-                            _ => return Err(SqlError::parse_error("expected column name".to_string(), 0, 0)),
+                            _ => {
+                                return Err(SqlError::parse_error(
+                                    "expected column name".to_string(),
+                                    0,
+                                    0,
+                                ))
+                            }
                         }
                     }
                 }
-                _ => return Err(SqlError::parse_error("expected projection".to_string(), 0, 0)),
+                _ => {
+                    return Err(SqlError::parse_error(
+                        "expected projection".to_string(),
+                        0,
+                        0,
+                    ))
+                }
             }
             Projection::Named(cols)
         };
 
         self.expect_kind(TokenKind::From)?;
         let table = match self.peek_kind()? {
-            TokenKind::Ident(s) => { self.advance(); s }
-            _ => return Err(SqlError::parse_error("expected table name".to_string(), 0, 0)),
+            TokenKind::Ident(s) => {
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(SqlError::parse_error(
+                    "expected table name".to_string(),
+                    0,
+                    0,
+                ))
+            }
         };
 
         let predicate = if self.match_kind(TokenKind::Where).is_some() {
@@ -183,16 +253,29 @@ impl ParserInner {
             None
         };
 
-        Ok(Stmt::Select { table, columns, predicate })
+        Ok(Stmt::Select {
+            table,
+            columns,
+            predicate,
+        })
     }
 
     fn parse_delete_stmt(&mut self) -> SqlResult<Stmt> {
         let _ = self.advance(); // consume DELETE
-        
+
         self.expect_kind(TokenKind::From)?;
         let table = match self.peek_kind()? {
-            TokenKind::Ident(s) => { self.advance(); s }
-            _ => return Err(SqlError::parse_error("expected table name".to_string(), 0, 0)),
+            TokenKind::Ident(s) => {
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(SqlError::parse_error(
+                    "expected table name".to_string(),
+                    0,
+                    0,
+                ))
+            }
         };
 
         self.expect_kind(TokenKind::Where)?;
@@ -227,7 +310,13 @@ impl ParserInner {
                 let _name = self.advance();
                 Expr::Column(s)
             }
-            _ => return Err(SqlError::parse_error("expected column name in predicate".to_string(), 0, 0)),
+            _ => {
+                return Err(SqlError::parse_error(
+                    "expected column name in predicate".to_string(),
+                    0,
+                    0,
+                ))
+            }
         };
 
         let operator = self.advance();
@@ -240,7 +329,11 @@ impl ParserInner {
                 | TokenKind::Gt
                 | TokenKind::GtEq
         ) {
-            return Err(SqlError::parse_error("expected comparison operator".to_string(), 0, 0));
+            return Err(SqlError::parse_error(
+                "expected comparison operator".to_string(),
+                0,
+                0,
+            ));
         }
 
         let right = match self.peek_kind()? {
@@ -256,7 +349,13 @@ impl ParserInner {
                 let _token = self.advance();
                 Expr::Literal(Value::Text(s))
             }
-            _ => return Err(SqlError::parse_error("expected value in predicate".to_string(), 0, 0)),
+            _ => {
+                return Err(SqlError::parse_error(
+                    "expected value in predicate".to_string(),
+                    0,
+                    0,
+                ))
+            }
         };
 
         let left = Box::new(left);
@@ -287,7 +386,11 @@ impl ParserInner {
                 self.advance();
                 Ok(Expr::Parameter(1))
             }
-            _ => Err(SqlError::parse_error("expected expression".to_string(), 0, 0)),
+            _ => Err(SqlError::parse_error(
+                "expected expression".to_string(),
+                0,
+                0,
+            )),
         }
     }
 
@@ -322,7 +425,7 @@ fn format_token_kind(kind: &TokenKind) -> String {
         TokenKind::Ident(s) => format!("'{s}'"),
         TokenKind::LiteralString(_) => "string literal".to_string(),
         TokenKind::LiteralInteger(_) => "integer literal".to_string(),
-        TokenKind::LParen => "(" .to_string(),
+        TokenKind::LParen => "(".to_string(),
         TokenKind::RParen => ")".to_string(),
         TokenKind::Comma => ",".to_string(),
         TokenKind::Eq => "=".to_string(),
@@ -373,7 +476,11 @@ mod tests {
     fn parse_select_with_where_parameter() {
         let stmt = parse("SELECT * FROM users WHERE id = ?").unwrap();
         match stmt {
-            Stmt::Select { table, columns, predicate } => {
+            Stmt::Select {
+                table,
+                columns,
+                predicate,
+            } => {
                 assert_eq!(table, "users");
                 assert!(matches!(columns, Projection::All));
                 assert!(predicate.is_some());
@@ -420,7 +527,10 @@ mod tests {
         let stmt = parse("INSERT INTO t VALUES ( 'hello world' )").unwrap();
         match stmt {
             Stmt::Insert { values, .. } => {
-                assert_eq!(values[0], Expr::Literal(Value::Text("hello world".to_string())));
+                assert_eq!(
+                    values[0],
+                    Expr::Literal(Value::Text("hello world".to_string()))
+                );
             }
             _ => panic!("expected Insert"),
         }
