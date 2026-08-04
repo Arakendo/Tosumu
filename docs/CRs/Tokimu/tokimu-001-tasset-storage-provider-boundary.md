@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Accepted - Tosumu provider scope complete |
 | Requested by | Tokimu |
 | Opened | 2026-08-03 |
 | Target | `tosumu-core` library boundary and supporting diagnostics/tooling |
@@ -25,6 +25,30 @@ format compatibility, and storage inspection.
 The initial Tokimu adapter should use Tosumu's smallest stable key/value
 surface. It should not depend on the developing SQL layer merely to create
 useful corpus pressure.
+
+## Acceptance Record
+
+Accepted on 2026-08-03. Tosumu now supplies the documented `tosumu-core`
+provider boundary required by this CR: an external Rust consumer can atomically
+store a multi-record logical asset, use bounded large values, recover after
+selected failures, inspect and verify storage, create a stable backup, and
+produce a self-contained portable export without importing physical storage
+internals.
+
+The acceptance evidence is the complete `provider_boundary` integration suite:
+
+```text
+cargo test -p tosumu-core --test provider_boundary
+```
+
+The suite passed 19 tests; three explicitly ignored measurement workloads remain
+available as supplemental performance evidence. It includes the shared fixture,
+64 MiB value recovery, backup and export, verification, structured newer-format
+and wrong-key failures, and database identity isolation.
+
+This accepts Tosumu's provider-side contract only. It does not stabilize
+Tokimu's `.tasset` schema, admit Tosumu as a mandatory Tokimu dependency, or
+complete the Tokimu-side adapter evidence required by `AR-0011`.
 
 ## Consumer Pipeline
 
@@ -75,27 +99,28 @@ public API.
 - Tokimu runtime resource handles;
 - source formats such as GLB, SVG, CGM, FBX, PNG, JPEG, or BMP.
 
-## Existing Tosumu Evidence
+## Accepted Tosumu Evidence
 
-The current Tosumu checkout already provides useful parts of this boundary:
+The accepted Tosumu checkout provides this boundary:
 
 Slice 0 records the baseline facts and format decisions in
 [`tokimu-001-provider-baseline.md`](tokimu-001-provider-baseline.md). That
 baseline is required reading before provider API or wire-format changes.
 
-- page-based key/value storage with a reserved overflow page type, but no
-      consumer-visible logical overflow-value contract yet;
+- page-based key/value storage with a consumer-visible bounded overflow-value
+  contract;
 - transaction closure commit and rollback;
 - WAL-backed crash recovery;
 - explicit physical `format_version` validation;
 - structured errors and inspection payloads;
 - verification and corruption evidence;
-- a CLI backup command that retries until it captures stable copies of the
-  main database and optional WAL sidecar.
+- a library-level stable backup operation that retries until it captures stable
+  copies of the main database and optional WAL sidecar;
+- a library-level self-contained portable export operation;
+- structured embedded verification reports and failures.
 
-This CR does not ask Tosumu to replace those mechanisms. It asks for the
-remaining consumer-facing contracts needed to use them safely from another
-Rust project.
+This CR did not ask Tosumu to replace those mechanisms. It established the
+consumer-facing contracts needed to use them safely from another Rust project.
 
 ## Required Deliverables
 
@@ -298,25 +323,25 @@ The following are valuable but do not block the first Tokimu corpus:
 - Treating the pre-stability Tosumu physical format as a permanent public file
   format merely because Tokimu begins consuming it.
 
-## Proposed Delivery Order
+## Delivered Order
 
-1. Document and test the embeddable KV boundary.
-2. Harden large-value and transactional consumer fixtures.
-3. Factor the stable backup operation into a library boundary.
-4. Add portable one-file export/checkpoint behavior.
-5. Expose structured embedded verification evidence.
-6. Run the shared Tokimu-shaped fixture and publish results.
+1. Documented and tested the embeddable KV boundary.
+2. Hardened large-value and transactional consumer fixtures.
+3. Factored stable backup into a library boundary.
+4. Added portable one-file export/checkpoint behavior.
+5. Exposed structured embedded verification evidence.
+6. Ran the shared Tokimu-shaped fixture and published results.
 
-Tokimu can begin its adapter after steps 1 and 2. Tokimu should not describe a
-`.tasset` as portable or distributable until step 4 passes.
+Tokimu may now begin its adapter against this boundary. Tokimu must not describe
+a `.tasset` schema or Tosumu physical format as permanently stable merely
+because this provider-side CR is accepted.
 
-## Completion Condition
+## Completion Result
 
-This CR is complete when Tosumu can demonstrate, through a documented
-library-level API and repeatable tests, that an external Rust consumer can
-atomically store a multi-record asset with large binary values, recover it,
-inspect it, back it up, and export it as a verified self-contained artifact
-without learning Tosumu's physical internals.
+Tosumu demonstrated, through its documented library-level API and repeatable
+tests, that an external Rust consumer can atomically store a multi-record asset
+with large binary values, recover it, inspect it, back it up, and export it as
+a verified self-contained artifact without learning Tosumu's physical internals.
 
 Completion does not stabilize the `.tasset` schema or automatically make
 Tosumu Tokimu's permanent storage provider. It supplies the evidence required

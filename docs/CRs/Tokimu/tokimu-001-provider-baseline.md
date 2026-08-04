@@ -1,19 +1,18 @@
 # TOKIMU-001 Provider Baseline
 
-Status: Slice 0 baseline and design decisions
+Status: Accepted provider baseline and design record
 Source CR: [`tokimu-001-tasset-storage-provider-boundary.md`](tokimu-001-tasset-storage-provider-boundary.md)
 Plan: [`tokimu-001-implementation-plan.md`](tokimu-001-implementation-plan.md)
 Updated: 2026-08-03
 
 ## Candidate Provider
 
-`tosumu_core::page_store::PageStore` is the current candidate implementation
-owner. It provides create/open, read-only open, get, put, delete, scan,
-range-scan, statistics, and closure-based transactions. The admitted Tokimu
-surface will be a small core-owned KV facade introduced in Slice 1. The facade
-will expose only consumer operations and structured core errors; it will not
-admit protector-management methods or physical storage types that are also
-reachable from `PageStore`.
+`tosumu_core::page_store::PageStore` is the current implementation owner. It
+provides create/open, read-only open, get, put, delete, scan, range-scan,
+statistics, and closure-based transactions. The accepted consumer surface is a
+small core-owned KV facade. It exposes only consumer operations and structured
+core errors; it does not admit protector-management methods or physical storage
+types that are also reachable from `PageStore`.
 
 The consumer-visible types currently reachable from the candidate operations
 are `PageStore`, `StoreStat`, `TosumuError`, `ErrorReport`, `ErrorStatus`,
@@ -70,8 +69,8 @@ The following alternatives were considered:
 | Hidden chunk manifest and chunk records | Reject | Adds an internal key namespace and manifest lifecycle that complicates scans, delete/overwrite reclamation, and atomicity without improving the consumer contract. |
 | Defer large values behind a streaming API | Reject for Slice 2 | Does not satisfy the required 1 MiB, 16 MiB, and 64 MiB whole-value acceptance evidence; streaming remains explicitly deferred unless measurements require it. |
 
-Slice 2 will use a checked `u64` logical value length in overflow metadata and
-an enforced maximum of `64 * 1024 * 1024` bytes. That maximum is deliberately
+Slice 2 uses a checked `u64` logical value length in overflow metadata and an
+enforced maximum of `64 * 1024 * 1024` bytes. That maximum is deliberately
 the first accepted target, so the 64 MiB fixture is the largest legal logical
 value until measurements justify a new format/configuration decision. Inputs
 above the maximum must fail before allocation, page traversal, or mutation.
@@ -127,11 +126,10 @@ decision remain open.
   rejected or trimmed according to the WAL reader/writer path.
 - `PageStore::transaction` already proves closure rollback and committed-WAL
   recovery in core tests, including dirty-page flush failure and torn writes.
-- Stable backup is currently CLI-owned in `tosumu-cli`; it is not yet a core
-  consumer contract and is therefore Slice 4 work.
-- Core inspection already exposes verification reports and per-page findings,
-  but the stable embedded inspection boundary and overflow findings remain
-  Slice 6 work.
+- Stable backup is exposed from `tosumu-core` with a structured report; the
+  CLI remains an adapter over this core-owned operation.
+- Core inspection exposes stable embedded verification reports, typed failures,
+  per-page findings, and overflow findings for consumer use.
 - `page_store::tests::large_overflow_transaction_recovers_after_commit_flush_failure`
   passes: a committed manifest plus 1 MiB overflow payload is restored after
   the dirty-page flush fails and WAL recovery runs on reopen; the recovered
@@ -151,9 +149,10 @@ decision remain open.
   page-write counts. WAL parse failures and busy/open failures remain typed
   `TosumuError` results rather than display-text classifications.
 
-## Slice 0 Exit Criteria
+## Baseline Outcome
 
-Slice 0 is complete when this baseline is kept alongside the CR, the plan
-links it, and the format/version decisions above are accepted before API or
-wire-format edits begin. The next implementation slice is the external-crate
-provider boundary and its public-surface integration test.
+This baseline guided the accepted provider implementation. The external-crate
+provider boundary, large-value contract, recovery corpus, stable backup,
+portable export, and embedded verification are now implemented and covered by
+the `provider_boundary` integration suite. The baseline remains a design record
+for the accepted physical-format and provider-boundary decisions.

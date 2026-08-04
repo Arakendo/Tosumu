@@ -1,6 +1,6 @@
 # TOKIMU-001 Implementation Plan
 
-Status: Proposed implementation plan
+Status: Accepted - Tosumu provider implementation complete; Tokimu adapter deferred
 Source CR: [`tokimu-001-tasset-storage-provider-boundary.md`](tokimu-001-tasset-storage-provider-boundary.md)
 Slice 0 baseline: [`tokimu-001-provider-baseline.md`](tokimu-001-provider-baseline.md)
 Target: `tosumu-core` provider boundary, supporting CLI adapters, diagnostics, and reproducible consumer evidence
@@ -25,7 +25,8 @@ physical format compatibility.
   recovery.
 - Core errors are structured through `TosumuError` and `ErrorReport`.
 - Core inspection already exposes header and page verification structures.
-- Stable backup logic exists only in the CLI-private `cmd_backup` path.
+- Stable backup, portable export, and verification are now public core
+  operations with structured reports; the CLI is an adapter over those APIs.
 - CLI inspection adds useful report shaping that is not yet a public core
   consumer contract.
 - Keys remain limited by the current `u16` key encoding. Values now have a
@@ -39,15 +40,15 @@ physical format compatibility.
 
 ## 3. Delivery Rules
 
-- [ ] Preserve the dependency direction: consumers -> `tosumu-core` public API
+- [x] Preserve the dependency direction: consumers -> `tosumu-core` public API
       -> storage internals.
-- [ ] Do not expose `Pager`, `BTree`, WAL frame, page, or encryption-frame types
+- [x] Do not expose `Pager`, `BTree`, WAL frame, page, or encryption-frame types
       through the admitted provider API.
-- [ ] Keep consumer reports and failures structured; no message parsing.
-- [ ] Add no Tokimu-specific concepts to core APIs or physical records.
-- [ ] Keep source backup, portable export, and verification as separate
+- [x] Keep consumer reports and failures structured; no message parsing.
+- [x] Add no Tokimu-specific concepts to core APIs or physical records.
+- [x] Keep source backup, portable export, and verification as separate
       operations with distinct guarantees.
-- [ ] Run the narrowest affected crate tests after each non-trivial edit.
+- [x] Run the narrowest affected crate tests after each non-trivial edit.
 - [x] Update the CR evidence matrix as slices complete.
 
 ## 4. Slice Overview
@@ -165,7 +166,7 @@ chunking unless that is chosen and documented as the provider contract.
       `large_value_write_measurement_one_megabyte` and
       `large_value_write_measurement_sixteen_megabytes`, and
       `large_value_write_measurement_maximum_value`.
-- [ ] Defer streaming unless measurements show whole-value buffering blocks
+- [x] Defer streaming unless measurements show whole-value buffering blocks
       realistic Tokimu assets.
 
 ### Test Matrix
@@ -189,7 +190,7 @@ chunking unless that is chosen and documented as the provider contract.
 - [x] Exact hashes remain stable across put, overwrite, scan, and recovery.
 - [x] Delete and overwrite preserve B+ tree and overflow invariants.
 - [x] Over-limit input fails before unbounded allocation or partial mutation.
-- [ ] Logical copy-volume and timing measurements are recorded for Tokimu's
+- [x] Logical copy-volume and timing measurements are recorded for Tokimu's
       streaming decision: 1 MiB (1,048,576 bytes; 3,287.9 ms), 16 MiB
       (16,777,216 bytes; 49,666.2 ms), and 64 MiB (67,108,864 bytes;
       203,219.2 ms). Exact allocator/peak-RSS counts remain unclaimed, so the
@@ -458,7 +459,7 @@ For large-value and crash tests, document any ignored/manual cases and provide
 their exact commands. Do not count an ignored 64 MiB or crash test as evidence
 until its explicit run passes.
 
-## 16. CR Completion Criteria
+## 16. CR Completion Result
 
 TOKIMU-001 is complete only when all of the following are true:
 
@@ -472,9 +473,17 @@ TOKIMU-001 is complete only when all of the following are true:
 - [x] The shared fixture passes the requested evidence matrix.
 - [x] Workspace tests and Clippy pass (`cargo test --workspace --all-targets`
       and `cargo clippy --workspace --all-targets -- -D warnings`).
-- [ ] Tokimu can implement its adapter without importing Tosumu internals; the
-      Tosumu side is validated, but the consumer-side adapter remains deferred
-      to the Tokimu project.
+- [ ] Tokimu can reproduce the fixture through its adapter without importing
+      Tosumu internals. This is deferred to the Tokimu project and is not a
+      blocker for acceptance of Tosumu's provider-side CR scope.
+
+### Acceptance Record
+
+Accepted on 2026-08-03 for the Tosumu-owned scope. The complete
+`provider_boundary` integration suite passed with 19 passing tests and three
+explicitly ignored measurement workloads. The remaining unchecked item is an
+independent Tokimu consumer obligation, tracked by Tokimu `AR-0011`; it is not
+a missing Tosumu implementation deliverable.
 
 ## 17. Explicitly Deferred
 
