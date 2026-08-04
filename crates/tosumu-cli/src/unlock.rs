@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use tosumu_core::btree::BTree;
 use tosumu_core::error::TosumuError;
 use tosumu_core::page_store::PageStore;
 use tosumu_core::pager::Pager;
@@ -154,19 +153,6 @@ pub(crate) fn open_pager(path: &Path) -> Result<(Pager, Option<UnlockSecret>), C
     )
 }
 
-pub(crate) fn open_btree_with_unlock(
-    path: &Path,
-    unlock: Option<&UnlockSecret>,
-) -> Result<BTree, TosumuError> {
-    open_with_unlock_secret(
-        unlock,
-        || BTree::open_readonly(path),
-        |pass| BTree::open_with_passphrase_readonly(path, pass),
-        |recovery| BTree::open_with_recovery_key_readonly(path, recovery),
-        |keyfile| BTree::open_with_keyfile_readonly(path, keyfile),
-    )
-}
-
 pub(crate) fn open_pager_with_unlock(
     path: &Path,
     unlock: Option<UnlockSecret>,
@@ -177,6 +163,30 @@ pub(crate) fn open_pager_with_unlock(
         unlock,
         no_prompt,
     )
+}
+
+pub(crate) fn inspect_verification_with_unlock(
+    path: &Path,
+    unlock: Option<UnlockSecret>,
+    no_prompt: bool,
+) -> Result<tosumu_core::inspect::VerificationReport, CliError> {
+    open_with_resolved_unlock(
+        |resolved_unlock| match resolved_unlock {
+            None => tosumu_core::inspect::inspect_verification(path),
+            Some(UnlockSecret::Passphrase(passphrase)) => {
+                tosumu_core::inspect::inspect_verification_with_passphrase(path, passphrase)
+            }
+            Some(UnlockSecret::RecoveryKey(recovery_key)) => {
+                tosumu_core::inspect::inspect_verification_with_recovery_key(path, recovery_key)
+            }
+            Some(UnlockSecret::Keyfile(keyfile_path)) => {
+                tosumu_core::inspect::inspect_verification_with_keyfile(path, keyfile_path)
+            }
+        },
+        unlock,
+        no_prompt,
+    )
+    .map(|(report, _)| report)
 }
 
 pub(crate) fn prompt_passphrase(prompt: &str) -> Result<String, TosumuError> {

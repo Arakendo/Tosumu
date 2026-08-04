@@ -725,7 +725,16 @@ fn inspect_verification_with_openers(
     let pager = open_pager(path)?;
     let pages = verify_pager(&pager)?;
     let btree = if pages.issues.is_empty() {
-        match open_tree(path).and_then(|tree| tree.check_invariants()) {
+        match open_tree(path) {
+            Err(error) => BTreeVerification {
+                checked: false,
+                ok: false,
+                issue: Some(BTreeVerificationIssue {
+                    kind: BTreeVerificationIssueKind::Incomplete,
+                    description: format!("could not open as BTree: {error}"),
+                }),
+            },
+            Ok(tree) => match tree.check_invariants() {
             Ok(()) => BTreeVerification {
                 checked: true,
                 ok: true,
@@ -739,6 +748,14 @@ fn inspect_verification_with_openers(
                     description: "overflow chain corruption was found".to_owned(),
                 }),
             },
+            Err(TosumuError::Corrupt { pgno: 0, reason }) => BTreeVerification {
+                checked: false,
+                ok: false,
+                issue: Some(BTreeVerificationIssue {
+                    kind: BTreeVerificationIssueKind::Incomplete,
+                    description: reason.to_owned(),
+                }),
+            },
             Err(error) => BTreeVerification {
                 checked: true,
                 ok: false,
@@ -746,6 +763,7 @@ fn inspect_verification_with_openers(
                     kind: BTreeVerificationIssueKind::Invalid,
                     description: error.to_string(),
                 }),
+            },
             },
         }
     } else {
@@ -847,10 +865,11 @@ pub fn verify_pager(pager: &Pager) -> Result<VerifyReport> {
 #[cfg(test)]
 mod tests {
     use super::{
-        inspect_recovery, inspect_tree_node_from_pager, inspect_verification, RecoveryDisposition,
+        inspect_recovery, inspect_tree_node_from_pager, inspect_verification,
+        BTreeVerificationIssueKind, RecoveryDisposition,
     };
     use crate::error::TosumuError;
-    use crate::format::{FORMAT_VERSION, OFF_FORMAT_VERSION};
+    use crate::format::{FORMAT_VERSION, OFF_FORMAT_VERSION, OFF_ROOT_PAGE};
     use crate::page_store::PageStore;
     use crate::pager::Pager;
     use crate::wal::{wal_path, WalRecord, WalWriter};
@@ -875,6 +894,36 @@ mod tests {
         assert!(report.btree.checked);
         assert!(report.btree.ok);
         assert!(report.btree.issue.is_none());
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(wal_path(&path));
+    }
+
+    #[test]
+    fn inspect_verification_marks_missing_btree_root_as_incomplete() {
+        let path = std::env::temp_dir().join(format!(
+            "tosumu_inspect_verification_missing_root_{}.tsm",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(wal_path(&path));
+
+        let mut store = PageStore::create(&path).unwrap();
+        store.put(b"asset/manifest", b"schema-v1").unwrap();
+        drop(store);
+
+        let mut page0 = std::fs::read(&path).unwrap();
+        page0[OFF_ROOT_PAGE..OFF_ROOT_PAGE + 8].copy_from_slice(&0u64.to_le_bytes());
+        std::fs::write(&path, &page0).unwrap();
+
+        let report = inspect_verification(&path).unwrap();
+        assert!(report.pages.issues.is_empty());
+        assert!(!report.btree.checked);
+        assert!(!report.btree.ok);
+        assert_eq!(
+            report.btree.issue.unwrap().kind,
+            BTreeVerificationIssueKind::Incomplete
+        );
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(wal_path(&path));

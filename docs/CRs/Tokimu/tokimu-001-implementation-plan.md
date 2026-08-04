@@ -319,7 +319,7 @@ existing structured `FileBusy` error.
       unsupported format, wrong key, and incomplete B+ tree checks.
 - [x] Preserve a distinct file-busy failure through embedded verification as
       structured `TosumuError::FileBusy` / `FILE_OPEN_BUSY`.
-- [ ] Refactor CLI JSON rendering to consume the same core observations where
+- [x] Refactor CLI JSON rendering to consume the same core observations where
       practical rather than rebuilding storage meaning.
 - [x] Verify both working databases and portable exports through the API.
 
@@ -399,6 +399,9 @@ remaining unlock modes and recovery-key rejection.
 `portable_export_reconciliation_failure_publishes_no_destination_or_staging_file`
 proves that a malformed WAL returns a structured corruption failure without
 publishing a destination or leaving export staging files.
+The CLI `inspect verify --json` and text verification commands now consume the
+core `VerificationReport` through the CLI unlock adapter, preserving the JSON
+envelope while leaving page and B-tree classification in `tosumu-core`.
 
 ### Acceptance Criteria
 
@@ -457,7 +460,8 @@ TOKIMU-001 is complete only when all of the following are true:
 - [x] Embedded verification returns structured observations and failures.
 - [x] Physical format and `.tasset` schema versions remain separate concerns.
 - [x] The shared fixture passes the requested evidence matrix.
-- [ ] Workspace tests and Clippy pass.
+- [x] Workspace tests and Clippy pass (`cargo test --workspace --all-targets`
+      and `cargo clippy --workspace --all-targets -- -D warnings`).
 - [ ] Tokimu can implement its adapter without importing Tosumu internals; the
       Tosumu side is validated, but the consumer-side adapter remains deferred
       to the Tokimu project.

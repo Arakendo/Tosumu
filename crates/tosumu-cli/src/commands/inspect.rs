@@ -12,7 +12,7 @@ use crate::inspect_contract::{
     InspectRecordPayload, InspectTreeChildPayload, InspectTreeNodePayload, InspectTreePayload,
     InspectVerifyIssuePayload, InspectVerifyPayload, InspectWalPayload, InspectWalRecordPayload,
 };
-use crate::unlock::{open_btree_with_unlock, open_pager_with_unlock, UnlockSecret};
+use crate::unlock::{inspect_verification_with_unlock, open_pager_with_unlock, UnlockSecret};
 
 pub(crate) fn cmd_inspect_header_json(path: &Path) -> Result<String, TosumuError> {
     let header = tosumu_core::inspect::read_header_info(path)?;
@@ -44,7 +44,6 @@ pub(crate) fn cmd_inspect_header_json(path: &Path) -> Result<String, TosumuError
 pub(crate) struct VerifySnapshot {
     pub(crate) report: tosumu_core::inspect::VerifyReport,
     pub(crate) btree: InspectBtreeVerifyPayload,
-    pub(crate) btree_error: Option<CliError>,
 }
 
 pub(crate) fn collect_verify_snapshot(
@@ -52,56 +51,15 @@ pub(crate) fn collect_verify_snapshot(
     unlock: Option<UnlockSecret>,
     no_prompt: bool,
 ) -> Result<VerifySnapshot, CliError> {
-    let (pager, unlock) = open_pager_with_unlock(path, unlock, no_prompt)?;
-    let report = tosumu_core::inspect::verify_pager(&pager)?;
-    let (btree, btree_error) = if report.issues.is_empty() {
-        match open_btree_with_unlock(path, unlock.as_ref()) {
-            Ok(tree) => match tree.check_invariants() {
-                Ok(()) => (
-                    InspectBtreeVerifyPayload {
-                        checked: true,
-                        ok: true,
-                        code: None,
-                        message: None,
-                    },
-                    None,
-                ),
-                Err(error) => (
-                    InspectBtreeVerifyPayload {
-                        checked: true,
-                        ok: false,
-                        code: None,
-                        message: Some(error.to_string()),
-                    },
-                    None,
-                ),
-            },
-            Err(error) => (
-                InspectBtreeVerifyPayload {
-                    checked: false,
-                    ok: false,
-                    code: None,
-                    message: Some(format!("could not open as BTree: {error}")),
-                },
-                Some(error.into()),
-            ),
-        }
-    } else {
-        (
-            InspectBtreeVerifyPayload {
-                checked: false,
-                ok: false,
-                code: None,
-                message: Some("skipped because page integrity issues were found".to_string()),
-            },
-            None,
-        )
-    };
-
+    let verification = inspect_verification_with_unlock(path, unlock, no_prompt)?;
     Ok(VerifySnapshot {
-        report,
-        btree,
-        btree_error,
+        report: verification.pages,
+        btree: InspectBtreeVerifyPayload {
+            checked: verification.btree.checked,
+            ok: verification.btree.ok,
+            code: None,
+            message: verification.btree.issue.map(|issue| issue.description),
+        },
     })
 }
 
@@ -123,9 +81,7 @@ pub(crate) fn cmd_inspect_verify_json(
     };
     Ok(render_json(&InspectEnvelope {
         command: "inspect.verify",
-        ok: snapshot.report.issues.is_empty()
-            && snapshot.btree_error.is_none()
-            && (!btree.checked || btree.ok),
+        ok: snapshot.report.issues.is_empty() && btree.ok,
         payload: Some(InspectVerifyPayload {
             pages_checked: snapshot.report.pages_checked,
             pages_ok: snapshot.report.pages_ok,

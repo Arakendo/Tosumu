@@ -150,9 +150,6 @@ pub(crate) fn cmd_verify(
     no_prompt: bool,
 ) -> Result<VerifyCommandOutcome, CliError> {
     let snapshot = collect_verify_snapshot(path, unlock, no_prompt)?;
-    if let Some(error) = snapshot.btree_error {
-        return Err(error);
-    }
     let report = snapshot.report;
     let outcome = verify_command_outcome(report.issues.len(), &snapshot.btree);
     println!(
