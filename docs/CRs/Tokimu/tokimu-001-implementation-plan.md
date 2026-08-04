@@ -370,7 +370,7 @@ The embedded verification boundary supports sentinel stores through
       and independent reopen.
 - [x] Exercise corruption, wrong-key, newer-format, busy, and identity-isolation
       cases from the CR evidence matrix.
-- [ ] Publish machine-readable fixture metadata if both projects need automated
+- [x] Publish versioned machine-readable fixture metadata for automated
       comparison.
 - [x] Update the CR evidence matrix with commands, results, and artifact hashes.
 
@@ -411,7 +411,7 @@ remaining unlock modes and recovery-key rejection.
 | --- | --- | --- | --- |
 | Tokimu adapter reproduces the fixture | Tokimu consumer project | Deferred until the consumer-side adapter exists; Tosumu has validated the admitted public boundary without importing consumer semantics | Run the equivalent Tokimu adapter fixture and compare keys, schema/version records, payload hashes, and reopen observations |
 | Peak allocation and streaming policy | Tosumu + Tokimu | Deferred; elapsed time and logical copy volume are measured for 1, 16, and 64 MiB, but allocator/peak-RSS evidence is not claimed | Repeat the three ignored measurement tests with an agreed peak-allocation/RSS recorder, then record the buffering decision |
-| Machine-readable fixture metadata | Tosumu + Tokimu | Optional until both projects require automated comparison; the Markdown fixture remains reproducible and authoritative for incubation | Publish versioned metadata alongside `tokimu-001-fixture.md` and compare it in both projects |
+| Machine-readable fixture metadata | Tosumu + Tokimu | Published as `tokimu-001-fixture.json`; the Markdown fixture remains the explanatory companion | Compare the manifest's constructed values and hashes in both projects |
 | Unlock-aware embedded verification | Tosumu | Sentinel, passphrase, recovery-key, and keyfile verification are implemented and tested; wrong unlocks remain typed failures | Extend encrypted corruption cases if future inspection findings require per-unlock coverage |
 
 ## 14. Cross-Cutting Error Contract

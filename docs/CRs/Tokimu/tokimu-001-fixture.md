@@ -13,6 +13,11 @@ uses only the public `tosumu_core::{KvStore, backup, export, inspect}` APIs.
 - Large payload: 1 MiB overflow-backed value
 - Source state: one committed transaction containing all records
 
+The versioned machine-readable manifest is
+[`tokimu-001-fixture.json`](tokimu-001-fixture.json). Consumers must construct
+each value from its declared encoding and compare SHA-256 hashes, rather than
+interpreting the metadata as a storage-format artifact.
+
 ## Records
 
 | Key | Value | Size | SHA-256 |
