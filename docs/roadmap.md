@@ -34,4 +34,4 @@ This page is the public roadmap summary. It is intentionally shorter than the re
 
 Use the [Main Feature Roadmap](Plans/main-feature-roadmap.md) for the canonical
 delivery checklist and current completion status. The full normative MVP and
-stage definitions remain in `DESIGN.md`.
+stage definitions remain in `docs/Specifications/Tosumu Software Design Document.md`.

@@ -19,7 +19,7 @@ Write code that can be quickly understood by a new contributor. Prefer clear nam
 After each non-trivial edit, run the narrowest test or build command that covers the touched slice before widening scope. Prefer focused `cargo test -p ...` or `dotnet build` checks over whole-repo runs unless the change is cross-cutting.
 
 ## Documentation
-When design or organization decisions change, update the nearest durable document instead of leaving the rationale only in code or chat. Link to existing docs such as `DESIGN.md`, `README.md`, and `INSPECT_API.md` rather than duplicating them.
+When design or organization decisions change, update the nearest durable document instead of leaving the rationale only in code or chat. Link to existing docs such as `docs/Specifications/Tosumu Software Design Document.md`, `README.md`, and `docs/Specifications/Tosumu Inspect API Specification.md` rather than duplicating them.
 
 ## Dependencies
 Do not add new dependencies unless the existing code cannot reasonably solve the problem. Prefer standard library and existing project dependencies first. Document why any new dependency is needed.

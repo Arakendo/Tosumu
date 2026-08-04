@@ -1,6 +1,6 @@
 // B+ tree index on top of the Pager.
 //
-// Source of truth: DESIGN.md §5.5, §6.2.
+// Source of truth: docs/Specifications/Tosumu Software Design Document.md §5.5, §6.2.
 //
 // Layout recap
 // ─────────────

@@ -1,7 +1,7 @@
 //! `tosumu` command-line interface — MVP +8.
 //!
 //! Key management plus the first interactive inspection slice.
-//! See DESIGN.md §12.0 (MVP +8).
+//! See docs/Specifications/Tosumu Software Design Document.md §12.0 (MVP +8).
 
 use clap::{ArgGroup, Args, Parser, Subcommand};
 use std::path::PathBuf;

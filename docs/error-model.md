@@ -44,4 +44,4 @@ Downstream tools should key behavior off structured codes and statuses, not stri
 
 ## Source of truth
 
-The durable design reference for structured errors lives in the repository `ERRORS.md` document. This page is the public summary.
+The durable design reference for structured errors lives in the repository `docs/Specifications/Tosumu Error Design Document.md` document. This page is the public summary.

@@ -2,6 +2,9 @@
 
 The inspect API is the machine-readable contract exposed by `tosumu-cli` for downstream tools.
 
+The reusable ownership boundary beneath this CLI serialization remains under
+[AR-0002](Architectural%20Reviews/AR-0002-structured-inspection-contract-boundary.md).
+
 ## What it is for
 
 It exists so tools can inspect a database without scraping human-oriented CLI output.
@@ -64,4 +67,4 @@ cargo run -- inspect page demo.tsm --page 1 --json
 
 ## Where to look for exact fields
 
-Use the repository `INSPECT_API.md` document and the Rust definitions in `crates/tosumu-cli/src/inspect_contract.rs` when you need the exact current envelope and payload fields.
+Use the repository `docs/Specifications/Tosumu Inspect API Specification.md` document and the Rust definitions in `crates/tosumu-cli/src/inspect_contract.rs` when you need the exact current envelope and payload fields.

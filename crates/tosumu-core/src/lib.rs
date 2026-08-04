@@ -1,6 +1,6 @@
 //! `tosumu-core` — core library for the tosumu embedded database.
 //!
-//! Pre-alpha. See `DESIGN.md` at the repository root for the source of truth.
+//! Pre-alpha. See `docs/Specifications/Tosumu Software Design Document.md` at the repository root for the source of truth.
 #![forbid(unsafe_code)]
 
 pub mod backup;

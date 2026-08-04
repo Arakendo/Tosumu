@@ -16,7 +16,7 @@ Longer-term, the harness is also a useful proving ground for a broader `tosumu` 
 
 ## Status Relative To MVP +8
 
-Current roadmap language in `DESIGN.md` defines MVP +8 as a **TUI viewer**. This proposal does **not** silently change that contract.
+Current roadmap language in `docs/Specifications/Tosumu Software Design Document.md` defines MVP +8 as a **TUI viewer**. This proposal does **not** silently change that contract.
 
 Instead, this harness should be treated as one of these three things:
 
@@ -24,7 +24,7 @@ Instead, this harness should be treated as one of these three things:
 2. A deliberate future pivot from TUI-first to Windows GUI-first, if we later decide that is the better product surface.
 3. A **committed Windows diagnostic companion** that stays alongside the TUI because it is the fastest way to inspect a broken database when the failure mode is still unclear.
 
-This document now assumes option 3 unless we explicitly revise `DESIGN.md` again.
+This document now assumes option 3 unless we explicitly revise `docs/Specifications/Tosumu Software Design Document.md` again.
 
 Implementation note:
 

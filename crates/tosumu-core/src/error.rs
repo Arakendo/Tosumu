@@ -70,7 +70,7 @@ impl ErrorReport {
 
 /// Top-level error type for tosumu-core.
 ///
-/// The full variant taxonomy is in DESIGN.md §9.
+/// The full variant taxonomy is in docs/Specifications/Tosumu Software Design Document.md §9.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum TosumuError {

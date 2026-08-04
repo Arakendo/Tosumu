@@ -8,9 +8,9 @@ on:
       - mkdocs.yml
       - requirements-docs.txt
       - README.md
-      - DESIGN.md
-      - ERRORS.md
-      - INSPECT_API.md
+      - "docs/Specifications/Tosumu Software Design Document.md"
+      - "docs/Specifications/Tosumu Error Design Document.md"
+      - "docs/Specifications/Tosumu Inspect API Specification.md"
       - SECURITY.md
       - .github/workflows/docs.yml
   workflow_dispatch:

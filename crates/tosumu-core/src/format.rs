@@ -1,6 +1,6 @@
 // On-disk format constants and layout definitions.
 //
-// Source of truth: DESIGN.md §5. This file enforces those numbers at compile time.
+// Source of truth: docs/Specifications/Tosumu Software Design Document.md §5. This file enforces those numbers at compile time.
 
 /// Page size in bytes. Fixed at database creation.
 pub const PAGE_SIZE: usize = 4096;

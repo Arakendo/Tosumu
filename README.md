@@ -83,7 +83,7 @@ MSRV: Rust 1.75, edition 2021.
 | ChaCha20-Poly1305 | DEK wrap/unwrap |
 | HKDF-SHA256 (no Argon2id) | Recovery key → KEK |
 
-Full details: `DESIGN.md §8`.
+Full details: `docs/Specifications/Tosumu Software Design Document.md §8`.
 
 ## Fuzz targets
 
@@ -91,7 +91,7 @@ Six `cargo fuzz` targets in `fuzz/fuzz_targets/`: page decode, B+ tree ops, WAL 
 
 ## Roadmap
 
-See [`DESIGN.md §12`](DESIGN.md) for the full MVP and stage breakdown. MVP+8 is complete: `tosumu view` provides a cross-platform TUI (`ratatui` + `crossterm`) for inspecting file header, pages, B+ tree structure, WAL records, and per-keyslot detail on encrypted databases. MVP+9 now adds the initial SQL layer and `tosumu sql` CLI path. The next milestone is MVP+10, MVCC and multiple readers.
+See [`docs/Specifications/Tosumu Software Design Document.md §12`](docs/Specifications/Tosumu%20Software%20Design%20Document.md) for the full MVP and stage breakdown. MVP+8 is complete: `tosumu view` provides a cross-platform TUI (`ratatui` + `crossterm`) for inspecting file header, pages, B+ tree structure, WAL records, and per-keyslot detail on encrypted databases. MVP+9 now adds the initial SQL layer and `tosumu sql` CLI path. The next milestone is MVP+10, MVCC and multiple readers.
 
 ## License
 
@@ -106,8 +106,8 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 
 ## Further reading
 
-- [`DESIGN.md`](DESIGN.md) — the design doc. Source of truth for all decisions.
-- [`ERRORS.md`](ERRORS.md) — structured error design, code/status model, and boundary-mapping plan.
-- [`INSPECT_API.md`](INSPECT_API.md) — machine-readable inspection contract for the TUI, harness, and future companion tools.
+- [`docs/Specifications/Tosumu Software Design Document.md`](docs/Specifications/Tosumu%20Software%20Design%20Document.md) — the design doc. Source of truth for all decisions.
+- [`docs/Specifications/Tosumu Error Design Document.md`](docs/Specifications/Tosumu%20Error%20Design%20Document.md) — structured error design, code/status model, and boundary-mapping plan.
+- [`docs/Specifications/Tosumu Inspect API Specification.md`](docs/Specifications/Tosumu%20Inspect%20API%20Specification.md) — machine-readable inspection contract for the TUI, harness, and future companion tools.
 - [`SECURITY.md`](SECURITY.md) — threat model summary and responsible disclosure.
-- [`REFERENCES.md`](REFERENCES.md) — reference implementations that informed the design.
+- [`docs/Specifications/Tosumu Reference Implementations.md`](docs/Specifications/Tosumu%20Reference%20Implementations.md) — reference implementations that informed the design.

@@ -1,5 +1,11 @@
 # Security Policy
 
+| Field | Value |
+| --- | --- |
+| Authority | Normative security posture and disclosure policy |
+| Lifecycle | Current, pre-audit |
+| Scope | Threat model, explicit limitations, and vulnerability reporting |
+
 ## Pre-audit status
 
 `tosumu` is an **early-stage database project**. It implements authenticated encryption, envelope key management, and a write-ahead log, but these mechanisms have not been independently reviewed or audited.
@@ -10,7 +16,7 @@
 
 ## Threat model
 
-See `DESIGN.md §8.1` (in scope) and `DESIGN.md §8.10–8.11` (explicit non-goals and known limitations). In brief:
+See `docs/Specifications/Tosumu Software Design Document.md §8.1` (in scope) and `docs/Specifications/Tosumu Software Design Document.md §8.10–8.11` (explicit non-goals and known limitations). In brief:
 
 **In scope**
 
@@ -24,7 +30,7 @@ See `DESIGN.md §8.1` (in scope) and `DESIGN.md §8.10–8.11` (explicit non-goa
 - Side channels (cache timing, power, microarchitectural).
 - Traffic analysis of file-modification patterns.
 - Plaintext recovery from OS swap, hibernation, or crash dumps.
-- Consistent multi-page rollback (acknowledged limitation; see `DESIGN.md §5.3`).
+- Consistent multi-page rollback (acknowledged limitation; see `docs/Specifications/Tosumu Software Design Document.md §5.3`).
 - Remote attestation, network key escrow, KMS integration.
 
 ## Reporting a vulnerability
@@ -46,7 +52,7 @@ Issues that will be taken seriously:
 
 - Bypass of AEAD verification.
 - Key leakage (in-memory or on-disk) outside the documented threat model.
-- AAD construction flaws that allow page swap / rollback / reorder beyond what `DESIGN.md` already calls out as known limitations.
+- AAD construction flaws that allow page swap / rollback / reorder beyond what `docs/Specifications/Tosumu Software Design Document.md` already calls out as known limitations.
 - Any cryptographic primitive misused against its documented constraints.
 
 Issues that are **expected behavior** and not bugs:

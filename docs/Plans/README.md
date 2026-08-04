@@ -14,10 +14,16 @@ validation, and exit states.
 ## Current And Retained Plans
 
 - [Main Feature Roadmap](main-feature-roadmap.md) -- canonical implementation
-  status tracker; MVP 0-8 complete, MVP+9 baseline complete, MVP+10 is the next
-  planning gate.
+  status tracker; **Active**. MVP 0-8 and the MVP+9 baseline are complete;
+  MVP+10 is the next planning gate.
 - [Initial SQL Layer](initial-sql-layer.md) -- MVP+9 baseline complete; retained
-  as implementation history and a source for deferred SQL work.
+  as **Completed baseline** implementation history and a source for deferred
+  SQL work.
+- [Tosumu Command Language](tosumu-command-language.md) -- proposed sliced
+  implementation; **Proposed**. Ownership remains under AR-0001.
+- [Documentation Lifecycle And Design Decomposition](documentation-lifecycle-and-design-decomposition.md)
+  -- **Active** normalization of document status and the current/future design
+  boundary.
 
 ## Plan Requirements
 

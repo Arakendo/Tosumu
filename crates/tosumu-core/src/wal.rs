@@ -1,6 +1,6 @@
 // Write-Ahead Log (WAL) — durability for MVP +4.
 //
-// Source of truth: DESIGN.md §7.2–§7.3.
+// Source of truth: docs/Specifications/Tosumu Software Design Document.md §7.2–§7.3.
 //
 // Wire format per record:
 //   lsn:         u64 LE  (8 bytes)

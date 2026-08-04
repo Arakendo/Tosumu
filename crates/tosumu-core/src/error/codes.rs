@@ -49,7 +49,7 @@ mod tests {
         let errors_md_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join("..")
-            .join("ERRORS.md");
+            .join("docs/Specifications/Tosumu Error Design Document.md");
         let errors_md = std::fs::read_to_string(&errors_md_path)
             .unwrap_or_else(|error| panic!("failed to read {}: {error}", errors_md_path.display()));
 

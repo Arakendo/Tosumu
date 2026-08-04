@@ -41,7 +41,23 @@ numbering. Copy `TEMPLATE.md` and add the record to this index.
 
 ## Index
 
-No Tosumu Architectural Review Records have been opened yet. The Tokimu
-storage-provider CR remains an incoming consumer request until Tosumu evidence
-raises an unresolved ownership question.
+- [AR-0001: TQL Command Language Boundary](AR-0001-tql-command-language-boundary.md)
+  -- incubating ownership, lowering, and structured-outcome boundaries for the
+  Tosumu operator command surface.
+- [AR-0002: Structured Inspection Contract Boundary](AR-0002-structured-inspection-contract-boundary.md)
+  -- incubating the provider-neutral inspection snapshot boundary below CLI
+  serialization.
+- [AR-0003: Service Authority And Host Modes](AR-0003-service-authority-and-host-modes.md)
+  -- incubating embedded, daemon, and remote host ownership without admitting
+  distributed storage.
+- [AR-0004: Semantic Change History And Sync](AR-0004-semantic-change-history-and-sync.md)
+  -- separating application mutations and sync evidence from the physical WAL.
+- [AR-0005: Witness, Observer, And Freshness](AR-0005-witness-observer-and-freshness.md)
+  -- preserving the distinction between authenticated local integrity and
+  externally anchored freshness.
+- [AR-0006: Format Evolution And Migration Boundary](AR-0006-format-evolution-and-migration-boundary.md)
+  -- holding pre-stability format evolution and migration policy open until a
+  concrete incompatible change exists.
 
+All indexed reviews are currently **Incubating**. There are no accepted,
+rejected, deferred, or superseded reviews.

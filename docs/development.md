@@ -43,13 +43,13 @@ mkdocs build --strict
 
 ## Documentation layout
 
-Use the repository-root specifications for source-of-truth engineering detail:
+Use the engineering specifications for source-of-truth detail:
 
-- `DESIGN.md`
-- `ERRORS.md`
-- `INSPECT_API.md`
+- `docs/Specifications/Tosumu Software Design Document.md`
+- `docs/Specifications/Tosumu Error Design Document.md`
+- `docs/Specifications/Tosumu Inspect API Specification.md`
 - `SECURITY.md`
-- `REFERENCES.md`
+- `docs/Specifications/Tosumu Reference Implementations.md`
 
 Use `docs/` for curated public-facing explanations.
 

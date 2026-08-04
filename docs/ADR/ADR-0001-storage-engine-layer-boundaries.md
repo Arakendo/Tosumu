@@ -11,7 +11,7 @@ consumer adapters. Its pager, physical format, WAL, recovery, B+ tree, and
 integrity behavior must remain understandable without importing SQL, table, or
 application-specific meaning.
 
-This boundary is already established by `DESIGN.md` and the workspace shape.
+This boundary is already established by `docs/Specifications/Tosumu Software Design Document.md` and the workspace shape.
 This ADR records that existing decision so later consumers cannot accidentally
 turn their schema into storage-engine truth.
 
@@ -62,7 +62,7 @@ Pager, B+ tree, WAL, recovery, authenticated pages
 
 ## References
 
-- `DESIGN.md`, especially goals, non-goals, and guiding principle 7
+- `docs/Specifications/Tosumu Software Design Document.md`, especially goals, non-goals, and guiding principle 7
 - `docs/Plans/initial-sql-layer.md`
 - `docs/CRs/Tokimu/tokimu-001-tasset-storage-provider-boundary.md`
 

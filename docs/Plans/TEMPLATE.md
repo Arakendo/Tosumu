@@ -111,7 +111,7 @@ accepted Tosumu ownership and compatibility boundaries.
 
 #### Deliverables
 
-- [ ] Read the relevant root specifications, ADRs, Reviews, and CRs.
+- [ ] Read the relevant engineering specifications, ADRs, Reviews, and CRs.
 - [ ] Record a focused baseline test, fixture, diagnostic, or measurement.
 - [ ] Identify public API and on-disk compatibility impact.
 - [ ] Open an Architectural Review if ownership remains unresolved.
@@ -205,7 +205,7 @@ work.
 
 #### Deliverables
 
-- [ ] Reconcile code, tests, root specifications, public docs, ADRs, and Reviews.
+- [ ] Reconcile code, tests, engineering specifications, public docs, ADRs, and Reviews.
 - [ ] Record deferred work and unsupported behavior explicitly.
 - [ ] Remove superseded compatibility paths or document their lifetime.
 - [ ] Record final validation evidence.
@@ -311,7 +311,6 @@ Append progress entries; do not rewrite history to make the path look linear.
 
 ## References
 
-- `DESIGN.md`
+- `docs/Specifications/Tosumu Software Design Document.md`
 - Relevant ADRs and Architectural Reviews
 - Relevant CRs, specifications, tests, fixtures, and source files
-

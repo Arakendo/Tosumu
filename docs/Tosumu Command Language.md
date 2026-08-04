@@ -4,6 +4,13 @@
 
 Draft / exploratory long-range direction.
 
+Implementation is governed by
+[the Tosumu Command Language plan](Plans/tosumu-command-language.md). The
+unresolved ownership and lowering boundary is tracked by
+[AR-0001](Architectural%20Reviews/AR-0001-tql-command-language-boundary.md).
+Neither record makes the design-only commands below available before their
+source semantics and acceptance criteria are proven.
+
 TQL is a Tosumu-specific command language for inspecting, explaining, and improving the epistemic state of stored data.
 
 Naming note: the project keeps the `TQL` acronym for continuity, even though the current design is better described as a command language than a query language. Treat `TQL` as the stable subsystem name.

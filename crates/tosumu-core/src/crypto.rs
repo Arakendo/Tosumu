@@ -1,6 +1,6 @@
 // Cryptographic operations: key derivation, page AEAD.
 //
-// Source of truth: DESIGN.md §8.
+// Source of truth: docs/Specifications/Tosumu Software Design Document.md §8.
 //
 // Key hierarchy:
 //   DEK (32-byte OsRng) → HKDF-SHA256 → page_key, header_mac_key, audit_key

@@ -21,4 +21,4 @@ remain in history when superseded.
 ## Index
 
 - [ADR-0001: Storage Engine Layer Boundaries](ADR-0001-storage-engine-layer-boundaries.md)
-
+- [ADR-0002: Authenticated Pager Trust Boundary](ADR-0002-authenticated-pager-trust-boundary.md)

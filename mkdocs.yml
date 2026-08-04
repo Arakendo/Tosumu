@@ -44,18 +44,35 @@ nav:
   - Roadmap: roadmap.md
   - Development: development.md
   - Tosumu Command Language: Tosumu Command Language.md
+  - Specifications:
+      - Index: Specifications/README.md
+      - Software Design Document: Specifications/Tosumu Software Design Document.md
+      - Error Design Document: Specifications/Tosumu Error Design Document.md
+      - Inspect API Specification: Specifications/Tosumu Inspect API Specification.md
+      - Reference Implementations: Specifications/Tosumu Reference Implementations.md
   - Project Governance:
       - Documentation Map: project-governance.md
+      - Document Status: document-status.md
       - Architecture Decisions:
           - Index: ADR/README.md
           - ADR-0001 Storage Engine Layer Boundaries: ADR/ADR-0001-storage-engine-layer-boundaries.md
+          - ADR-0002 Authenticated Pager Trust Boundary: ADR/ADR-0002-authenticated-pager-trust-boundary.md
           - Template: ADR/TEMPLATE.md
-      - Architectural Reviews: Architectural Reviews/README.md
-      - Architectural Review Template: Architectural Reviews/TEMPLATE.md
+      - Architectural Reviews:
+          - Index: Architectural Reviews/README.md
+          - AR-0001 TQL Command Language Boundary: Architectural Reviews/AR-0001-tql-command-language-boundary.md
+          - AR-0002 Structured Inspection Contract Boundary: Architectural Reviews/AR-0002-structured-inspection-contract-boundary.md
+          - AR-0003 Service Authority And Host Modes: Architectural Reviews/AR-0003-service-authority-and-host-modes.md
+          - AR-0004 Semantic Change History And Sync: Architectural Reviews/AR-0004-semantic-change-history-and-sync.md
+          - AR-0005 Witness Observer And Freshness: Architectural Reviews/AR-0005-witness-observer-and-freshness.md
+          - AR-0006 Format Evolution And Migration Boundary: Architectural Reviews/AR-0006-format-evolution-and-migration-boundary.md
+          - Template: Architectural Reviews/TEMPLATE.md
       - Implementation Plans:
           - Index: Plans/README.md
           - Main Feature Roadmap: Plans/main-feature-roadmap.md
           - Initial SQL Layer: Plans/initial-sql-layer.md
+          - Tosumu Command Language: Plans/tosumu-command-language.md
+          - Documentation Lifecycle And Design Decomposition: Plans/documentation-lifecycle-and-design-decomposition.md
           - Template: Plans/TEMPLATE.md
       - Change Requests: CRs/README.md
       - Tokimu-001:
@@ -64,7 +81,9 @@ nav:
         - Provider Baseline: CRs/Tokimu/tokimu-001-provider-baseline.md
         - Shared Fixture: CRs/Tokimu/tokimu-001-fixture.md
       - Supporting Records:
-        - Notes: Notes/README.md
+        - Notes:
+          - Index: Notes/README.md
+          - Architecture Governance Extraction Audit: Notes/architecture-governance-extraction-audit.md
         - Conversations: Conversations/README.md
         - Archive: Archive/README.md
 

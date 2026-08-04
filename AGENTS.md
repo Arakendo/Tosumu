@@ -6,9 +6,9 @@ Tosumu is an experimental Rust-native embedded storage engine focused on
 inspectability, explicit failure reporting, authenticated storage, and clear
 separation between physical storage mechanics and higher-level data meaning.
 
-The current source-of-truth design document is `DESIGN.md`. Security claims
+The current source-of-truth design document is `docs/Specifications/Tosumu Software Design Document.md`. Security claims
 must remain consistent with `SECURITY.md`, and public error and inspection
-contracts must remain consistent with `ERRORS.md` and `INSPECT_API.md`.
+contracts must remain consistent with `docs/Specifications/Tosumu Error Design Document.md` and `docs/Specifications/Tosumu Inspect API Specification.md`.
 
 ## Architecture Boundaries
 
@@ -28,7 +28,7 @@ contracts must remain consistent with `ERRORS.md` and `INSPECT_API.md`.
 
 ## Documentation Authority
 
-- `DESIGN.md`, `ERRORS.md`, `INSPECT_API.md`, and `SECURITY.md` are normative
+- `docs/Specifications/Tosumu Software Design Document.md`, `docs/Specifications/Tosumu Error Design Document.md`, `docs/Specifications/Tosumu Inspect API Specification.md`, and `SECURITY.md` are normative
   engineering specifications.
 - `docs/ADR/` records accepted architectural decisions. Do not work around an
   ADR locally; revise or supersede it deliberately when the decision changes.

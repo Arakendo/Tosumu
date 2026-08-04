@@ -65,4 +65,4 @@ The design explicitly does not try to solve everything. Examples outside the int
 - traffic-analysis resistance
 - consistent multi-page rollback protection
 
-For the full threat-model and scope statement, use the repository `SECURITY.md` and `DESIGN.md` documents.
+For the full threat-model and scope statement, use the repository `SECURITY.md` and `docs/Specifications/Tosumu Software Design Document.md` documents.

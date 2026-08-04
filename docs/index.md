@@ -23,6 +23,10 @@ Tosumu is in early development and should be treated as a serious but pre-stabil
 - The current roadmap still places an initial SQL layer after the storage milestones, but the storage engine remains the core of the project.
 - The design is public and detailed, but pre-stability changes are still expected.
 
+See [Document Status](document-status.md) for the distinction between current
+contracts, accepted decisions, active work, speculative proposals, and
+historical records.
+
 ## Warning
 
 !!! warning
@@ -42,8 +46,8 @@ The repository documents the crypto and storage design in detail, but this is no
 
 This site is the public guide, not the canonical engineering spec.
 
-- The full design lives in the repository `DESIGN.md`.
-- Structured error behavior is defined in `ERRORS.md`.
-- The current inspect JSON contract is defined in `INSPECT_API.md`.
+- The full design lives in the repository `docs/Specifications/Tosumu Software Design Document.md`.
+- Structured error behavior is defined in `docs/Specifications/Tosumu Error Design Document.md`.
+- The current inspect JSON contract is defined in `docs/Specifications/Tosumu Inspect API Specification.md`.
 
 Use this site for orientation and working guidance. Use the repository docs when you need the full design record.

@@ -7,7 +7,7 @@
 // The in-memory HashMap is rebuilt by replaying every record on open.
 //
 // This is intentionally disposable. MVP +1 replaces it with the real
-// page-based format (DESIGN.md §5). Nothing here is load-bearing beyond
+// page-based format (docs/Specifications/Tosumu Software Design Document.md §5). Nothing here is load-bearing beyond
 // proving the CLI and round-trip logic work.
 
 use std::collections::HashMap;

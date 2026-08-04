@@ -17,6 +17,9 @@ The core crate owns the engine behavior:
 
 This is the canonical owner of storage semantics.
 
+This ownership is binding under
+[ADR-0001](ADR/ADR-0001-storage-engine-layer-boundaries.md).
+
 ### `tosumu-cli`
 
 The CLI exposes the engine as a command-line tool:
@@ -62,6 +65,9 @@ The pager is the main trust boundary.
 
 Pages are authenticated and decrypted when they enter memory, and encrypted when they leave it. Higher layers do not manipulate ciphertext directly.
 
+This existing trust boundary is recorded by
+[ADR-0002](ADR/ADR-0002-authenticated-pager-trust-boundary.md).
+
 ## Concurrency direction
 
 Current direction:
@@ -78,6 +84,11 @@ Later direction on the roadmap:
 What is not planned as a core identity change: a general-purpose multi-process network database.
 
 ## Future service boundary and host modes
+
+!!! note "Architecture under review"
+    The host model below is an incubating direction, not an admitted service
+    subsystem. See
+    [AR-0003](Architectural%20Reviews/AR-0003-service-authority-and-host-modes.md).
 
 Tosumu is still embedded-first, but the planned deployment story is better described as a stable authority boundary with different hosts around it.
 
@@ -122,3 +133,12 @@ Platform notes:
 - Android allows app-local service patterns, but it should still be treated as embedded-first rather than as a machine-wide daemon host.
 
 For the deeper design sketch, including service-layer responsibilities and multi-database contexts, see the main design document.
+
+Related unresolved boundaries are tracked separately:
+
+- [AR-0002](Architectural%20Reviews/AR-0002-structured-inspection-contract-boundary.md)
+  for reusable inspection snapshots versus CLI serialization;
+- [AR-0004](Architectural%20Reviews/AR-0004-semantic-change-history-and-sync.md)
+  for semantic change history and sync;
+- [AR-0005](Architectural%20Reviews/AR-0005-witness-observer-and-freshness.md)
+  for external freshness evidence.

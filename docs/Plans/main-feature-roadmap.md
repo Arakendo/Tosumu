@@ -6,7 +6,7 @@
 | Opened | 2026-08-03 |
 | Last updated | 2026-08-03 (criterion audit) |
 | Owner | Tosumu maintainers |
-| Authority | Tracking plan; `DESIGN.md` remains normative |
+| Authority | Tracking plan; `docs/Specifications/Tosumu Software Design Document.md` remains normative |
 | Current milestone | MVP+9 closure and MVP+10 planning |
 
 ## Purpose
@@ -15,7 +15,7 @@ This is the canonical implementation-status checklist for Tosumu's main feature
 set. It answers what is complete, what remains within an existing milestone,
 and what should be planned next.
 
-`DESIGN.md` owns feature meaning, architecture, and the detailed MVP/stage
+`docs/Specifications/Tosumu Software Design Document.md` owns feature meaning, architecture, and the detailed MVP/stage
 roadmap. This file tracks delivery. `docs/roadmap.md` remains the shorter public
 summary. Feature-specific plans retain their detailed evidence and acceptance
 criteria.
@@ -238,7 +238,7 @@ The retained evidence is in [Initial SQL Layer](initial-sql-layer.md).
 - [x] Focused SQL/CLI tests, workspace tests, and strict workspace Clippy are
       recorded by the retained plan.
 - [ ] Audit and logical-scan scope is either implemented with evidence or moved
-      to a named follow-on plan with `DESIGN.md` reconciled.
+      to a named follow-on plan with `docs/Specifications/Tosumu Software Design Document.md` reconciled.
 
 **Status:** baseline complete; broader audit/scan scope remains open. Do not
 close the full design milestone until that scope is implemented or revised.
@@ -469,7 +469,7 @@ covered.
 | Prepared values remain AST leaves and are not reparsed | PASS | lexer/parser parameter tests and prepared execution tests |
 | Unsupported shapes fail explicitly instead of scanning | PASS | semantic/planner rejection tests |
 | Focused SQL/CLI/workspace tests and strict Clippy are recorded | PASS | `initial-sql-layer.md`; workspace tests pass. Clippy command must be rerun with valid arguments |
-| Audit and logical-scan scope is implemented or moved to a reconciled plan | OPEN | `initial-sql-layer.md` and `DESIGN.md` still leave both scopes unresolved |
+| Audit and logical-scan scope is implemented or moved to a reconciled plan | OPEN | `initial-sql-layer.md` and `docs/Specifications/Tosumu Software Design Document.md` still leave both scopes unresolved |
 
 ### MVP+10 Audit
 
@@ -606,4 +606,4 @@ Before implementation moves beyond the completed MVP+9 baseline:
 - Update this tracker whenever a feature plan is opened, completed, parked, or
   superseded.
 - Update `docs/roadmap.md` when public Now/Next/Later priorities change.
-- Update `DESIGN.md` or an ADR when feature meaning or architecture changes.
+- Update `docs/Specifications/Tosumu Software Design Document.md` or an ADR when feature meaning or architecture changes.

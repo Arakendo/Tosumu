@@ -1,7 +1,7 @@
 # Cline Rules for Tosumu Development
 
 ## Agent Quickstart
-1. Read `README.md`, `DESIGN.md`, and the nearest task-relevant doc before changing behavior or structure.
+1. Read `README.md`, `docs/Specifications/Tosumu Software Design Document.md`, and the nearest task-relevant doc before changing behavior or structure.
 2. Start from the narrowest owning module or command path; do not map the whole repo before making a local hypothesis.
 3. Respect the layer direction: CLI/tooling → higher-level interpretation → B+ tree → WAL/transactions → pager → crypto → file I/O.
 4. After a non-trivial edit, run the narrowest validation first and record the result in `.cline-worklog.md` for long-running work.
@@ -16,7 +16,7 @@
 - **License:** Dual MIT OR Apache-2.0
 - **GitHub:** https://github.com/Arakendo/Tosumu
 
-## Design Principles (from DESIGN.md §2 — always reference these)
+## Design Principles (from docs/Specifications/Tosumu Software Design Document.md §2 — always reference these)
 1. Finishable by a mortal — every stage must produce something runnable on its own
 2. On-disk format is sacred — every byte has a reason, documented before coding
 3. Crypto binds structure — AEAD AAD covers anything dangerous to swap/reorder/rollback
@@ -68,7 +68,7 @@ CLI → Query layer (Stage 5, future) → B+ Tree → Transaction/WAL → Pager 
 - After each non-trivial edit, run the narrowest validation that can falsify the change first.
 - Prefer focused `cargo test -p ...`, targeted integration tests, or a narrow `dotnet build` over whole-workspace runs unless the change is cross-cutting.
 - If a design or organization decision changes, update the nearest durable document rather than leaving the rationale only in code.
-- Link to existing docs such as `DESIGN.md`, `README.md`, `ERRORS.md`, and `INSPECT_API.md` instead of duplicating them.
+- Link to existing docs such as `docs/Specifications/Tosumu Software Design Document.md`, `README.md`, `docs/Specifications/Tosumu Error Design Document.md`, and `docs/Specifications/Tosumu Inspect API Specification.md` instead of duplicating them.
 - Treat generated artifacts as derived outputs; do not hand-edit them.
 
 ## Versioning and Compatibility
@@ -76,7 +76,7 @@ CLI → Query layer (Stage 5, future) → B+ Tree → Transaction/WAL → Pager 
 - Do not add versioning schemes, compatibility shims, or migration surfaces unless the current design actually requires them.
 - When an on-disk or inspect-contract change is intentional, document it explicitly instead of preserving broken behavior for compatibility.
 
-## On-Disk Format Rules (DESIGN.md §5 — source of truth)
+## On-Disk Format Rules (docs/Specifications/Tosumu Software Design Document.md §5 — source of truth)
 - Page size: 4096 bytes, fixed at creation
 - All integers little-endian
 - Magic: `TOSUMUv0` + 8 NUL bytes in first 16 bytes of page 0
@@ -85,7 +85,7 @@ CLI → Query layer (Stage 5, future) → B+ Tree → Transaction/WAL → Pager 
 - All pages after header are AEAD-encrypted (ChaCha20-Poly1305)
 - PAGE_PLAINTEXT_SIZE = 4056 bytes (4096 - 24 frame header - 16 tag)
 
-## Crypto Rules (DESIGN.md §8)
+## Crypto Rules (docs/Specifications/Tosumu Software Design Document.md §8)
 - **Never** use `unsafe` in tosumu-core
 - AEAD: ChaCha20-Poly1305 (primary), AES-GCM (alternative, not yet implemented)
 - KDF: Argon2id for passphrase → master key
@@ -100,7 +100,7 @@ CLI → Query layer (Stage 5, future) → B+ Tree → Transaction/WAL → Pager 
 - Use `thiserror` for error types
 - Error values describe phenomena, not mechanisms (e.g., "authentication failed" not "Poly1305 tag mismatch")
 
-## B+ Tree Rules (DESIGN.md §6.2)
+## B+ Tree Rules (docs/Specifications/Tosumu Software Design Document.md §6.2)
 - Leaf pages: chained by `next_leaf` field (u64, 0 = tail)
 - Internal pages: `leftmost_child` in header, separator keys in slots
 - Split at midpoint, promote min-key-of-right upward
@@ -108,7 +108,7 @@ CLI → Query layer (Stage 5, future) → B+ Tree → Transaction/WAL → Pager 
 - Max depth: 64 (cycle detection guard)
 - Records larger than RECORD_MAX_KV are rejected with InvalidArgument
 
-## WAL Rules (DESIGN.md §7)
+## WAL Rules (docs/Specifications/Tosumu Software Design Document.md §7)
 - Separate file: `<db>.wal`
 - Record types: Begin, PageWrite, Commit, Checkpoint
 - LSN increments monotonically; open continues from last LSN
@@ -129,14 +129,14 @@ CLI → Query layer (Stage 5, future) → B+ Tree → Transaction/WAL → Pager 
 - B+ tree operations use `pager.with_page()` / `pager.with_page_mut()` closure API
 - CLI uses clap derive with explicit subcommand enums (not flattened args)
 
-## Epistemic State Model (DESIGN.md §29)
+## Epistemic State Model (docs/Specifications/Tosumu Software Design Document.md §29)
 - Every read returns three dimensions: integrity, freshness, epistemic standing
 - `integrity: OK` = AEAD verified; `freshness: unanchored` = no recent sync witness
 - The system should tell the caller when it doesn't know something
 - "Sync is about moving confidence, not just bytes"
 - Treat freshness and witness language as design constraints for deferred stages, not a reason to pull Stage 7+ infrastructure into current MVP work
 
-## What Tosumu Is NOT (DESIGN.md §1.2 — non-goals)
+## What Tosumu Is NOT (docs/Specifications/Tosumu Software Design Document.md §1.2 — non-goals)
 - NOT a SQL database (SQL layer is optional MVP+9, toy scope)
 - NOT multi-process or networked today; future multi-client work must go through the explicit Stage 7+ service-boundary design rather than bypassing the embedded core
 - NOT high-performance oriented
@@ -148,10 +148,10 @@ CLI → Query layer (Stage 5, future) → B+ Tree → Transaction/WAL → Pager 
 Current phase: **MVP+8** (interactive TUI viewer + key management).
 - MVP+0 through MVP+8 are implemented and tested; do not hard-code volatile test counts here
 - MVP+9 (toy SQL) and MVP+10 (MVCC/secondary indexes) are NOT yet implemented
-- DESIGN.md status: FROZEN as of 2026-04-24 — no new philosophy sections, only code
+- docs/Specifications/Tosumu Software Design Document.md status: FROZEN as of 2026-04-24 — no new philosophy sections, only code
 
 ## Source of Truth Hierarchy
-1. `DESIGN.md` — source of truth for design decisions; treat current-MVP sections as normative and later-stage sections as constraints only when working in that stage
+1. `docs/Specifications/Tosumu Software Design Document.md` — source of truth for design decisions; treat current-MVP sections as normative and later-stage sections as constraints only when working in that stage
 2. Implemented on-disk format and inspect contract — ground truth for bytes and machine-facing payloads in the current format version
 3. Code — should match both; discrepancies are bugs to fix, not permission to silently drift the spec
 
@@ -181,12 +181,12 @@ cargo run --release -- view test.tsm
 ```
 
 ## When Adding New Features
-1. Check DESIGN.md — is this already covered? If so, follow the spec.
+1. Check docs/Specifications/Tosumu Software Design Document.md — is this already covered? If so, follow the spec.
 2. Check MVP table in README.md — which MVP does this belong to?
-3. Check DESIGN.md §15 (open questions) — has this been discussed?
-4. If the feature requires a format change, update DESIGN.md §5 BEFORE coding
+3. Check docs/Specifications/Tosumu Software Design Document.md §15 (open questions) — has this been discussed?
+4. If the feature requires a format change, update docs/Specifications/Tosumu Software Design Document.md §5 BEFORE coding
 5. If the feature adds a new on-disk field, add compile-time assertions in format.rs
 6. If the feature touches crypto, add KAT tests and a fuzz target
-7. If the feature changes error behavior, update INSPECT_API.md compatibility rules
+7. If the feature changes error behavior, update docs/Specifications/Tosumu Inspect API Specification.md compatibility rules
 8. If the feature crosses a layer boundary, introduce an explicit interface, adapter, or mapping instead of bypassing the current structure
 9. Do not use deferred Stage 5+ or Stage 7+ ideas to justify widening the current implementation scope unless the task explicitly asks for that milestone

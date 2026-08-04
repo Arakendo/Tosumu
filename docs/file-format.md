@@ -13,6 +13,9 @@ Today you should read the format as:
 
 This site gives the public outline. The repository design document remains the deeper reference for field-by-field detail.
 
+Long-term compatibility and migration policy remain under
+[AR-0006](Architectural%20Reviews/AR-0006-format-evolution-and-migration-boundary.md).
+
 ## High-level layout
 
 The main database file contains:

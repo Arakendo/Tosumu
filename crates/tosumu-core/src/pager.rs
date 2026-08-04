@@ -1,6 +1,6 @@
 // Pager — page-level I/O with AEAD encryption/decryption.
 //
-// Source of truth: DESIGN.md §6.
+// Source of truth: docs/Specifications/Tosumu Software Design Document.md §6.
 //
 // The pager owns the file handle and the page_key. It exposes a
 // closure-based API (§28.9): the caller never holds a reference to
@@ -1978,7 +1978,7 @@ fn write_file_header(page0: &mut [u8; PAGE_SIZE], dek: &[u8; 32]) {
     page0[ks + KS_OFF_VERSION] = 1;
     // Sentinel stores the DEK as plaintext in the wrapped_dek field — it is NOT
     // wrapped. The field name is shared with encrypted protectors for layout
-    // compatibility. See DESIGN.md §8.11: Sentinel provides no confidentiality.
+    // compatibility. See docs/Specifications/Tosumu Software Design Document.md §8.11: Sentinel provides no confidentiality.
     // Only the first 32 bytes are used (vs 48 for AEAD-wrapped DEKs).
     //
     // MVP+1 note: page 0 is trusted for magic/version/page-size checks only.

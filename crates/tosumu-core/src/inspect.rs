@@ -1,7 +1,7 @@
 // Inspection and verification utilities for tosumu database files.
 //
 // Used by: `tosumu dump`, `tosumu hex`, `tosumu verify` CLI commands.
-// Source of truth: DESIGN.md §12.1 (MVP +2).
+// Source of truth: docs/Specifications/Tosumu Software Design Document.md §12.1 (MVP +2).
 
 use std::collections::HashSet;
 use std::fs::File;

@@ -432,10 +432,10 @@ envelope while leaving page and B-tree classification in `tosumu-core`.
 - [x] Create errors where the failure is understood and preserve source errors.
 - [x] Keep CLI exit codes and human text at the CLI boundary.
 - [x] Add code-catalog tests for every newly public structured code.
-- [x] Keep aspirational codes out of `ERRORS.md` until code emits them.
+- [x] Keep aspirational codes out of `docs/Specifications/Tosumu Error Design Document.md` until code emits them.
 
 The public core catalog is defined by `tosumu_core::error::codes::PUBLIC_CODES`.
-`documented_public_codes_match_exported_constants` keeps `ERRORS.md` aligned
+`documented_public_codes_match_exported_constants` keeps `docs/Specifications/Tosumu Error Design Document.md` aligned
 with that catalog, while `every_public_code_is_emitted_by_an_error_report`
 proves every catalog entry has a concrete `TosumuError::error_report()` path.
 `TosumuError::Io` and `CommittedButFlushFailed` preserve their underlying I/O

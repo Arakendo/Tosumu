@@ -1,9 +1,9 @@
 # MVP+9: Initial SQL Layer - Implementation Plan
 
-Status: MVP+9 baseline implementation complete. Focused SQL/CLI tests and workspace Clippy pass; the full workspace test gate remains to be rerun to completion.
+Status: Completed baseline. Focused SQL/CLI tests, workspace tests, and workspace Clippy pass. Deferred SQL scope requires separate evidence or a follow-up plan.
 Target MVP: MVP+9 (Stage 5 query layer)
 Depends on: MVP+0 through MVP+8 complete and tested
-Primary references: DESIGN.md Stage 5, DESIGN.md query-layer notes, current PageStore and CLI surfaces
+Primary references: docs/Specifications/Tosumu Software Design Document.md Stage 5, docs/Specifications/Tosumu Software Design Document.md query-layer notes, current PageStore and CLI surfaces
 
 ---
 
@@ -50,7 +50,7 @@ Use this as the default execution order. Do not skip ahead unless a prior item i
 
 ### Before writing code
 
-- [x] Re-read `DESIGN.md` Stage 5 and this plan before starting implementation work.
+- [x] Re-read `docs/Specifications/Tosumu Software Design Document.md` Stage 5 and this plan before starting implementation work.
 - [x] Confirm the namespace-backed baseline is still the intended model.
 - [x] Record the task objective and starting assumptions in this plan.
 

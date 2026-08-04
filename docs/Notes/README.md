@@ -10,3 +10,6 @@ Promote a note when its role changes:
 - to a Plan when concrete implementation work is approved;
 - to public documentation when it describes supported behavior.
 
+## Index
+
+- [Architecture Governance Extraction Audit](architecture-governance-extraction-audit.md)

@@ -1,6 +1,6 @@
 // PageStore — put/get/delete/scan backed by the B+ tree.
 //
-// Source of truth: DESIGN.md §12.0 (MVP +3).
+// Source of truth: docs/Specifications/Tosumu Software Design Document.md §12.0 (MVP +3).
 //
 // PageStore is a thin facade over BTree. The B+ tree handles page
 // allocation, splitting, and sorted leaf-chain iteration.
