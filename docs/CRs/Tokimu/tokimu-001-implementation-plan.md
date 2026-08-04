@@ -274,13 +274,14 @@ cargo test -p tosumu-cli backup
       checkpointed there, and published without mutating the source.
 - [x] Define committed WAL reconciliation as recovery plus WAL truncation on
       the staging copy only.
-- [ ] Define destination replacement, fsync, rename, and directory durability
+- [x] Define destination replacement, fsync, rename, and directory durability
       guarantees for supported filesystems.
 
 The current API refuses an existing destination, publishes the validated
-single file with rename, and does not promise directory fsync durability. It
-does not require the source handle to be closed; source changes that prevent a
-stable pair are reported through the existing structured `FileBusy` error.
+single file with rename, and does not promise file or directory fsync
+durability after publication. It does not require the source handle to be
+closed; source changes that prevent a stable pair are reported through the
+existing structured `FileBusy` error.
 
 ### Implementation
 
@@ -301,7 +302,7 @@ stable pair are reported through the existing structured `FileBusy` error.
 - [x] All committed keys and hashes match the source logical state.
 - [x] Verification succeeds with every source-side sidecar hidden or removed.
 - [x] Success never requires an undocumented companion file.
-- [ ] WAL reconciliation failure is explicit and leaves no published partial
+- [x] WAL reconciliation failure is explicit and leaves no published partial
       artifact.
 
 ## 11. Slice 6: Embedded Inspection and Verification
@@ -395,6 +396,9 @@ busy WAL is returned as `FILE_OPEN_BUSY`, separate from reportable findings.
 verification and typed wrong-key rejection. The
 `inspect_verification_supports_recovery_key_and_keyfile_stores` test covers the
 remaining unlock modes and recovery-key rejection.
+`portable_export_reconciliation_failure_publishes_no_destination_or_staging_file`
+proves that a malformed WAL returns a structured corruption failure without
+publishing a destination or leaving export staging files.
 
 ### Acceptance Criteria
 

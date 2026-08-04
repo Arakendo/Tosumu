@@ -107,6 +107,7 @@ separately validated.
 - `cargo test -p tosumu-core --test provider_boundary large_value_write_measurement_one_megabyte -- --ignored --nocapture`: passed; one overwrite took 3,287.9 ms with a logical copy volume of 1,048,576 bytes.
 - `cargo test -p tosumu-core --test provider_boundary large_value_write_measurement_sixteen_megabytes -- --ignored --nocapture`: passed; one overwrite took 49,666.2 ms with a logical copy volume of 16,777,216 bytes.
 - `cargo test -p tosumu-core --test provider_boundary large_value_write_measurement_maximum_value -- --ignored --nocapture`: passed; one overwrite took 203,219.2 ms with a logical copy volume of 67,108,864 bytes.
+- `cargo test -p tosumu-core portable_export_reconciliation_failure_publishes_no_destination_or_staging_file -- --nocapture`: passed; malformed WAL reconciliation returns a structured corruption error without publishing a destination or leaving an export staging file.
 - Provider split, compaction, overwrite/delete, scan, and page-count reuse regressions pass.
 - `cargo test -p tosumu-core overflow_chain_corruption_is_structured`: passed for missing, cyclic, and extra-segment chains.
 - The inline-boundary and over-limit tests pass; over-limit input leaves the

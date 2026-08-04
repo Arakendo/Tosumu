@@ -98,7 +98,7 @@ mod tests {
     use super::create_portable_export;
     use crate::error::TosumuError;
     use crate::page_store::PageStore;
-    use crate::wal::wal_path;
+    use crate::wal::{wal_path, WalRecord, WalWriter};
     use std::path::PathBuf;
 
     fn paths(name: &str) -> (PathBuf, PathBuf) {
@@ -157,6 +157,46 @@ mod tests {
         let error = create_portable_export(&source, &destination).unwrap_err();
         assert!(matches!(error, TosumuError::InvalidArgument(_)));
         assert_eq!(std::fs::read(&destination).unwrap(), b"sentinel");
+
+        cleanup(&source);
+        cleanup(&destination);
+    }
+
+    #[test]
+    fn portable_export_reconciliation_failure_publishes_no_destination_or_staging_file() {
+        let (source, destination) = paths("corrupt_wal");
+        cleanup(&source);
+        cleanup(&destination);
+
+        let mut store = PageStore::create(&source).unwrap();
+        store.put(b"asset/manifest", b"schema-v1").unwrap();
+        drop(store);
+
+        let source_wal = wal_path(&source);
+        let mut writer = WalWriter::open(&source_wal).unwrap();
+        writer.append(&WalRecord::Begin { txn_id: 1 }).unwrap();
+        writer.sync().unwrap();
+        drop(writer);
+        let mut wal_bytes = std::fs::read(&source_wal).unwrap();
+        *wal_bytes.last_mut().unwrap() ^= 0xff;
+        std::fs::write(&source_wal, wal_bytes).unwrap();
+
+        let error = create_portable_export(&source, &destination).unwrap_err();
+        assert!(matches!(error, TosumuError::CorruptRecord { .. }));
+        assert!(!destination.exists());
+        assert!(!wal_path(&destination).exists());
+
+        let staging_prefix = format!(
+            ".{}.",
+            destination.file_name().unwrap().to_string_lossy()
+        );
+        let staged_files: Vec<_> = std::fs::read_dir(destination.parent().unwrap())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with(&staging_prefix) && name.ends_with(".export.tmp"))
+            .collect();
+        assert!(staged_files.is_empty(), "staging files remain: {staged_files:?}");
 
         cleanup(&source);
         cleanup(&destination);
