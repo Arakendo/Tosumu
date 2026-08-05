@@ -1,7 +1,13 @@
-/* Adapted from the Tonesu MkDocs theme and trimmed to generic Material overrides. */
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap");
+
+/* Tosumu borrows Tokimu's evidence-led visual grammar without its large hero scale. */
 
 :root {
-  --tosumu-font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+  --tosumu-font-display: "Source Serif 4", Georgia, serif;
+  --tosumu-font-body: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --tosumu-font-mono: "IBM Plex Mono", "Cascadia Code", "Consolas", monospace;
+  --tosumu-grid-dark: rgba(126, 199, 216, 0.065);
+  --tosumu-grid-light: rgba(12, 114, 133, 0.075);
 }
 
 [data-md-color-scheme="slate"] {
@@ -228,4 +234,236 @@ html .md-typeset__table table {
 .md-header__button {
   padding-top: 0.25rem !important;
   padding-bottom: 0.25rem !important;
+}
+
+body,
+input {
+  font-family: var(--tosumu-font-body);
+}
+
+[data-md-color-scheme="slate"] body {
+  background:
+    linear-gradient(var(--tosumu-grid-dark) 1px, transparent 1px),
+    linear-gradient(90deg, var(--tosumu-grid-dark) 1px, transparent 1px),
+    radial-gradient(circle at 80% 0%, rgba(126, 199, 216, 0.08), transparent 32rem),
+    var(--md-default-bg-color);
+  background-size: 2.5rem 2.5rem, 2.5rem 2.5rem, auto, auto;
+}
+
+[data-md-color-scheme="default"] body {
+  background:
+    linear-gradient(var(--tosumu-grid-light) 1px, transparent 1px),
+    linear-gradient(90deg, var(--tosumu-grid-light) 1px, transparent 1px),
+    radial-gradient(circle at 80% 0%, rgba(181, 92, 44, 0.07), transparent 32rem),
+    var(--md-default-bg-color);
+  background-size: 2.5rem 2.5rem, 2.5rem 2.5rem, auto, auto;
+}
+
+.md-main__inner {
+  margin-top: 0;
+}
+
+.md-content__inner {
+  padding-top: 2rem;
+}
+
+.md-typeset > h1,
+.md-typeset h2 {
+  font-family: var(--tosumu-font-display);
+  font-weight: 600;
+}
+
+.md-typeset h2 {
+  margin-top: 2.25em;
+  padding-bottom: 0.35em;
+  border-bottom: 1px solid var(--md-typeset-table-color);
+}
+
+.tosumu-home-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(17rem, 0.8fr);
+  gap: clamp(1.5rem, 4vw, 3.5rem);
+  align-items: stretch;
+  padding: clamp(1.25rem, 3vw, 2.5rem) 0 1.5rem;
+}
+
+.tosumu-home-copy {
+  align-self: center;
+}
+
+.md-typeset .tosumu-home-copy h1 {
+  max-width: 14ch;
+  margin: 0.25rem 0 1rem;
+  color: var(--md-default-fg-color);
+  font: 600 clamp(2.15rem, 5vw, 3.8rem)/0.98 var(--tosumu-font-display);
+  letter-spacing: -0.035em;
+}
+
+.tosumu-eyebrow,
+.tosumu-status-card__header,
+.tosumu-status-card dt,
+.tosumu-principles span {
+  font-family: var(--tosumu-font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.tosumu-eyebrow {
+  margin: 0;
+  color: var(--md-typeset-a-color);
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.tosumu-lede {
+  max-width: 39rem;
+  color: var(--md-default-fg-color--light);
+  font-size: 1.05rem;
+  line-height: 1.65;
+}
+
+.tosumu-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1.5rem;
+}
+
+.md-typeset .tosumu-button {
+  display: inline-block;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid var(--md-typeset-table-color);
+  color: var(--md-default-fg-color);
+  font: 500 0.7rem var(--tosumu-font-mono);
+  letter-spacing: 0.05em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.md-typeset .tosumu-button:hover,
+.md-typeset .tosumu-button--primary {
+  border-color: var(--md-accent-fg-color);
+  color: var(--md-accent-bg-color);
+  background: var(--md-accent-fg-color);
+}
+
+.tosumu-status-card {
+  border: 1px solid var(--md-typeset-table-color);
+  background: var(--md-code-bg-color);
+  box-shadow: 0.5rem 0.5rem 0 var(--md-typeset-table-color--light);
+}
+
+.tosumu-status-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid var(--md-typeset-table-color);
+  font-size: 0.58rem;
+}
+
+.tosumu-status-card__header strong {
+  color: var(--md-accent-fg-color);
+}
+
+.tosumu-status-card dl {
+  margin: 0;
+  padding: 0.5rem 0.9rem;
+}
+
+.tosumu-status-card dl div {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr;
+  gap: 0.75rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--md-typeset-table-color--light);
+}
+
+.tosumu-status-card dt {
+  color: var(--md-default-fg-color--lighter);
+  font-size: 0.58rem;
+}
+
+.tosumu-status-card dd {
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.tosumu-status-card > p {
+  margin: 0;
+  padding: 0.85rem 0.9rem;
+  color: var(--md-default-fg-color--light);
+  font-size: 0.72rem;
+}
+
+.tosumu-principles,
+.tosumu-paths {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--md-typeset-table-color);
+}
+
+.tosumu-principles article,
+.tosumu-paths article {
+  padding: 1rem;
+  border-right: 1px solid var(--md-typeset-table-color);
+}
+
+.tosumu-principles article:last-child,
+.tosumu-paths article:last-child {
+  border-right: 0;
+}
+
+.tosumu-principles span {
+  color: var(--md-accent-fg-color);
+  font-size: 0.58rem;
+}
+
+.tosumu-principles strong {
+  display: block;
+  margin: 0.35rem 0;
+  font-family: var(--tosumu-font-display);
+  font-size: 1.05rem;
+}
+
+.tosumu-principles p,
+.tosumu-paths p {
+  margin: 0;
+  color: var(--md-default-fg-color--light);
+  font-size: 0.75rem;
+}
+
+.tosumu-paths {
+  border-top: 2px solid var(--md-typeset-a-color);
+}
+
+.md-typeset .tosumu-paths h3 {
+  margin: 0.35rem 0;
+  font-family: var(--tosumu-font-display);
+  font-size: 1.05rem;
+}
+
+.tosumu-paths a {
+  display: inline-block;
+  margin-top: 0.8rem;
+  font: 500 0.7rem var(--tosumu-font-mono);
+}
+
+@media screen and (max-width: 52rem) {
+  .tosumu-home-intro,
+  .tosumu-principles,
+  .tosumu-paths {
+    grid-template-columns: 1fr;
+  }
+
+  .tosumu-principles article,
+  .tosumu-paths article {
+    border-right: 0;
+    border-bottom: 1px solid var(--md-typeset-table-color);
+  }
+
+  .tosumu-principles article:last-child,
+  .tosumu-paths article:last-child {
+    border-bottom: 0;
+  }
 }

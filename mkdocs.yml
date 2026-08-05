@@ -26,6 +26,7 @@ theme:
         name: Switch to light mode
   features:
     - navigation.sections
+    - navigation.indexes
     - navigation.top
     - content.code.copy
   icon:
@@ -45,21 +46,21 @@ nav:
   - Development: development.md
   - Tosumu Command Language: Tosumu Command Language.md
   - Specifications:
-      - Index: Specifications/README.md
+      - Specifications/README.md
       - Software Design Document: Specifications/Tosumu Software Design Document.md
       - Error Design Document: Specifications/Tosumu Error Design Document.md
       - Inspect API Specification: Specifications/Tosumu Inspect API Specification.md
       - Reference Implementations: Specifications/Tosumu Reference Implementations.md
   - Project Governance:
-      - Documentation Map: project-governance.md
+      - project-governance.md
       - Document Status: document-status.md
       - Architecture Decisions:
-          - Index: ADR/README.md
+          - ADR/README.md
           - ADR-0001 Storage Engine Layer Boundaries: ADR/ADR-0001-storage-engine-layer-boundaries.md
           - ADR-0002 Authenticated Pager Trust Boundary: ADR/ADR-0002-authenticated-pager-trust-boundary.md
           - Template: ADR/TEMPLATE.md
       - Architectural Reviews:
-          - Index: Architectural Reviews/README.md
+          - Architectural Reviews/README.md
           - AR-0001 TQL Command Language Boundary: Architectural Reviews/AR-0001-tql-command-language-boundary.md
           - AR-0002 Structured Inspection Contract Boundary: Architectural Reviews/AR-0002-structured-inspection-contract-boundary.md
           - AR-0003 Service Authority And Host Modes: Architectural Reviews/AR-0003-service-authority-and-host-modes.md
@@ -68,21 +69,26 @@ nav:
           - AR-0006 Format Evolution And Migration Boundary: Architectural Reviews/AR-0006-format-evolution-and-migration-boundary.md
           - Template: Architectural Reviews/TEMPLATE.md
       - Implementation Plans:
-          - Index: Plans/README.md
+          - Plans/README.md
           - Main Feature Roadmap: Plans/main-feature-roadmap.md
           - Initial SQL Layer: Plans/initial-sql-layer.md
           - Tosumu Command Language: Plans/tosumu-command-language.md
+          - Tokimu Reciprocal Website Evidence: Plans/tokimu-reciprocal-website-evidence.md
+          - Public Website And Repository Records: Plans/public-website-and-repository-records.md
           - Documentation Lifecycle And Design Decomposition: Plans/documentation-lifecycle-and-design-decomposition.md
           - Template: Plans/TEMPLATE.md
-      - Change Requests: CRs/README.md
-      - Tokimu-001:
-        - Provider Boundary: CRs/Tokimu/tokimu-001-tasset-storage-provider-boundary.md
-        - Implementation Plan: CRs/Tokimu/tokimu-001-implementation-plan.md
-        - Provider Baseline: CRs/Tokimu/tokimu-001-provider-baseline.md
-        - Shared Fixture: CRs/Tokimu/tokimu-001-fixture.md
+      - Change Requests:
+          - CRs/README.md
+          - Tokimu-001:
+              - CRs/Tokimu/README.md
+              - Provider Boundary: CRs/Tokimu/tokimu-001-tasset-storage-provider-boundary.md
+              - Implementation Plan: CRs/Tokimu/tokimu-001-implementation-plan.md
+              - Provider Baseline: CRs/Tokimu/tokimu-001-provider-baseline.md
+              - Shared Fixture: CRs/Tokimu/tokimu-001-fixture.md
       - Supporting Records:
+        - supporting-records.md
         - Notes:
-          - Index: Notes/README.md
+          - Notes/README.md
           - Architecture Governance Extraction Audit: Notes/architecture-governance-extraction-audit.md
         - Conversations: Conversations/README.md
         - Archive: Archive/README.md
@@ -91,6 +97,7 @@ markdown_extensions:
   - admonition
   - attr_list
   - def_list
+  - md_in_html
   - tables
   - pymdownx.details
   - pymdownx.superfences

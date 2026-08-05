@@ -21,6 +21,12 @@ validation, and exit states.
   SQL work.
 - [Tosumu Command Language](tosumu-command-language.md) -- proposed sliced
   implementation; **Proposed**. Ownership remains under AR-0001.
+- [Tokimu Reciprocal Website Evidence](tokimu-reciprocal-website-evidence.md)
+  -- **Proposed** cross-project website evidence using versioned public
+  observations and independently deployable MkDocs sites.
+- [Public Website And Repository Records](public-website-and-repository-records.md)
+  -- **Proposed** public information architecture, publication policy, indexed
+  navigation, and GitHub engineering-record boundary.
 - [Documentation Lifecycle And Design Decomposition](documentation-lifecycle-and-design-decomposition.md)
   -- **Active** normalization of document status and the current/future design
   boundary.

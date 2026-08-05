@@ -38,6 +38,22 @@ The curated public documentation pages at the top of `docs/` summarize the
 current system for users. They must remain consistent with the engineering
 specifications and accepted ADRs rather than becoming a second specification.
 
+## Website And Repository Publication
+
+The public website is a curated guide and evidence surface. GitHub remains the
+complete engineering record.
+
+| Public website | GitHub engineering record |
+| --- | --- |
+| Getting started, concepts, architecture, references, safety, current status, and public roadmap | Active and completed plans, unresolved reviews, CR internals, notes, conversations, templates, and archive history |
+| Normative specifications and accepted ADRs under an engineering-reference area | Full evidence cycles and implementation history |
+| Reviewed evidence summaries and static-first labs | Raw generated reports, audits, and exploratory inventories |
+
+Repository records are promoted to the website by writing a stable current
+summary, not by making every source document part of the primary navigation.
+The original record remains available for readers who need the full reasoning.
+See the [Public Website And Repository Records Plan](Plans/public-website-and-repository-records.md).
+
 ## Source-Of-Truth Specifications
 
 The design, error, inspection, and reference documents live in the published

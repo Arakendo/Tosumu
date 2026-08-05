@@ -87,6 +87,7 @@ do not change accepted architecture by themselves.
 | [Initial SQL Layer](Plans/initial-sql-layer.md) | Completed baseline; retained | Resolve separately listed deferred SQL scope only through new evidence or a follow-up plan |
 | [Tosumu Command Language](Plans/tosumu-command-language.md) | Proposed | Complete Slice 0 evidence and retain AR-0001 ownership review |
 | [Documentation Lifecycle And Design Decomposition](Plans/documentation-lifecycle-and-design-decomposition.md) | Active | Apply metadata and separate current design from future proposals incrementally |
+| [Public Website And Repository Records](Plans/public-website-and-repository-records.md) | Proposed | Validate indexed navigation, then curate the public reader path separately from GitHub work records |
 
 ## Change Requests
 
