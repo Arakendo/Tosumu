@@ -1,0 +1,32 @@
+[package]
+name = "tosumu-inspection-wasm"
+description = "WASM adapter for the bounded Tosumu inspection boundary."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+ratatui = { version = "0.29.0", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tosumu-inspection-boundary = { path = "../tosumu-inspection-boundary" }
+wasm-bindgen = "0.2"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Tosumu's authenticated-format dependencies transitively use getrandom. The
+# browser adapter enables its JavaScript implementation only for wasm32.
+getrandom = { version = "0.2", features = ["js"] }
+
+[dev-dependencies]
+tosumu-core = { path = "../tosumu-core" }

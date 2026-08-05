@@ -24,6 +24,9 @@ validation, and exit states.
 - [Tokimu Reciprocal Website Evidence](tokimu-reciprocal-website-evidence.md)
   -- **Proposed** cross-project website evidence using versioned public
   observations and independently deployable MkDocs sites.
+- [Tosumu Inspection Island And UI Providers](tosumu-inspection-island-and-ui-providers.md)
+  -- **Proposed** provider-neutral inspection observations and commands shared
+  by native Ratatui and TypeScript website-island providers.
 - [Public Website And Repository Records](public-website-and-repository-records.md)
   -- **Proposed** public information architecture, publication policy, indexed
   navigation, and GitHub engineering-record boundary.

@@ -5,7 +5,7 @@ use crate::commands::protector::{
 use crate::commands::store::run_get;
 use crate::commands::text::cmd_backup;
 use crate::error_boundary::{codes as cli_codes, CliError};
-use clap::error::ErrorKind;
+use clap::{error::ErrorKind, CommandFactory};
 use tosumu_core::error::TosumuError;
 
 #[test]
@@ -124,6 +124,65 @@ fn cli_parses_sql_explain_flag() {
     match cli.command {
         Command::Sql { explain, .. } => assert!(explain),
         _ => panic!("unexpected command variant"),
+    }
+}
+
+#[test]
+fn cli_parses_a_single_tql_statement_with_optional_json_output() {
+    let cli =
+        Cli::try_parse_from(["tosumu", "tql", "db.tsm", "DESCRIBE player/42", "--json"]).unwrap();
+
+    match cli.command {
+        Command::Tql {
+            path,
+            command,
+            timings,
+            json,
+        } => {
+            assert_eq!(path, PathBuf::from("db.tsm"));
+            assert_eq!(command, "DESCRIBE player/42");
+            assert!(!timings);
+            assert!(json.json);
+        }
+        _ => panic!("unexpected command variant"),
+    }
+}
+
+#[test]
+fn cli_parses_opt_in_tql_timing_diagnostics() {
+    let cli = Cli::try_parse_from(["tosumu", "tql", "db.tsm", "STATUS", "--timings"])
+        .expect("parse TQL timing flag");
+
+    match cli.command {
+        Command::Tql { timings, json, .. } => {
+            assert!(timings);
+            assert!(!json.json);
+        }
+        _ => panic!("unexpected command variant"),
+    }
+}
+
+#[test]
+fn tql_help_states_the_bounded_read_only_surface() {
+    let mut command = Cli::command();
+    let tql = command
+        .find_subcommand_mut("tql")
+        .expect("tql subcommand is registered");
+    let help = tql.render_long_help().to_string();
+
+    for required in [
+        "STATUS",
+        "CHECK",
+        "DESCRIBE <key>",
+        "WAL STATUS",
+        "read-only",
+        "does not accept mutations",
+        "does not accept mutations, unlock material",
+    ] {
+        assert!(
+            help.contains(required),
+            "missing `{required}` from TQL help"
+        );
     }
 }
 

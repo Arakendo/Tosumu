@@ -35,6 +35,8 @@ theme:
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
+  - Labs:
+      - Inspection Boundary: labs/inspection-boundary.md
   - Concepts: concepts.md
   - Architecture: architecture.md
   - File Format: file-format.md
@@ -74,6 +76,7 @@ nav:
           - Initial SQL Layer: Plans/initial-sql-layer.md
           - Tosumu Command Language: Plans/tosumu-command-language.md
           - Tokimu Reciprocal Website Evidence: Plans/tokimu-reciprocal-website-evidence.md
+          - Tosumu Inspection Island And UI Providers: Plans/tosumu-inspection-island-and-ui-providers.md
           - Public Website And Repository Records: Plans/public-website-and-repository-records.md
           - Documentation Lifecycle And Design Decomposition: Plans/documentation-lifecycle-and-design-decomposition.md
           - Template: Plans/TEMPLATE.md
@@ -112,6 +115,9 @@ plugins:
 
 extra_css:
   - overrides/css/extra.css
+
+extra_javascript:
+  - overrides/js/tosumu-inspection-island.js
 
 extra:
   generator: false

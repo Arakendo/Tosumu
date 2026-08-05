@@ -10,6 +10,9 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use tosumu_core::error::TosumuError;
 use tosumu_core::inspect::{inspect_tree_from_pager, inspect_wal, read_header_info, verify_pager};
+use tosumu_core::inspection_session::{
+    inspect_observation_from_pager, InspectionObservationLimits,
+};
 use tosumu_core::page_store::PageStore;
 use tosumu_core::pager::Pager;
 
@@ -24,18 +27,30 @@ mod watch;
 mod tests;
 
 use render::draw;
-use state::{load_page_rows, ViewApp, ViewMode, PANEL_SCROLL_PAGE};
+use state::{page_rows_from_observation, ViewApp, ViewMode, PANEL_SCROLL_PAGE};
 use watch::capture_watch_fingerprint;
 
 pub fn run(path: &Path, watch: bool) -> Result<(), CliError> {
     let header = read_header_info(path)?;
     let (mut pager, unlock) = open_pager(path)?;
     let verify = verify_pager(&pager)?;
-    let pages = load_page_rows(&pager)?;
+    let observation =
+        inspect_observation_from_pager(path, &pager, InspectionObservationLimits::default())?;
+    let pages = page_rows_from_observation(&observation);
     let tree = inspect_tree_from_pager(&pager).map_err(|error| error.to_string());
     let wal = inspect_wal(path).map_err(|error| error.to_string());
     let keyslots = PageStore::list_keyslots(path).map_err(|error| error.to_string());
-    let mut app = ViewApp::new(path, header, verify, pages, tree, wal, keyslots, watch);
+    let mut app = ViewApp::new(
+        path,
+        header,
+        verify,
+        pages,
+        observation,
+        tree,
+        wal,
+        keyslots,
+        watch,
+    );
     app.select_first(&pager)?;
 
     enable_raw_mode().map_err(TosumuError::Io)?;
@@ -168,7 +183,10 @@ fn refresh_view_result(
     let (next_pager, _) = open_pager_with_unlock(path, unlock.clone(), true)?;
     app.header = read_header_info(path)?;
     app.verify = verify_pager(&next_pager)?;
-    app.pages = load_page_rows(&next_pager)?;
+    let observation =
+        inspect_observation_from_pager(path, &next_pager, InspectionObservationLimits::default())?;
+    app.pages = page_rows_from_observation(&observation);
+    app.replace_observation(observation);
     app.tree = inspect_tree_from_pager(&next_pager).map_err(|error| error.to_string());
     app.wal = inspect_wal(path).map_err(|error| error.to_string());
     app.keyslots = PageStore::list_keyslots(path).map_err(|error| error.to_string());

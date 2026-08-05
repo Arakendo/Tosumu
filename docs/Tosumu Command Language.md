@@ -2,14 +2,16 @@
 
 ## Status
 
-Draft / exploratory long-range direction.
+Initial read-only inspection implementation is incubating in `tosumu-cli`.
 
 Implementation is governed by
 [the Tosumu Command Language plan](Plans/tosumu-command-language.md). The
 unresolved ownership and lowering boundary is tracked by
 [AR-0001](Architectural%20Reviews/AR-0001-tql-command-language-boundary.md).
-Neither record makes the design-only commands below available before their
-source semantics and acceptance criteria are proven.
+Neither record makes the deferred design-only commands below available before
+their source semantics and acceptance criteria are proven. The admitted
+read-only commands are intentionally narrower: `STATUS`, `CHECK`,
+`DESCRIBE <key>`, and `WAL STATUS`.
 
 TQL is a Tosumu-specific command language for inspecting, explaining, and improving the epistemic state of stored data.
 
@@ -253,13 +255,77 @@ The surface syntax should stay conversational and command-like. TQL should prefe
 STATUS
 CHECK
 DESCRIBE player/42
+WAL STATUS
 ```
 
 `STATUS` summarizes database health.
 
 `CHECK` verifies structural and cryptographic integrity.
 
-`DESCRIBE` shows the value plus its metadata summary.
+`DESCRIBE` shows an evidence-safe metadata summary. The initial CLI does not
+emit value contents.
+
+`WAL STATUS` reports only whether the public WAL sidecar exists and how many
+publicly decoded records it contains. It does not claim recovery outcome,
+checkpoint health, durability, freshness, trust, synchronization state, or a
+safe action to take.
+
+### Admitted Operator Reference
+
+The current implementation accepts exactly one bounded statement per `tosumu
+tql` invocation. Every admitted command is read-only. Each produces a human
+summary by default or a provisional versioned JSON outcome with `--json`.
+The JSON schema is diagnostic output (`schema_version: 1`), not a stable
+embedding ABI.
+
+### Local Timing Evidence
+
+Pass `--timings` to write observed `parse`, `open`, `inspection`, `dispatch`,
+and `render` durations to standard error. The values are local measurements in
+microseconds, are not serialized into TQL JSON, and create no latency or
+allocation guarantee.
+
+| Command | Source facts | Outcome | Explicit limits and failure semantics |
+| --- | --- | --- | --- |
+| `STATUS` | `KvStore::stat()` public summary facts | Page count, data-page count, and tree height | Does not expose store identity or format metadata, verify every integrity dimension, establish freshness, or inspect sync state. Open and I/O failures are structured CLI errors. |
+| `CHECK` | The store verification report | Performed verification dimensions and any reported failures | A completed check with reported failures uses the CLI's nonzero reported-issues status. It does not establish semantic truth, freshness, witness coverage, or confidentiality. |
+| `DESCRIBE <key>` | Public metadata for the addressed record | Presence state and evidence-safe record metadata | Does not reveal value contents. A missing key is a successful observation, not a parser or storage failure. |
+| `WAL STATUS` | Public WAL sidecar presence and decoded record count | Sidecar presence and decoded-record summary | Does not infer recovery outcome, checkpoint health, durability, trust, freshness, synchronization state, or a recommended action. Missing sidecar is a successful observation when the store operation completes. |
+
+The parser rejects empty input, unknown commands, missing arguments, trailing
+tokens, invalid keys, and declared command/token/key resource-limit breaches
+with stable `TQL_*` syntax codes. Parsing occurs before database opening;
+therefore parse failure performs no database work. The initial grammar accepts
+UTF-8 command text, has no nested syntax, and intentionally exposes no byte
+input contract.
+
+### Initial CLI Invocation
+
+The initial bounded surface accepts one quoted statement per invocation:
+
+```text
+tosumu tql <database-path> "STATUS"
+tosumu tql <database-path> "CHECK" --json
+tosumu tql <database-path> "DESCRIBE player/42"
+tosumu tql <database-path> "WAL STATUS"
+```
+
+It does not yet accept shell pipelines, unlock arguments, trust or freshness
+claims, or mutations.
+
+`STATUS`, `WAL STATUS`, and both `DESCRIBE` observations exit successfully when
+their storage operation completes, including a missing key. `CHECK` exits successfully only
+when every reported integrity dimension passes; a completed check with any
+reported failure uses the CLI's nonzero reported-issues status. Parse, open,
+and I/O failures remain structured CLI errors rather than check outcomes.
+
+TQL parse failures carry a TQL-specific machine code in both the terminal
+boundary and the provisional JSON error envelope. The initial emitted codes are
+`TQL_EMPTY_INPUT`, `TQL_INPUT_TOO_LARGE`, `TQL_TOO_MANY_TOKENS`,
+`TQL_UNKNOWN_COMMAND`, `TQL_MISSING_ARGUMENT`, `TQL_UNEXPECTED_TOKEN`,
+`TQL_KEY_TOO_LARGE`, and `TQL_INVALID_KEY`. These codes describe command
+syntax and declared resource limits only; they do not imply database trust,
+freshness, sync, or mutation semantics.
 
 ---
 
@@ -474,12 +540,18 @@ Initial implementable TQL should be tiny.
 
 Long-range TQL can be broader than the first implementation, but the surface should grow by adding sugar over well-defined metadata and views, not by creating a second general-purpose query engine.
 
-Recommended MVP:
+Current implemented surface:
 
 ```tql
 STATUS
 CHECK
 DESCRIBE <key>
+WAL STATUS
+```
+
+Deferred candidate surface:
+
+```tql
 TRUST <key>
 WHY <key>
 STALE

@@ -1942,6 +1942,16 @@ SQL and TQL are sibling surfaces over the same engine, with different jobs:
 TQL is the interactive operational interface to Tosumu.
 Its purpose is to let humans ask the database about trust, freshness, provenance, verification, sync posture, and recommended next actions without open-coding those questions in every application.
 
+**Current implementation boundary.** The current CLI-local implementation is
+deliberately narrower than that long-range purpose. It admits exactly four
+read-only observations: `STATUS`, `CHECK`, `DESCRIBE <key>`, and `WAL STATUS`.
+They use existing public storage, verification, and WAL inspection facts; they
+do not establish key-scoped trust, freshness, provenance, witness coverage,
+sync posture, SQL virtual views, mutations, or shell pipelines. The structured
+outcomes remain provisional and CLI-local until an independent consumer proves
+a reusable semantic boundary. See the [TQL architectural review](../Architectural%20Reviews/AR-0001-tql-command-language-boundary.md)
+for the retained evidence and reopening criteria.
+
 North star:
 
 - common application sync should eventually feel close to `db.sync(peer, scope)?;`

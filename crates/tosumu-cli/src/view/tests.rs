@@ -5,6 +5,11 @@ use tosumu_core::inspect::{
     HeaderInfo, PageVerifyResult, TreeNodeSummary, TreeSummary, VerifyIssueKind, VerifyReport,
     WalRecordSummary, WalRecordSummaryKind, WalSummary,
 };
+use tosumu_core::inspection_session::{
+    InspectionHeader, InspectionKeyslots, InspectionObservation, InspectionPage,
+    InspectionPageList, InspectionPageState, InspectionRecovery, InspectionSection, InspectionTree,
+    InspectionVerification, InspectionView, InspectionWal, INSPECTION_OBSERVATION_SCHEMA_V1,
+};
 use tosumu_core::page_store::PageStore;
 use tosumu_core::pager::Pager;
 
@@ -13,8 +18,8 @@ use super::render::{
     selected_page_auth_summary, summarize_page_auth, PageAuthSummary,
 };
 use super::state::{
-    FocusPane, PageRow, PageStatus, ViewApp, ViewMode, PAGE_LIST_JUMP, PAGE_LIST_WINDOW,
-    PANEL_SCROLL_PAGE,
+    page_rows_from_observation, FocusPane, PageRow, PageStatus, ViewApp, ViewMode, PAGE_LIST_JUMP,
+    PAGE_LIST_WINDOW, PANEL_SCROLL_PAGE,
 };
 use super::watch::{capture_watch_fingerprint, watch_refresh_needed};
 
@@ -69,12 +74,78 @@ fn test_wal() -> Result<WalSummary, String> {
     })
 }
 
+fn observation(page_count: u64, pages: &[PageRow]) -> InspectionObservation {
+    InspectionObservation {
+        schema_version: INSPECTION_OBSERVATION_SCHEMA_V1,
+        header: InspectionHeader {
+            format_version: 1,
+            page_size: 4096,
+            page_count,
+            root_page: if page_count > 1 { 1 } else { 0 },
+            flags: 0,
+            keyslot_count: 0,
+        },
+        verification: InspectionVerification {
+            pages_checked: 0,
+            pages_ok: 0,
+            btree_checked: false,
+            btree_ok: false,
+            recovery: InspectionRecovery {
+                wal_exists: false,
+                replay_committed: 0,
+                discard_uncommitted: 0,
+            },
+            issues: Vec::new(),
+            issues_truncated: 0,
+            btree_issue: None,
+        },
+        pages: InspectionPageList {
+            total: pages.len() as u64,
+            entries: pages
+                .iter()
+                .map(|page| InspectionPage {
+                    page_number: page.pgno,
+                    page_version: page.page_version,
+                    page_type: page.page_type,
+                    slot_count: page.slot_count,
+                    state: match page.status {
+                        PageStatus::Ok => InspectionPageState::Ok,
+                        PageStatus::AuthFailed => InspectionPageState::AuthFailed,
+                        PageStatus::Corrupt => InspectionPageState::Corrupt,
+                        PageStatus::Io => InspectionPageState::Io,
+                    },
+                    issue: page.issue.clone(),
+                })
+                .collect(),
+            truncated: 0,
+        },
+        tree: InspectionSection::Available(InspectionTree {
+            root_page: if page_count > 1 { 1 } else { 0 },
+            nodes: Vec::new(),
+            truncated: false,
+        }),
+        wal: InspectionSection::Available(InspectionWal {
+            exists: false,
+            record_count: 0,
+            records: Vec::new(),
+            truncated: 0,
+        }),
+        keyslots: InspectionSection::Available(InspectionKeyslots {
+            total: 0,
+            slots: Vec::new(),
+            truncated: 0,
+        }),
+    }
+}
+
 fn new_app(page_count: u64, pages: Vec<PageRow>) -> ViewApp<'static> {
+    let observation = observation(page_count, &pages);
     ViewApp::new(
         Path::new("db.tsm"),
         header(page_count),
         empty_verify(),
         pages,
+        observation,
         test_tree(),
         test_wal(),
         Ok(Vec::new()),
@@ -92,6 +163,34 @@ fn corrupt_page(pgno: u64) -> PageRow {
         issue: Some("corrupt".to_string()),
         search_text: None,
     }
+}
+
+#[test]
+fn terminal_page_rows_follow_the_bounded_shared_observation() {
+    let retained = vec![
+        PageRow {
+            pgno: 3,
+            page_type: Some(PAGE_TYPE_LEAF),
+            page_version: Some(7),
+            slot_count: Some(2),
+            status: PageStatus::Ok,
+            issue: None,
+            search_text: None,
+        },
+        corrupt_page(5),
+    ];
+    let mut snapshot = observation(9, &retained);
+    snapshot.pages.total = 9;
+    snapshot.pages.truncated = 7;
+
+    let rows = page_rows_from_observation(&snapshot);
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].pgno, 3);
+    assert_eq!(rows[0].status, PageStatus::Ok);
+    assert_eq!(rows[1].pgno, 5);
+    assert_eq!(rows[1].status, PageStatus::Corrupt);
+    assert_eq!(rows[1].issue.as_deref(), Some("corrupt"));
 }
 
 fn with_temp_db<T>(test_name: &str, test: impl FnOnce(&Path, &Pager) -> T) -> T {
@@ -310,6 +409,7 @@ fn panel_scroll_resets_on_mode_change() {
 
     app.set_mode(ViewMode::Tree);
     assert_eq!(app.panel_scroll, 0);
+    assert_eq!(app.session.view, InspectionView::Tree);
 
     app.scroll_panel_down(5);
     app.scroll_panel_up(2);
@@ -346,6 +446,25 @@ fn focus_routed_movement_uses_active_pane() {
 }
 
 #[test]
+fn terminal_page_navigation_keeps_shared_selection_in_sync() {
+    with_temp_db("view_semantic_navigation", |_, pager| {
+        let mut app = new_app(3, vec![corrupt_page(3), corrupt_page(7), corrupt_page(11)]);
+
+        app.select_first(pager).unwrap();
+        assert_eq!(app.selected, Some(0));
+        assert_eq!(app.session.selected_page, Some(3));
+
+        app.select_next(pager).unwrap();
+        assert_eq!(app.selected, Some(1));
+        assert_eq!(app.session.selected_page, Some(7));
+
+        app.select_previous(pager).unwrap();
+        assert_eq!(app.selected, Some(0));
+        assert_eq!(app.session.selected_page, Some(3));
+    });
+}
+
+#[test]
 fn page_jump_uses_active_focus() {
     with_temp_db("view_page_jump_test", |_, pager| {
         let pages = (1..=25).map(corrupt_page).collect::<Vec<_>>();
@@ -372,6 +491,7 @@ fn confirm_page_jump_selects_matching_page() {
         app.confirm_page_jump(pager).unwrap();
 
         assert_eq!(app.selected, Some(6));
+        assert_eq!(app.session.selected_page, Some(7));
         assert_eq!(app.status_suffix(), " • jumped to page 7");
         assert!(!app.page_jump_active());
     });
@@ -443,6 +563,8 @@ fn confirm_filter_limits_visible_pages_and_selection() {
 
         assert_eq!(app.visible_page_count(), 1);
         assert_eq!(app.selected, Some(1));
+        assert_eq!(app.session.filter_query, "auth");
+        assert_eq!(app.session.selected_page, Some(2));
         assert_eq!(
             app.footer_status(),
             " • filter: auth (1) • filter matched 1 page(s)"

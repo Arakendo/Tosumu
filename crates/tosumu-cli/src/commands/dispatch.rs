@@ -10,6 +10,7 @@ use super::sql::run_sql;
 use super::store::{run_delete, run_get, run_init, run_put, run_scan, run_stat};
 use super::text::{cmd_backup, cmd_dump, cmd_hex, cmd_verify, VerifyCommandOutcome};
 use crate::error_boundary::CliError;
+use crate::tql_cli::{run_tql, TqlRunOutcome};
 use crate::unlock::UnlockSecret;
 use crate::{Cli, Command, InspectAction, InspectUnlockArgs};
 
@@ -36,6 +37,15 @@ impl From<VerifyCommandOutcome> for RunOutcome {
     }
 }
 
+impl From<TqlRunOutcome> for RunOutcome {
+    fn from(value: TqlRunOutcome) -> Self {
+        match value {
+            TqlRunOutcome::Success => Self::Success,
+            TqlRunOutcome::ReportedIssues => Self::ReportedIssues,
+        }
+    }
+}
+
 pub(crate) fn run(cli: Cli) -> Result<RunOutcome, CliError> {
     match cli.command {
         Command::Init { path, encrypt } => run_init(&path, encrypt)?,
@@ -58,6 +68,12 @@ pub(crate) fn run(cli: Cli) -> Result<RunOutcome, CliError> {
             explain,
             params,
         } => run_sql(&path, &query, explain, &params)?,
+        Command::Tql {
+            path,
+            command,
+            timings,
+            json,
+        } => return Ok(run_tql(&path, &command, json.json, timings)?.into()),
         Command::Protector { action } => run_protector_action(action)?,
         Command::RekeyKek { path, slot } => run_rekey_kek(&path, slot)?,
     }

@@ -456,6 +456,178 @@ body[data-md-color-scheme="default"] {
   font: 500 0.7rem var(--tosumu-font-mono);
 }
 
+/* The browser inspection lab is deliberately a bounded presentation of a
+   versioned observation. Large adapter responses must scroll inside the lab,
+   not turn the surrounding documentation into an unbounded output surface. */
+.tosumu-inspection-lab {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.85rem 1rem;
+  margin: 1.5rem 0;
+  padding: clamp(1rem, 2vw, 1.5rem);
+  border: 1px solid var(--md-typeset-table-color);
+  border-top: 2px solid var(--md-typeset-a-color);
+  background: var(--md-code-bg-color);
+  box-shadow: 0.45rem 0.45rem 0 var(--md-typeset-table-color--light);
+}
+
+.tosumu-inspection-lab header,
+.tosumu-inspection-lab [data-tosumu-inspection-status],
+.tosumu-inspection-lab [data-tosumu-inspection-output],
+.tosumu-inspection-lab .tosumu-inspection-interface-guide,
+.tosumu-inspection-lab .tosumu-ratatui-terminal,
+.tosumu-inspection-lab .tosumu-inspection-upload,
+.tosumu-inspection-lab .tosumu-inspection-fixtures {
+  grid-column: 1 / -1;
+}
+
+.tosumu-inspection-lab h2 {
+  margin: 0.35rem 0 0.65rem;
+  padding: 0;
+  border: 0;
+}
+
+.tosumu-inspection-lab label,
+.tosumu-inspection-lab button,
+.tosumu-inspection-lab input {
+  align-self: center;
+}
+
+.tosumu-inspection-upload {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--md-typeset-table-color--light);
+}
+
+.tosumu-inspection-fixtures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.75rem;
+  border: 1px solid var(--md-typeset-table-color--light);
+}
+
+.tosumu-inspection-fixtures > p {
+  flex-basis: 100%;
+  margin: 0 0 0.2rem;
+  font: 500 0.7rem var(--tosumu-font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tosumu-inspection-upload summary {
+  grid-column: 1 / -1;
+  cursor: pointer;
+  font: 500 0.7rem var(--tosumu-font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tosumu-inspection-lab label,
+.tosumu-inspection-lab [data-tosumu-inspection-status] {
+  font-family: var(--tosumu-font-mono);
+  font-size: 0.72rem;
+}
+
+.tosumu-inspection-lab input {
+  min-width: 0;
+  max-width: 100%;
+  font: 0.75rem var(--tosumu-font-mono);
+}
+
+.tosumu-inspection-lab button {
+  min-height: 2.25rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--md-typeset-table-color);
+  color: var(--md-default-fg-color);
+  background: transparent;
+  font: 500 0.68rem var(--tosumu-font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tosumu-inspection-lab button:not(:disabled):hover,
+.tosumu-inspection-lab button:not(:disabled):focus-visible {
+  border-color: var(--md-accent-fg-color);
+  color: var(--md-accent-bg-color);
+  background: var(--md-accent-fg-color);
+}
+
+.tosumu-inspection-lab button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.tosumu-inspection-lab [data-tosumu-inspection-status] {
+  margin: 0;
+  color: var(--md-default-fg-color--light);
+}
+
+.tosumu-inspection-lab [data-tosumu-inspection-output] {
+  box-sizing: border-box;
+  max-height: min(28rem, 55vh);
+  margin: 0;
+  padding: 0.9rem;
+  overflow: auto;
+  border: 1px solid var(--md-typeset-table-color);
+  background: var(--md-default-bg-color);
+  color: var(--md-code-fg-color);
+  font: 0.72rem/1.55 var(--tosumu-font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tosumu-inspection-interface-guide,
+.tosumu-ratatui-terminal {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.9rem;
+  border: 1px solid var(--md-typeset-table-color--light);
+}
+
+.tosumu-inspection-interface-guide h3,
+.tosumu-inspection-interface-guide p,
+.tosumu-ratatui-terminal h3,
+.tosumu-ratatui-terminal p {
+  margin: 0;
+}
+
+.tosumu-ratatui-terminal canvas {
+  display: block;
+  width: 100%;
+  max-width: 48rem;
+  height: auto;
+  border: 1px solid var(--md-typeset-table-color);
+  background: #071013;
+  image-rendering: pixelated;
+}
+
+.tosumu-ratatui-terminal p:last-child {
+  font: 0.72rem var(--tosumu-font-mono);
+  color: var(--md-default-fg-color--light);
+}
+
+.tosumu-ratatui-terminal-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    border: 0;
+    white-space: nowrap;
+}
+
+.tosumu-ratatui-terminal:focus-within canvas {
+    outline: 2px solid var(--md-accent-fg-color);
+    outline-offset: 3px;
+}
+
 @media screen and (max-width: 52rem) {
   .tosumu-home-intro,
   .tosumu-principles,
@@ -472,5 +644,21 @@ body[data-md-color-scheme="default"] {
   .tosumu-principles article:last-child,
   .tosumu-paths article:last-child {
     border-bottom: 0;
+  }
+
+  .tosumu-inspection-lab {
+    grid-template-columns: 1fr;
+  }
+
+  .tosumu-inspection-lab label,
+  .tosumu-inspection-lab input,
+  .tosumu-inspection-lab button,
+  .tosumu-inspection-upload,
+  .tosumu-inspection-fixtures {
+    width: 100%;
+  }
+
+  .tosumu-inspection-upload {
+    grid-template-columns: 1fr;
   }
 }

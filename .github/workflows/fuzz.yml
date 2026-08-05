@@ -1,0 +1,40 @@
+name: Fuzz
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  tql-parser:
+    name: nightly / linux / tql parser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Fuzz bounded TQL parser
+        working-directory: fuzz
+        run: cargo +nightly fuzz run fuzz_tql_parse -- -runs=10000
+
+  tql-renderer:
+    name: nightly / linux / tql renderer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Fuzz bounded TQL outcome rendering
+        working-directory: fuzz
+        run: cargo +nightly fuzz run fuzz_tql_render -- -runs=10000

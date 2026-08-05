@@ -14,12 +14,17 @@ mod error_boundary;
 #[cfg(test)]
 mod inspect_cli_tests;
 mod inspect_contract;
+mod tql;
+mod tql_cli;
+mod tql_dispatch;
+mod tql_render;
 mod unlock;
 mod view;
 
 use commands::run;
 use error_boundary::CliError;
 use inspect_contract::*;
+use tql_cli::render_tql_error_report_json;
 
 #[derive(Args, Clone, Default)]
 #[command(group(
@@ -50,8 +55,9 @@ struct InspectJsonArgs {
 }
 
 #[derive(Clone, Copy)]
-struct InspectJsonContract {
-    command: &'static str,
+enum JsonErrorContract {
+    Inspect { command: &'static str },
+    Tql,
 }
 
 #[derive(Parser)]
@@ -62,7 +68,7 @@ struct Cli {
 }
 
 impl Cli {
-    fn json_error_contract(&self) -> Option<InspectJsonContract> {
+    fn json_error_contract(&self) -> Option<JsonErrorContract> {
         match &self.command {
             Command::Inspect {
                 action:
@@ -70,7 +76,7 @@ impl Cli {
                         json: InspectJsonArgs { json: true },
                         ..
                     },
-            } => Some(InspectJsonContract {
+            } => Some(JsonErrorContract::Inspect {
                 command: "inspect.header",
             }),
             Command::Inspect {
@@ -79,7 +85,7 @@ impl Cli {
                         json: InspectJsonArgs { json: true },
                         ..
                     },
-            } => Some(InspectJsonContract {
+            } => Some(JsonErrorContract::Inspect {
                 command: "inspect.verify",
             }),
             Command::Inspect {
@@ -88,7 +94,7 @@ impl Cli {
                         json: InspectJsonArgs { json: true },
                         ..
                     },
-            } => Some(InspectJsonContract {
+            } => Some(JsonErrorContract::Inspect {
                 command: "inspect.pages",
             }),
             Command::Inspect {
@@ -97,7 +103,7 @@ impl Cli {
                         json: InspectJsonArgs { json: true },
                         ..
                     },
-            } => Some(InspectJsonContract {
+            } => Some(JsonErrorContract::Inspect {
                 command: "inspect.wal",
             }),
             Command::Inspect {
@@ -106,7 +112,7 @@ impl Cli {
                         json: InspectJsonArgs { json: true },
                         ..
                     },
-            } => Some(InspectJsonContract {
+            } => Some(JsonErrorContract::Inspect {
                 command: "inspect.page",
             }),
             Command::Inspect {
@@ -115,7 +121,7 @@ impl Cli {
                         json: InspectJsonArgs { json: true },
                         ..
                     },
-            } => Some(InspectJsonContract {
+            } => Some(JsonErrorContract::Inspect {
                 command: "inspect.tree",
             }),
             Command::Inspect {
@@ -124,9 +130,13 @@ impl Cli {
                         json: InspectJsonArgs { json: true },
                         ..
                     },
-            } => Some(InspectJsonContract {
+            } => Some(JsonErrorContract::Inspect {
                 command: "inspect.protectors",
             }),
+            Command::Tql {
+                json: InspectJsonArgs { json: true },
+                ..
+            } => Some(JsonErrorContract::Tql),
             _ => None,
         }
     }
@@ -214,6 +224,23 @@ enum Command {
         /// Bind a positional SQL parameter. Integer-looking values are bound as INTEGER; other values as TEXT.
         #[arg(long = "param")]
         params: Vec<String>,
+    },
+    /// Execute one bounded, read-only Tosumu Command Language statement.
+    #[command(
+        long_about = "Execute one bounded, read-only Tosumu Command Language (TQL) statement.\n\nThe initial TQL surface accepts only STATUS, CHECK, DESCRIBE <key>, and WAL STATUS. It does not accept mutations, unlock material, shell pipelines, trust or freshness claims, or sync commands.",
+        after_help = "Examples:\n  tosumu tql database.tsm \"STATUS\"\n  tosumu tql database.tsm \"CHECK\" --json\n  tosumu tql database.tsm \"DESCRIBE player/42\"\n  tosumu tql database.tsm \"WAL STATUS\""
+    )]
+    Tql {
+        /// Database to observe without mutation.
+        path: PathBuf,
+        /// One TQL command, such as `STATUS`, `CHECK`, `DESCRIBE player/42`, or `WAL STATUS`.
+        command: String,
+        /// Write local parser, inspection, and rendering timings to stderr.
+        /// Timings are diagnostic evidence, not part of the TQL result contract.
+        #[arg(long)]
+        timings: bool,
+        #[command(flatten)]
+        json: InspectJsonArgs,
     },
     /// Rotate the KEK for a passphrase protector slot (cheap — rewraps DEK only).
     RekeyKek {
@@ -314,10 +341,13 @@ fn main() {
         Err(e) => {
             log_cli_error(&e, operation);
             if let Some(contract) = json_error_contract {
-                println!(
-                    "{}",
-                    render_inspect_error_report_json(contract.command, &e.error_report(),)
-                );
+                let rendered = match contract {
+                    JsonErrorContract::Inspect { command } => {
+                        render_inspect_error_report_json(command, &e.error_report())
+                    }
+                    JsonErrorContract::Tql => render_tql_error_report_json(&e.error_report()),
+                };
+                println!("{rendered}");
             } else {
                 eprintln!("{}", render_cli_error(&e));
             }
@@ -341,6 +371,7 @@ impl Cli {
             Command::View { .. } => "view",
             Command::Backup { .. } => "backup",
             Command::Sql { .. } => "sql",
+            Command::Tql { .. } => "tql",
             Command::Protector { action } => match action {
                 ProtectorAction::AddPassphrase { .. } => "protector.add-passphrase",
                 ProtectorAction::AddRecoveryKey { .. } => "protector.add-recovery-key",

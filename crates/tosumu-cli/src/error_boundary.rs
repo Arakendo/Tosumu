@@ -1,15 +1,33 @@
 use tosumu_core::error::{ErrorDetail, ErrorReport, ErrorStatus, ErrorValue, TosumuError};
 
+use crate::tql::TqlParseError;
+
 pub(crate) mod codes {
     pub const CLI_ARGUMENT_INVALID: &str = "CLI_ARGUMENT_INVALID";
     pub const CLI_KEY_NOT_FOUND: &str = "CLI_KEY_NOT_FOUND";
     pub const SQL_UNSUPPORTED_QUERY_SHAPE: &str = "SQL_UNSUPPORTED_QUERY_SHAPE";
+    pub const TQL_EMPTY_INPUT: &str = "TQL_EMPTY_INPUT";
+    pub const TQL_INPUT_TOO_LARGE: &str = "TQL_INPUT_TOO_LARGE";
+    pub const TQL_TOO_MANY_TOKENS: &str = "TQL_TOO_MANY_TOKENS";
+    pub const TQL_UNKNOWN_COMMAND: &str = "TQL_UNKNOWN_COMMAND";
+    pub const TQL_MISSING_ARGUMENT: &str = "TQL_MISSING_ARGUMENT";
+    pub const TQL_UNEXPECTED_TOKEN: &str = "TQL_UNEXPECTED_TOKEN";
+    pub const TQL_KEY_TOO_LARGE: &str = "TQL_KEY_TOO_LARGE";
+    pub const TQL_INVALID_KEY: &str = "TQL_INVALID_KEY";
 
     #[cfg(test)]
     pub const PUBLIC_CODES: &[&str] = &[
         CLI_ARGUMENT_INVALID,
         CLI_KEY_NOT_FOUND,
         SQL_UNSUPPORTED_QUERY_SHAPE,
+        TQL_EMPTY_INPUT,
+        TQL_INPUT_TOO_LARGE,
+        TQL_TOO_MANY_TOKENS,
+        TQL_UNKNOWN_COMMAND,
+        TQL_MISSING_ARGUMENT,
+        TQL_UNEXPECTED_TOKEN,
+        TQL_KEY_TOO_LARGE,
+        TQL_INVALID_KEY,
     ];
 }
 
@@ -31,6 +49,7 @@ pub(crate) enum CliError {
         path: std::path::PathBuf,
     },
     Sql(tosumu_sql::SqlError),
+    Tql(TqlParseError),
 }
 
 impl CliError {
@@ -207,8 +226,90 @@ impl CliError {
                     value: ErrorValue::Str("sql".to_string()),
                 }],
             },
+            CliError::Tql(error) => ErrorReport {
+                code: tql_parse_error_code(error),
+                status: ErrorStatus::InvalidInput,
+                message: tql_parse_error_message(error),
+                details: tql_parse_error_details(error),
+            },
         }
     }
+}
+
+fn tql_parse_error_code(error: &TqlParseError) -> &'static str {
+    match error {
+        TqlParseError::EmptyInput => codes::TQL_EMPTY_INPUT,
+        TqlParseError::InputTooLarge { .. } => codes::TQL_INPUT_TOO_LARGE,
+        TqlParseError::TooManyTokens { .. } => codes::TQL_TOO_MANY_TOKENS,
+        TqlParseError::UnknownCommand { .. } => codes::TQL_UNKNOWN_COMMAND,
+        TqlParseError::MissingArgument { .. } => codes::TQL_MISSING_ARGUMENT,
+        TqlParseError::UnexpectedToken { .. } => codes::TQL_UNEXPECTED_TOKEN,
+        TqlParseError::KeyTooLarge { .. } => codes::TQL_KEY_TOO_LARGE,
+        TqlParseError::InvalidKey { .. } => codes::TQL_INVALID_KEY,
+    }
+}
+
+/// Keeps machine-readable token details available without repeating a bounded
+/// but attacker-controlled token in both the human message and JSON details.
+fn tql_parse_error_message(error: &TqlParseError) -> String {
+    match error {
+        TqlParseError::UnknownCommand { .. } => "unknown TQL command".to_string(),
+        TqlParseError::UnexpectedToken { .. } => "unexpected TQL token".to_string(),
+        _ => error.to_string(),
+    }
+}
+
+fn tql_parse_error_details(error: &TqlParseError) -> Vec<ErrorDetail> {
+    let mut details = vec![
+        ErrorDetail {
+            key: "operation",
+            value: ErrorValue::Str("tql".to_string()),
+        },
+        ErrorDetail {
+            key: "stage",
+            value: ErrorValue::Str("parse".to_string()),
+        },
+    ];
+
+    match error {
+        TqlParseError::InputTooLarge { limit, actual }
+        | TqlParseError::KeyTooLarge { limit, actual } => {
+            details.push(ErrorDetail {
+                key: "limit",
+                value: ErrorValue::U64(*limit as u64),
+            });
+            details.push(ErrorDetail {
+                key: "actual",
+                value: ErrorValue::U64(*actual as u64),
+            });
+        }
+        TqlParseError::TooManyTokens { limit } => details.push(ErrorDetail {
+            key: "limit",
+            value: ErrorValue::U64(*limit as u64),
+        }),
+        TqlParseError::UnknownCommand { command }
+        | TqlParseError::UnexpectedToken { token: command, .. } => details.push(ErrorDetail {
+            key: "token",
+            value: ErrorValue::Str(command.clone()),
+        }),
+        TqlParseError::MissingArgument { command, argument } => {
+            details.push(ErrorDetail {
+                key: "command",
+                value: ErrorValue::Str((*command).to_string()),
+            });
+            details.push(ErrorDetail {
+                key: "argument",
+                value: ErrorValue::Str((*argument).to_string()),
+            });
+        }
+        TqlParseError::InvalidKey { reason } => details.push(ErrorDetail {
+            key: "reason",
+            value: ErrorValue::Str((*reason).to_string()),
+        }),
+        TqlParseError::EmptyInput => {}
+    }
+
+    details
 }
 
 impl From<TosumuError> for CliError {
@@ -223,10 +324,17 @@ impl From<tosumu_sql::SqlError> for CliError {
     }
 }
 
+impl From<TqlParseError> for CliError {
+    fn from(value: TqlParseError) -> Self {
+        Self::Tql(value)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::codes::PUBLIC_CODES;
     use super::codes::SQL_UNSUPPORTED_QUERY_SHAPE;
+    use super::codes::{self, PUBLIC_CODES};
+    use crate::tql::TqlParseError;
 
     #[test]
     fn documented_cli_public_codes_match_exported_constants() {
@@ -259,6 +367,63 @@ mod tests {
             report.message,
             "baseline SQL supports only primary-key equality lookups"
         );
+    }
+
+    #[test]
+    fn tql_parse_errors_use_specific_stable_boundary_codes() {
+        let cases = [
+            (TqlParseError::EmptyInput, codes::TQL_EMPTY_INPUT),
+            (
+                TqlParseError::InputTooLarge {
+                    limit: 4,
+                    actual: 5,
+                },
+                codes::TQL_INPUT_TOO_LARGE,
+            ),
+            (
+                TqlParseError::TooManyTokens { limit: 16 },
+                codes::TQL_TOO_MANY_TOKENS,
+            ),
+            (
+                TqlParseError::UnknownCommand {
+                    command: "MYSTERY".to_string(),
+                },
+                codes::TQL_UNKNOWN_COMMAND,
+            ),
+            (
+                TqlParseError::MissingArgument {
+                    command: "DESCRIBE",
+                    argument: "a key",
+                },
+                codes::TQL_MISSING_ARGUMENT,
+            ),
+            (
+                TqlParseError::UnexpectedToken {
+                    command: "STATUS",
+                    token: "NOW".to_string(),
+                },
+                codes::TQL_UNEXPECTED_TOKEN,
+            ),
+            (
+                TqlParseError::KeyTooLarge {
+                    limit: 4,
+                    actual: 5,
+                },
+                codes::TQL_KEY_TOO_LARGE,
+            ),
+            (
+                TqlParseError::InvalidKey {
+                    reason: "keys must not contain control characters",
+                },
+                codes::TQL_INVALID_KEY,
+            ),
+        ];
+
+        for (error, expected_code) in cases {
+            let report = super::CliError::Tql(error).error_report();
+            assert_eq!(report.code, expected_code);
+            assert_eq!(report.status, tosumu_core::error::ErrorStatus::InvalidInput);
+        }
     }
 
     fn extract_marked_code_block<'a>(

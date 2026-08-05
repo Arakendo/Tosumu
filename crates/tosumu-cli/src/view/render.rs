@@ -4,9 +4,13 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 
 use tosumu_core::format::{PAGE_TYPE_FREE, PAGE_TYPE_INTERNAL, PAGE_TYPE_LEAF, PAGE_TYPE_OVERFLOW};
+use tosumu_core::inspect::RecordInfo;
+#[cfg(test)]
 use tosumu_core::inspect::{
-    PageVerifyResult, RecordInfo, TreeChildRelation, TreeNodeSummary, VerifyIssueKind,
-    VerifyReport, WalRecordSummary, WalRecordSummaryKind,
+    PageVerifyResult, VerifyIssueKind, VerifyReport, WalRecordSummary, WalRecordSummaryKind,
+};
+use tosumu_core::inspection_session::{
+    InspectionKeyslots, InspectionSection, InspectionTree, InspectionWal, InspectionWalRecordKind,
 };
 
 use super::state::{FocusPane, PageStatus, SelectedPageDetail, ViewApp, ViewMode};
@@ -141,64 +145,70 @@ fn panel_paragraph(
 }
 
 fn header_lines(app: &ViewApp) -> Vec<Line<'static>> {
-    let header = &app.header;
+    let header = &app.observation.header;
     vec![
         Line::from(format!("format_version:       {}", header.format_version)),
         Line::from(format!("page_size:            {}", header.page_size)),
-        Line::from(format!(
-            "min_reader_version:   {}",
-            header.min_reader_version
-        )),
         Line::from(format!("flags:                0x{:04x}", header.flags)),
         Line::from(format!("page_count:           {}", header.page_count)),
         Line::from(format!("root_page:            {}", header.root_page)),
-        Line::from(format!("freelist_head:        {}", header.freelist_head)),
-        Line::from(format!(
-            "wal_checkpoint_lsn:   {}",
-            header.wal_checkpoint_lsn
-        )),
-        Line::from(format!("dek_id:               {}", header.dek_id)),
         Line::from(format!("keyslot_count:        {}", header.keyslot_count)),
         Line::from(format!(
-            "keyslot_region_pages: {}",
-            header.keyslot_region_pages
+            "page_list_total:      {}",
+            app.observation.pages.total
         )),
         Line::from(format!(
-            "slot0_kind:           {}",
-            keyslot_kind_label(header.ks0_kind)
+            "page_list_retained:   {}",
+            app.observation.pages.entries.len()
         )),
-        Line::from(format!("slot0_version:        {}", header.ks0_version)),
+        Line::from(format!(
+            "page_list_truncated:  {}",
+            app.observation.pages.truncated
+        )),
+        Line::from(""),
+        Line::from("Header facts come from the shared inspection observation."),
     ]
 }
 
 fn verify_lines(app: &ViewApp) -> Vec<Line<'static>> {
+    let verification = &app.observation.verification;
     let mut lines = vec![
-        Line::from(format!("pages_checked: {}", app.verify.pages_checked)),
-        Line::from(format!("pages_ok:      {}", app.verify.pages_ok)),
-        Line::from(format!("issues:        {}", app.verify.issues.len())),
-        Line::from(if app.verify.issues.is_empty() {
+        Line::from(format!("pages_checked: {}", verification.pages_checked)),
+        Line::from(format!("pages_ok:      {}", verification.pages_ok)),
+        Line::from(format!("issues:        {}", verification.issues.len())),
+        Line::from(format!(
+            "issues_truncated: {}",
+            verification.issues_truncated
+        )),
+        Line::from(format!("btree_checked: {}", verification.btree_checked)),
+        Line::from(format!("btree_ok:      {}", verification.btree_ok)),
+        Line::from(if verification.issues.is_empty() {
             "status:        clean".to_string()
         } else {
-            format!("status:        {} issue(s)", app.verify.issues.len())
+            format!("status:        {} issue(s)", verification.issues.len())
         }),
     ];
 
-    if app.verify.issues.is_empty() {
+    if verification.issues.is_empty() {
         lines.push(Line::from(""));
         lines.push(Line::from("No verification anomalies detected."));
     } else {
         lines.push(Line::from(""));
         lines.push(Line::from("Issues:"));
-        for issue in app.verify.issues.iter().take(10) {
+        for issue in verification.issues.iter().take(10) {
+            let page = issue
+                .page_number
+                .map(|page| format!("pg {page:>4}: "))
+                .unwrap_or_default();
             lines.push(Line::from(format!(
-                "pg {:>4}: {}",
-                issue.pgno, issue.description
+                "{page}[{}] {}",
+                issue.code, issue.message
             )));
         }
-        if app.verify.issues.len() > 10 {
+        if verification.issues.len() > 10 {
             lines.push(Line::from(format!(
                 "... {} more issue(s)",
-                app.verify.issues.len() - 10
+                verification.issues.len() - 10
             )));
         }
     }
@@ -264,127 +274,141 @@ fn detail_lines(app: &ViewApp) -> Vec<Line<'static>> {
 }
 
 fn tree_lines(app: &ViewApp) -> Vec<Line<'static>> {
-    let mut lines = Vec::new();
-    match &app.tree {
-        Ok(tree) => {
-            lines.push(Line::from(format!("root_pgno: {}", tree.root_pgno)));
-            lines.push(Line::from(""));
-            push_tree_lines(&tree.root, 0, "root", None, &mut lines);
-        }
-        Err(error) => lines.push(Line::from(error.clone())),
-    }
-
-    lines
+    inspection_tree_lines(&app.observation.tree)
 }
 
 fn wal_lines(app: &ViewApp) -> Vec<Line<'static>> {
-    let mut lines = Vec::new();
-    match &app.wal {
-        Ok(wal) => {
-            lines.push(Line::from(format!("wal_exists: {}", wal.wal_exists)));
-            lines.push(Line::from(format!("wal_path:   {}", wal.wal_path)));
-            lines.push(Line::from(format!("records:    {}", wal.records.len())));
-            lines.push(Line::from(""));
-            if wal.records.is_empty() {
-                lines.push(Line::from("No WAL records found."));
-            } else {
-                for record in wal.records.iter().take(16) {
-                    lines.push(Line::from(format_wal_record(record)));
-                }
-                if wal.records.len() > 16 {
-                    lines.push(Line::from(format!(
-                        "... {} more record(s)",
-                        wal.records.len() - 16
-                    )));
-                }
-            }
-        }
-        Err(error) => lines.push(Line::from(error.clone())),
-    }
+    inspection_wal_lines(&app.observation.wal)
+}
+
+fn protectors_lines(app: &ViewApp) -> Vec<Line<'static>> {
+    let verification = &app.observation.verification;
+    let mut lines = vec![
+        Line::from(format!(
+            "header keyslot_count: {}",
+            app.observation.header.keyslot_count
+        )),
+        Line::from(format!(
+            "pages_checked:        {}",
+            verification.pages_checked
+        )),
+        Line::from(format!("pages_ok:             {}", verification.pages_ok)),
+        Line::from(""),
+        Line::from("Configured keyslots:"),
+    ];
+
+    push_keyslot_lines(&app.observation.keyslots, &mut lines);
 
     lines
 }
 
-fn protectors_lines(app: &ViewApp) -> Vec<Line<'static>> {
-    let auth = summarize_page_auth(&app.verify);
-    let mut lines = vec![
-        Line::from(format!(
-            "protection:           {}",
-            protection_mode_label(app.header.dek_id, app.header.keyslot_count)
-        )),
-        Line::from(format!("dek_id:               {}", app.header.dek_id)),
-        Line::from(format!(
-            "header keyslot_count: {}",
-            app.header.keyslot_count
-        )),
-        Line::from(format!(
-            "region pages:         {}",
-            app.header.keyslot_region_pages
-        )),
-        Line::from(format!(
-            "slot0:                {} v{}",
-            keyslot_kind_label(app.header.ks0_kind),
-            app.header.ks0_version
-        )),
-        Line::from(""),
-        Line::from("Page auth:"),
-        Line::from(format!(
-            "ok: {}  auth_failed: {}  corrupt: {}  io: {}",
-            auth.ok, auth.auth_failed, auth.corrupt, auth.io
-        )),
-    ];
-
-    if let Some(selected_pgno) = app
-        .selected
-        .and_then(|index| app.pages.get(index).map(|page| page.pgno))
-    {
-        lines.push(Line::from(format!(
-            "selected: {}",
-            selected_page_auth_summary(&app.verify, selected_pgno)
-        )));
-    }
-
-    let failures = app
-        .verify
-        .page_results
-        .iter()
-        .filter(|result| !result.auth_ok)
-        .take(6)
-        .collect::<Vec<_>>();
-    if !failures.is_empty() {
-        lines.push(Line::from(""));
-        lines.push(Line::from("Failures:"));
-        for result in &failures {
-            lines.push(Line::from(format_page_auth_result(result)));
+fn inspection_tree_lines(section: &InspectionSection<InspectionTree>) -> Vec<Line<'static>> {
+    match section {
+        InspectionSection::Available(tree) => {
+            let mut lines = vec![
+                Line::from(format!("root_pgno: {}", tree.root_page)),
+                Line::from(format!("nodes:     {}", tree.nodes.len())),
+                Line::from(format!("truncated: {}", tree.truncated)),
+                Line::from(""),
+            ];
+            for node in &tree.nodes {
+                let indent = "  ".repeat(node.depth);
+                lines.push(Line::from(format!(
+                    "{indent}pg={} {} v{} slots={} children={}",
+                    node.page_number,
+                    page_type_label(node.page_type),
+                    node.page_version,
+                    node.slot_count,
+                    node.child_count,
+                )));
+            }
+            lines
         }
-        if auth.failed_pages() > failures.len() {
+        InspectionSection::Unavailable(unavailable) => vec![Line::from(format!(
+            "[{}] {}",
+            unavailable.code, unavailable.message
+        ))],
+    }
+}
+
+fn inspection_wal_lines(section: &InspectionSection<InspectionWal>) -> Vec<Line<'static>> {
+    match section {
+        InspectionSection::Available(wal) => {
+            let mut lines = vec![
+                Line::from(format!("wal_exists: {}", wal.exists)),
+                Line::from(format!("records:    {}", wal.record_count)),
+                Line::from(format!("truncated:  {}", wal.truncated)),
+                Line::from(""),
+            ];
+            if wal.records.is_empty() {
+                lines.push(Line::from("No WAL records found."));
+            } else {
+                for record in &wal.records {
+                    lines.push(Line::from(format_inspection_wal_record(record)));
+                }
+            }
+            lines
+        }
+        InspectionSection::Unavailable(unavailable) => vec![Line::from(format!(
+            "[{}] {}",
+            unavailable.code, unavailable.message
+        ))],
+    }
+}
+
+fn push_keyslot_lines(
+    section: &InspectionSection<InspectionKeyslots>,
+    lines: &mut Vec<Line<'static>>,
+) {
+    match section {
+        InspectionSection::Available(keyslots) if keyslots.slots.is_empty() => {
+            lines.push(Line::from("No active keyslots found."));
+        }
+        InspectionSection::Available(keyslots) => {
+            for keyslot in &keyslots.slots {
+                lines.push(Line::from(format!(
+                    "slot {:>2}: {}",
+                    keyslot.slot,
+                    keyslot_kind_label(keyslot.kind)
+                )));
+            }
+            if keyslots.truncated > 0 {
+                lines.push(Line::from(format!(
+                    "... {} more keyslot(s)",
+                    keyslots.truncated
+                )));
+            }
+        }
+        InspectionSection::Unavailable(unavailable) => {
             lines.push(Line::from(format!(
-                "... {} more failed page(s)",
-                auth.failed_pages() - failures.len()
+                "[{}] {}",
+                unavailable.code, unavailable.message
             )));
         }
     }
+}
 
-    lines.push(Line::from(""));
-    lines.push(Line::from("Configured keyslots:"));
-
-    match &app.keyslots {
-        Ok(keyslots) => {
-            if keyslots.is_empty() {
-                lines.push(Line::from("No active keyslots found."));
-            } else {
-                for (slot, kind) in keyslots {
-                    lines.push(Line::from(format!(
-                        "slot {slot:>2}: {}",
-                        keyslot_kind_label(*kind)
-                    )));
-                }
-            }
+fn format_inspection_wal_record(
+    record: &tosumu_core::inspection_session::InspectionWalRecord,
+) -> String {
+    match &record.kind {
+        InspectionWalRecordKind::Begin { transaction_id } => {
+            format!("lsn {:>4}: begin txn={transaction_id}", record.lsn)
         }
-        Err(error) => lines.push(Line::from(error.clone())),
+        InspectionWalRecordKind::PageWrite {
+            page_number,
+            page_version,
+        } => format!(
+            "lsn {:>4}: page_write pg={} v{}",
+            record.lsn, page_number, page_version
+        ),
+        InspectionWalRecordKind::Commit { transaction_id } => {
+            format!("lsn {:>4}: commit txn={transaction_id}", record.lsn)
+        }
+        InspectionWalRecordKind::Checkpoint { up_to_lsn } => {
+            format!("lsn {:>4}: checkpoint up_to={up_to_lsn}", record.lsn)
+        }
     }
-
-    lines
 }
 
 fn focus_block(title: &str, focused: bool) -> Block<'static> {
@@ -421,24 +445,7 @@ pub(super) fn keyslot_kind_label(kind: u8) -> &'static str {
     }
 }
 
-fn protection_mode_label(dek_id: u64, keyslot_count: u16) -> &'static str {
-    if dek_id == 0 || keyslot_count == 0 {
-        "plaintext"
-    } else {
-        "protected"
-    }
-}
-
-fn format_page_auth_result(result: &PageVerifyResult) -> String {
-    let issue = result.issue.as_deref().unwrap_or("no issue text");
-    format!(
-        "pg {:>4}: {} - {}",
-        result.pgno,
-        page_verify_state_label(result),
-        issue
-    )
-}
-
+#[cfg(test)]
 pub(super) fn selected_page_auth_summary(report: &VerifyReport, pgno: u64) -> String {
     report
         .page_results
@@ -457,6 +464,7 @@ pub(super) fn selected_page_auth_summary(report: &VerifyReport, pgno: u64) -> St
         .unwrap_or_else(|| format!("pg {pgno} not in verify report"))
 }
 
+#[cfg(test)]
 fn page_verify_state_label(result: &PageVerifyResult) -> &'static str {
     if result.auth_ok {
         "ok"
@@ -470,6 +478,7 @@ fn page_verify_state_label(result: &PageVerifyResult) -> &'static str {
     }
 }
 
+#[cfg(test)]
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(super) struct PageAuthSummary {
     pub(super) ok: u64,
@@ -478,12 +487,7 @@ pub(super) struct PageAuthSummary {
     pub(super) io: usize,
 }
 
-impl PageAuthSummary {
-    fn failed_pages(&self) -> usize {
-        self.auth_failed + self.corrupt + self.io
-    }
-}
-
+#[cfg(test)]
 pub(super) fn summarize_page_auth(report: &VerifyReport) -> PageAuthSummary {
     let mut summary = PageAuthSummary::default();
     for result in &report.page_results {
@@ -559,44 +563,7 @@ pub(super) fn preview_bytes(bytes: &[u8]) -> String {
     }
 }
 
-fn push_tree_lines(
-    node: &TreeNodeSummary,
-    depth: usize,
-    relation: &str,
-    separator_key: Option<&[u8]>,
-    lines: &mut Vec<Line<'static>>,
-) {
-    let indent = "  ".repeat(depth);
-    let separator = separator_key
-        .map(preview_bytes)
-        .map(|key| format!(" sep={key}"))
-        .unwrap_or_default();
-    lines.push(Line::from(format!(
-        "{indent}{relation} pg={} {} v{} slots={}{}",
-        node.pgno,
-        page_type_label(node.page_type),
-        node.page_version,
-        node.slot_count,
-        separator,
-    )));
-    if let Some(next_leaf) = node.next_leaf {
-        lines.push(Line::from(format!("{indent}  next_leaf={next_leaf}")));
-    }
-    for child in &node.children {
-        let relation = match child.relation {
-            TreeChildRelation::Leftmost => "left",
-            TreeChildRelation::Separator => "right",
-        };
-        push_tree_lines(
-            &child.child,
-            depth + 1,
-            relation,
-            child.separator_key.as_deref(),
-            lines,
-        );
-    }
-}
-
+#[cfg(test)]
 pub(super) fn format_wal_record(record: &WalRecordSummary) -> String {
     match &record.kind {
         WalRecordSummaryKind::Begin { txn_id } => {

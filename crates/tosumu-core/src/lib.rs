@@ -10,6 +10,7 @@ pub mod error;
 pub mod export;
 pub mod format;
 pub mod inspect;
+pub mod inspection_session;
 pub mod log_store;
 pub mod page_store;
 pub mod pager;

@@ -4,6 +4,8 @@ members = [
     "crates/tosumu-core",
     "crates/tosumu-cli",
     "crates/tosumu-bench",
+    "crates/tosumu-inspection-boundary",
+    "crates/tosumu-inspection-wasm",
     "crates/tosumu-sql",
 ]
 

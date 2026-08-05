@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Incubating |
 | Opened | 2026-08-03 |
-| Last reviewed | 2026-08-03 |
+| Last reviewed | 2026-08-04 |
 | Scope | Relational layer / operator surface / CLI / cross-cutting |
 | Trigger | The TQL design proposes one command surface over SQL queries, inspection, verification, and future sync operations |
 | Related ADRs | [ADR-0001: Storage Engine Layer Boundaries](../ADR/ADR-0001-storage-engine-layer-boundaries.md) |
@@ -38,14 +38,17 @@ layer own the whole command surface.
 ## Evidence
 
 - **Tests or fuzzing:** The SQL lexer/parser/planner and CLI dispatch paths are
-  tested independently. No TQL parser or execution evidence exists yet.
+  tested independently. TQL now has bounded parser tests, read-only dispatch
+  tests, and text/JSON rendering tests for `STATUS`, `CHECK`, `DESCRIBE`, and
+  `WAL STATUS`.
 - **Independent consumers:** The CLI is the first intended caller. A reusable
   Rust caller, .NET adapter, or another consumer has not yet exercised TQL.
 - **Diagnostics or audits:** Existing inspect and verify surfaces already
-  produce some of the facts needed by `STATUS`, `CHECK`, and `DESCRIBE`.
-- **Repeated implementation friction:** Not yet observed. The design document
-  predicts mixed SQL and operational lowering, but implementation must verify
-  that split.
+  produce some of the facts needed by `STATUS`, `CHECK`, `DESCRIBE`, and
+  `WAL STATUS`.
+- **Repeated implementation friction:** The initial operational commands can
+  reuse public storage and verification facts without pretending to be SQL.
+  No honest SQL lowering target exists yet because virtual views are absent.
 - **Missing evidence:** SQL virtual views, semantic change history, conflict
   metadata, witness-backed freshness, and sync preview/apply services are not
   all implemented. TQL must not synthesize those guarantees.
@@ -151,10 +154,10 @@ structured command contract.
 
 ## Required Follow-Up
 
-- [ ] Implement and test a bounded TQL parser and command AST.
-- [ ] Exercise `STATUS`, `CHECK`, and `DESCRIBE` through existing public
+- [x] Implement and test a bounded TQL parser and command AST.
+- [x] Exercise `STATUS`, `CHECK`, `DESCRIBE`, and `WAL STATUS` through existing public
       inspection and verification behavior.
-- [ ] Preserve structured outcomes separately from CLI rendering.
+- [x] Preserve structured outcomes separately from CLI rendering.
 - [ ] Add one non-CLI caller or document an evidence substitution.
 - [ ] Prove at least one honest SQL lowering after virtual-view semantics exist.
 - [ ] Revisit the dedicated-crate boundary.
@@ -184,3 +187,191 @@ structured command contract.
 - **Resulting ADR or documentation change:** No ADR yet. Implementation is
   governed by `docs/Plans/tosumu-command-language.md`.
 
+### Cycle 2 -- 2026-08-03
+
+- **Status entering review:** Incubating.
+- **New evidence:** `tosumu-cli` now parses bounded `STATUS`, `CHECK`, and
+  `DESCRIBE <key>` statements into typed commands, dispatches them through
+  public read-only storage and verification APIs, and renders one structured
+  outcome as human text or provisional JSON schema version `1`. Tests retain
+  database/WAL byte equality across read-only dispatch and exercise a tampered
+  page result.
+- **Findings:** CLI file opening and rendering can remain outside parser and
+  dispatcher semantics. `DESCRIBE` can report presence and byte length without
+  disclosing value contents. The first operational commands do not prove an
+  SQL-lowering path, reusable public API, or a dedicated crate.
+- **Disposition:** Continue incubation in `tosumu-cli`.
+- **Resulting ADR or documentation change:** Updated the TQL design and plan
+  to distinguish the implemented read-only subset from trust, freshness, sync,
+  SQL-view, and mutation work that remains deferred.
+
+### Cycle 3 -- 2026-08-03
+
+- **Status entering review:** Incubating.
+- **New evidence:** The trust and explanation inventory compared the public
+  verification report and key lookup with the design's integrity, freshness,
+  provenance, witness, conflict, and recommendation dimensions.
+- **Findings:** Database-wide page verification and key presence are real but
+  insufficient for a key-scoped trust verdict. No public evidence source yet
+  grounds freshness, witnesses, provenance, conflicts, or typed next actions.
+- **Disposition:** Keep `TRUST <key>` and `WHY <key>` deferred; do not make
+  unavailable fields look like a completed trust model.
+- **Resulting ADR or documentation change:** Added `TQL Trust And Explanation
+  Evidence Inventory v1` and recorded its reopening triggers in the plan.
+
+### Cycle 4 -- 2026-08-03
+
+- **Status entering review:** Incubating.
+- **New evidence:** The read-only CLI now distinguishes a completed `CHECK`
+  with reported integrity failures from successful observations through the
+  existing reported-issues process status. A focused unit test proves that
+  only a failed page or B-tree dimension takes that path.
+- **Findings:** Process classification can remain an adapter concern layered
+  over a provider-neutral typed outcome. Missing-key `DESCRIBE` remains a
+  successful observation, while parser, storage-open, and I/O failures remain
+  structured CLI errors.
+- **Disposition:** Continue incubation in `tosumu-cli`; no public TQL ABI or
+  dedicated crate is implied.
+- **Resulting ADR or documentation change:** Updated the command plan and TQL
+  design to document the read-only exit classification.
+
+### Cycle 5 -- 2026-08-03
+
+- **Status entering review:** Incubating.
+- **New evidence:** `WAL STATUS` now consumes the public `inspect_wal()`
+  summary and emits only WAL sidecar existence plus decoded record count. The
+  read-only dispatch test retains database and WAL byte equality before and
+  after the command; CLI JSON output omits physical sidecar paths.
+- **Findings:** WAL observation is an operational inspection command, not an
+  honest SQL-lowering target. Public record-count facts do not justify claims
+  about recovery success, checkpoint posture, durability, freshness, trust, or
+  synchronization.
+- **Disposition:** Continue incubation in `tosumu-cli`.
+- **Resulting ADR or documentation change:** Updated the command corpus, TQL
+  design, and command plan to name the bounded WAL observation explicitly.
+
+### Cycle 6 -- 2026-08-03
+
+- **Status entering review:** Incubating.
+- **New evidence:** Arbitrary UTF-8 input is property-tested for deterministic,
+  non-panicking parse behavior under declared command, token, and key limits.
+  Focused CLI tests prove an invalid statement fails before the database path is
+  opened and that a maximum-size unknown token is emitted once in structured
+  JSON details rather than duplicated in the human-facing message.
+- **Findings:** Input boundedness is a parser and CLI-boundary concern; it does
+  not require TQL to own storage authentication, recovery, or mutation policy.
+  A common CLI error payload can serve both inspect and TQL envelopes without
+  making their command schemas the same contract.
+- **Disposition:** Continue CLI-local incubation. The remaining hardening work
+  is fuzz-target tooling, malformed byte-input evidence if a byte API is ever
+  admitted, and performance observations rather than another command family.
+- **Resulting ADR or documentation change:** Updated the plan's Slice 7
+  checklist and documented shared error-payload ownership in the CLI adapter.
+
+### Cycle 7 -- 2026-08-04
+
+- **Status entering review:** Incubating.
+- **New evidence:** The repository now has a parser-only `cargo-fuzz` target
+  that includes the CLI-local grammar without opening a store or invoking
+  dispatch. Standard-toolchain property tests also exercise bounded
+  `DESCRIBE` JSON rendering. The target compiles under nightly locally; its
+  Windows execution is blocked by the unavailable sanitizer runtime, so a
+  bounded weekly/manual Linux workflow owns actual libFuzzer execution.
+- **Findings:** Fuzz execution belongs to a dedicated nightly Linux validation
+  boundary, not the stable cross-platform build matrix. TQL can receive
+  malformed-input evidence without making its parser public or admitting a
+  general byte-input API.
+- **Disposition:** Continue CLI-local incubation. Treat successful Linux fuzz
+  runs as parser evidence only; structured-rendering fuzz and a second
+  independent consumer remain open evidence gaps.
+- **Resulting ADR or documentation change:** Added `fuzz_tql_parse`, the
+  Linux fuzz workflow, and explicit platform-limit documentation in the TQL
+  command corpus and implementation plan.
+
+### Cycle 8 -- 2026-08-04
+
+- **Status entering review:** Incubating.
+- **New evidence:** The operator reference was reconciled with the actual
+  CLI-local dispatch surface. `STATUS` is now documented as a direct
+  observation of `KvStore::stat()` only: page count, data-page count, and tree
+  height. `DESCRIBE <key>` currently obtains public value length by loading
+  the public value through `KvStore::get()` and discarding its contents.
+  `WAL STATUS` remains limited to sidecar existence and decoded record count.
+- **Findings:** Store identity, format metadata, durable metadata-only lookup,
+  recovery, checkpoint posture, freshness, trust, synchronization, and
+  semantic explanation are not established by the current commands. A
+  CLI-local physical-page scanner would bypass the provider boundary, so a
+  provider-neutral metadata lookup remains deferred until an independent
+  consumer proves that contract is needed.
+- **Validation:** Formatting and workspace clippy completed successfully;
+  focused `tosumu-cli` tests passed (112 unit tests plus 1 integration test).
+  A full workspace test attempt progressed through the complete CLI suite and
+  substantial core coverage, but exceeded the local time budget in existing
+  expensive crypto/property coverage; this is a validation gap, not a test
+  failure. Strict MkDocs validation is also unavailable in the local Python
+  environment because the `mkdocs` module is not installed there.
+- **Disposition:** Continue CLI-local incubation. Do not extract a public TQL
+  crate or add a new command family until an independent caller creates
+  evidence for a stable semantic boundary.
+- **Resulting ADR or documentation change:** Added the admitted operator
+  reference and bounded-description observation note to the TQL design and
+  implementation plan.
+
+### Cycle 9 -- 2026-08-04
+
+- **Status entering review:** Incubating.
+- **New evidence:** A disclosure audit now records the permitted output facts
+  for every implemented command. A renderer test uses a stored-value sentinel
+  and proves that neither human nor JSON `DESCRIBE` output can contain it;
+  existing WAL output coverage retains the physical-path exclusion.
+- **Findings:** The initial TQL syntax accepts no unlock material, protector
+  data, or binary payload. Requested keys and rejected command tokens remain
+  caller-provided diagnostic text, not protected TQL fields. This is a bounded
+  renderer property only; it does not prove provider errors from future
+  encrypted or protected storage are safe to serialize.
+- **Disposition:** Keep the read-only disclosure boundary CLI-local. Require a
+  fresh disclosure review before any secret-bearing, mutation, byte-input, or
+  protected-metadata command is admitted.
+- **Resulting ADR or documentation change:** Added `TQL Disclosure Audit v1`
+  and marked the implemented-renderer audit complete in the TQL plan.
+
+### Cycle 10 -- 2026-08-04
+
+- **Status entering review:** Incubating.
+- **New evidence:** Successful outcome rendering now lives in a pure
+  CLI-local module, separately from storage opening, dispatch, and the common
+  CLI error envelope. `fuzz_tql_render` synthesizes every admitted outcome
+  family with bounded facts and checks deterministic human/JSON rendering,
+  schema marking, and bounded output. The parser and renderer fuzz targets
+  compile under the nightly toolchain; sustained libFuzzer execution remains
+  pending the sanitizer-capable Linux workflow.
+- **Findings:** The current four-command outcome vocabulary is useful enough
+  to test independently of terminal formatting, but no non-CLI caller has yet
+  shown that it is a stable reusable API. Timing observations are diagnostic
+  stderr evidence, not TQL result fields or performance guarantees.
+- **Disposition:** Continue CLI-local incubation. Do not extract
+  `tosumu-tql`, add a public byte-input interface, or admit trust, SQL-view,
+  sync, or mutation commands from this evidence.
+- **Resulting ADR or documentation change:** Reconciled the SDD with the
+  implemented subset and added the plan's explicit parked-command register.
+
+### Cycle 11 -- 2026-08-04
+
+- **Status entering review:** Incubating.
+- **New evidence:** Tokimu's Tier 3 `tosumu-tql-cli-consumer` created a
+  temporary database through public CLI commands, then invoked the TQL CLI as
+  an external process. It consumed only schema-versioned JSON for `STATUS`,
+  `CHECK`, present and missing `DESCRIBE`, `WAL STATUS`, and a typed invalid
+  command. The consumer rejects an unknown schema version and does not parse
+  TQL, link Tosumu crates, or inspect storage.
+- **Findings:** The provisional executable/JSON contract is independently
+  consumable without provider-native leakage. No divergence appeared in the
+  admitted fixture corpus. This proves compatibility at the process boundary,
+  not a reusable in-process parser, dispatcher, or outcome API.
+- **Disposition:** Continue CLI-local incubation. Keep schema version `1`
+  provisional, classify future consumer differences as presentation-only,
+  contract refinement, or rejected behavior, and defer `tosumu-tql` extraction
+  until independent in-process reuse creates stronger evidence.
+- **Resulting ADR or documentation change:** Updated Slice 8 of the TQL plan
+  with the completed compatibility evidence and its version policy. No ADR or
+  public crate was admitted.

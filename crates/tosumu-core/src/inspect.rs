@@ -45,6 +45,22 @@ pub fn read_header_info(path: &Path) -> Result<HeaderInfo> {
     let mut page0 = [0u8; PAGE_SIZE];
     file.read_exact(&mut page0)?;
 
+    read_header_info_from_page0(&page0)
+}
+
+/// Parse the plaintext page-zero header from already-bounded source bytes.
+///
+/// This does not authenticate or decrypt any data page. Callers which only
+/// possess uploaded bytes can use it to report container facts without
+/// pretending that the store has been unlocked.
+pub fn read_header_info_from_page0(page0: &[u8]) -> Result<HeaderInfo> {
+    if page0.len() < PAGE_SIZE {
+        return Err(TosumuError::FileTruncated {
+            expected: PAGE_SIZE as u64,
+            found: page0.len() as u64,
+        });
+    }
+
     if !check_magic(&page0) {
         return Err(TosumuError::NotATosumFile);
     }

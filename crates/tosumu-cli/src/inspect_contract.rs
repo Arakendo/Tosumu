@@ -258,7 +258,10 @@ pub(crate) fn bytes_to_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn inspect_error_payload_from_report(report: &ErrorReport) -> InspectErrorPayload {
+/// Converts a structured boundary report into the common CLI JSON error
+/// payload. Inspect and TQL use the same payload shape while retaining their
+/// own outer envelopes.
+pub(crate) fn error_payload_from_report(report: &ErrorReport) -> InspectErrorPayload {
     InspectErrorPayload {
         code: report.code,
         status: report.status.as_str(),
@@ -302,7 +305,7 @@ pub(crate) fn render_inspect_error_report_json(
         command,
         ok: false,
         payload: None,
-        error: Some(inspect_error_payload_from_report(report)),
+        error: Some(error_payload_from_report(report)),
     }).unwrap_or_else(|serialization_error| {
         let message = format!("{:?}", serialization_error.to_string());
         format!(

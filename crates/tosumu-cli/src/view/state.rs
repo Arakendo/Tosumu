@@ -4,9 +4,14 @@ use std::time::{Duration, Instant};
 use ratatui::widgets::ListState;
 use tosumu_core::format::{PAGE_TYPE_FREE, PAGE_TYPE_INTERNAL, PAGE_TYPE_LEAF, PAGE_TYPE_OVERFLOW};
 use tosumu_core::inspect::{
-    inspect_page_from_pager, inspect_pages_from_pager, HeaderInfo, PageInspectState, PageSummary,
-    RecordInfo, TreeSummary, VerifyReport, WalSummary,
+    inspect_page_from_pager, HeaderInfo, PageSummary, RecordInfo, TreeSummary, VerifyReport,
+    WalSummary,
 };
+use tosumu_core::inspection_session::{
+    apply_inspection_command, InspectionCommand, InspectionCommandOutcome, InspectionObservation,
+    InspectionPageState, InspectionSession, InspectionView,
+};
+
 use tosumu_core::pager::Pager;
 
 use crate::error_boundary::CliError;
@@ -95,6 +100,19 @@ impl ViewMode {
     }
 }
 
+impl From<ViewMode> for InspectionView {
+    fn from(value: ViewMode) -> Self {
+        match value {
+            ViewMode::Header => Self::Header,
+            ViewMode::Detail => Self::Detail,
+            ViewMode::Verify => Self::Verify,
+            ViewMode::Tree => Self::Tree,
+            ViewMode::Wal => Self::Wal,
+            ViewMode::Protectors => Self::Keyslots,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PageStatus {
     Ok,
@@ -128,6 +146,8 @@ pub(super) struct ViewApp<'a> {
     pub(super) header: HeaderInfo,
     pub(super) verify: VerifyReport,
     pub(super) pages: Vec<PageRow>,
+    pub(super) observation: InspectionObservation,
+    pub(super) session: InspectionSession,
     pub(super) mode: ViewMode,
     pub(super) focus: FocusPane,
     pub(super) watch_enabled: bool,
@@ -151,6 +171,7 @@ impl<'a> ViewApp<'a> {
         header: HeaderInfo,
         verify: VerifyReport,
         pages: Vec<PageRow>,
+        observation: InspectionObservation,
         tree: Result<TreeSummary, String>,
         wal: Result<WalSummary, String>,
         keyslots: Result<Vec<(u16, u8)>, String>,
@@ -161,6 +182,8 @@ impl<'a> ViewApp<'a> {
             header,
             verify,
             pages,
+            observation,
+            session: InspectionSession::default(),
             mode: ViewMode::Detail,
             focus: FocusPane::Pages,
             watch_enabled,
@@ -359,6 +382,7 @@ impl<'a> ViewApp<'a> {
             self.mode = mode;
             self.panel_scroll = 0;
         }
+        self.apply_semantic_command(InspectionCommand::SelectView(mode.into()));
     }
 
     pub(super) fn scroll_panel_down(&mut self, amount: u16) {
@@ -384,6 +408,7 @@ impl<'a> ViewApp<'a> {
             }),
             None => None,
         };
+        self.sync_semantic_selected_page();
         Ok(())
     }
 
@@ -490,6 +515,14 @@ impl<'a> ViewApp<'a> {
         };
 
         self.filter_query = input.trim().to_string();
+        let command = if self.filter_query.is_empty() {
+            InspectionCommand::ClearFilter
+        } else {
+            InspectionCommand::SetFilter {
+                query: self.filter_query.clone(),
+            }
+        };
+        self.apply_semantic_command(command);
         if self.active_filter_query().is_some() {
             self.ensure_filter_search_text_loaded(pager);
         }
@@ -507,6 +540,39 @@ impl<'a> ViewApp<'a> {
         }
 
         Ok(())
+    }
+
+    /// Replaces the immutable storage snapshot after the provider has completed
+    /// its existing pager refresh. The shared reducer owns only the revision
+    /// transition; the provider still owns refresh timing and file access.
+    pub(super) fn replace_observation(&mut self, observation: InspectionObservation) {
+        self.apply_semantic_command(InspectionCommand::Refresh {
+            expected_revision: self.session.revision,
+        });
+        self.observation = observation;
+    }
+
+    fn sync_semantic_selected_page(&mut self) {
+        let Some(page_number) = self
+            .selected
+            .and_then(|index| self.pages.get(index))
+            .map(|page| page.pgno)
+        else {
+            return;
+        };
+
+        self.apply_semantic_command(InspectionCommand::SelectPage { page_number });
+    }
+
+    fn apply_semantic_command(&mut self, command: InspectionCommand) {
+        if let InspectionCommandOutcome::Rejected(rejection) =
+            apply_inspection_command(&mut self.session, &self.observation, command)
+        {
+            self.status_message = Some(format!(
+                "inspection command rejected [{}]: {}",
+                rejection.code, rejection.message
+            ));
+        }
     }
 
     pub(super) fn page_list_title(&self) -> String {
@@ -700,26 +766,29 @@ impl<'a> ViewApp<'a> {
     }
 }
 
-pub(super) fn load_page_rows(pager: &Pager) -> Result<Vec<PageRow>, CliError> {
-    let pages = inspect_pages_from_pager(pager)?;
-    Ok(pages
+/// Adapts the bounded shared page observation into terminal list rows. The
+/// terminal may decode the selected row through its unlocked pager, but it must
+/// not offer a selection that the provider-neutral session would reject.
+pub(super) fn page_rows_from_observation(observation: &InspectionObservation) -> Vec<PageRow> {
+    observation
         .pages
-        .into_iter()
+        .entries
+        .iter()
         .map(|page| PageRow {
-            pgno: page.pgno,
+            pgno: page.page_number,
             page_type: page.page_type,
             page_version: page.page_version,
             slot_count: page.slot_count,
             status: match page.state {
-                PageInspectState::Ok => PageStatus::Ok,
-                PageInspectState::AuthFailed => PageStatus::AuthFailed,
-                PageInspectState::Corrupt => PageStatus::Corrupt,
-                PageInspectState::Io => PageStatus::Io,
+                InspectionPageState::Ok => PageStatus::Ok,
+                InspectionPageState::AuthFailed => PageStatus::AuthFailed,
+                InspectionPageState::Corrupt => PageStatus::Corrupt,
+                InspectionPageState::Io => PageStatus::Io,
             },
-            issue: page.issue,
+            issue: page.issue.clone(),
             search_text: None,
         })
-        .collect())
+        .collect()
 }
 
 fn page_matches_filter(page: &PageRow, query: &str) -> bool {
