@@ -241,7 +241,7 @@ input {
   font-family: var(--tosumu-font-body);
 }
 
-[data-md-color-scheme="slate"] body {
+body[data-md-color-scheme="slate"] {
   background:
     linear-gradient(var(--tosumu-grid-dark) 1px, transparent 1px),
     linear-gradient(90deg, var(--tosumu-grid-dark) 1px, transparent 1px),
@@ -250,7 +250,7 @@ input {
   background-size: 2.5rem 2.5rem, 2.5rem 2.5rem, auto, auto;
 }
 
-[data-md-color-scheme="default"] body {
+body[data-md-color-scheme="default"] {
   background:
     linear-gradient(var(--tosumu-grid-light) 1px, transparent 1px),
     linear-gradient(90deg, var(--tosumu-grid-light) 1px, transparent 1px),
@@ -261,6 +261,13 @@ input {
 
 .md-main__inner {
   margin-top: 0;
+}
+
+/* Material's default grid is too narrow once both navigation rails are visible. */
+@media screen and (min-width: 76.25em) {
+  .md-grid {
+    max-width: 92rem;
+  }
 }
 
 .md-content__inner {
@@ -281,8 +288,8 @@ input {
 
 .tosumu-home-intro {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(17rem, 0.8fr);
-  gap: clamp(1.5rem, 4vw, 3.5rem);
+  grid-template-columns: minmax(20rem, 1.1fr) minmax(17rem, 0.9fr);
+  gap: clamp(1.5rem, 3vw, 2.75rem);
   align-items: stretch;
   padding: clamp(1.25rem, 3vw, 2.5rem) 0 1.5rem;
 }
@@ -292,10 +299,10 @@ input {
 }
 
 .md-typeset .tosumu-home-copy h1 {
-  max-width: 14ch;
+  max-width: 18ch;
   margin: 0.25rem 0 1rem;
   color: var(--md-default-fg-color);
-  font: 600 clamp(2.15rem, 5vw, 3.8rem)/0.98 var(--tosumu-font-display);
+  font: 600 clamp(2rem, 3vw, 3rem)/1.02 var(--tosumu-font-display);
   letter-spacing: -0.035em;
 }
 
