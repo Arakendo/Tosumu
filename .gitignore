@@ -13,6 +13,13 @@ Cargo.lock.bak
 *.pre-v*.bak
 *.migrating
 
+# Reviewed, immutable browser-inspection fixtures. These are deliberately
+# published with the documentation site; real database artifacts remain ignored.
+!docs/overrides/fixtures/
+!docs/overrides/fixtures/*.tosumu
+!docs/overrides/fixtures/*.tosumu.wal
+!docs/overrides/fixtures/*.bin
+
 # Fuzz artifacts
 /fuzz/target/
 /fuzz/artifacts/
