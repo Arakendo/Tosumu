@@ -17,7 +17,6 @@ Cargo.lock.bak
 # published with the documentation site; real database artifacts remain ignored.
 !docs/overrides/fixtures/
 !docs/overrides/fixtures/*.tosumu
-!docs/overrides/fixtures/*.tosumu.wal
 !docs/overrides/fixtures/*.bin
 
 # Fuzz artifacts
