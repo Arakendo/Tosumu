@@ -17,6 +17,8 @@ pub mod pager;
 pub mod provider;
 pub mod wal;
 
+mod writer_gate;
+
 #[cfg(test)]
 pub(crate) mod test_helpers;
 

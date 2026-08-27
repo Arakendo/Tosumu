@@ -40,6 +40,7 @@ use crate::crypto::{
 use crate::error::{Result, TosumuError};
 use crate::format::*;
 use crate::wal::{wal_path, WalReader, WalRecord, WalWriter};
+use crate::writer_gate::WriterGuard;
 
 #[path = "pager/page0.rs"]
 mod page0;
@@ -52,6 +53,8 @@ use unlock::*;
 /// The pager. Holds an open file and the derived page key.
 pub struct Pager {
     file: File,
+    /// Retains cooperative single-writer admission for writable handles.
+    _writer_guard: Option<WriterGuard>,
     page_key: [u8; 32],
     /// For passphrase-protected databases: the HMAC key used to MAC page0.
     /// None for Sentinel databases (no header MAC).
@@ -126,6 +129,7 @@ impl Pager {
     ///
     /// Do NOT use `create()` for user-facing databases that require secrecy.
     pub fn create(path: &Path) -> Result<Self> {
+        let writer_guard = WriterGuard::acquire(path)?;
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -148,6 +152,7 @@ impl Pager {
 
         Ok(Pager {
             file,
+            _writer_guard: Some(writer_guard),
             page_key,
             header_mac_key: None,
             page_count: 1,
@@ -192,6 +197,7 @@ impl Pager {
     /// The keyslot region is pre-allocated to MAX_KEYSLOTS so future protectors can be added
     /// without a page rewrite.
     pub fn create_encrypted(path: &Path, passphrase: &str) -> Result<Self> {
+        let writer_guard = WriterGuard::acquire(path)?;
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -259,6 +265,7 @@ impl Pager {
 
         Ok(Pager {
             file,
+            _writer_guard: Some(writer_guard),
             page_key,
             header_mac_key: Some(header_mac_key),
             page_count: 1,
@@ -1381,22 +1388,37 @@ fn finish_open_for_mode(
     page0: &[u8; PAGE_SIZE],
     path: &Path,
     read_only: bool,
+    writer_guard: Option<WriterGuard>,
 ) -> Result<Pager> {
     if read_only {
         finish_open_readonly(file, page_key, header_mac_key, page0, path)
     } else {
-        finish_open(file, page_key, header_mac_key, page0, path)
+        let writer_guard = writer_guard.expect("writable pager open must hold the writer gate");
+        finish_open(file, page_key, header_mac_key, page0, path, writer_guard)
     }
 }
 
 impl Pager {
     fn open_inner(path: &Path, read_only: bool, unlock: OpenUnlock<'_>) -> Result<Self> {
+        let writer_guard = if read_only {
+            None
+        } else {
+            Some(WriterGuard::acquire(path)?)
+        };
         let mut file = open_file_for_mode(path, read_only)?;
         let page0 = read_page0(&mut file)?;
         validate_header(&page0)?;
 
         let (page_key, header_mac_key) = unlock_page0_for_open(&page0, unlock)?;
-        finish_open_for_mode(file, page_key, header_mac_key, &page0, path, read_only)
+        finish_open_for_mode(
+            file,
+            page_key,
+            header_mac_key,
+            &page0,
+            path,
+            read_only,
+            writer_guard,
+        )
     }
 }
 
@@ -1407,6 +1429,7 @@ fn finish_open(
     header_mac_key: Option<[u8; 32]>,
     page0: &[u8; PAGE_SIZE],
     path: &Path,
+    writer_guard: WriterGuard,
 ) -> Result<Pager> {
     let page_count = read_u64(page0, OFF_PAGE_COUNT);
 
@@ -1440,7 +1463,7 @@ fn finish_open(
     if wp.exists() {
         // If committed frames exist, replay them once and truncate the WAL so
         // future opens cannot reapply stale snapshots over newer auto-commit writes.
-        crate::wal::checkpoint(path, &wp)?;
+        crate::wal::checkpoint_guarded(path, &wp, &writer_guard)?;
         // Re-read page0 after recovery/checkpoint so page_count/root_page are current.
         file.seek(SeekFrom::Start(0))?;
         let mut refreshed = [0u8; PAGE_SIZE];
@@ -1471,6 +1494,7 @@ fn finish_open(
         let wal = WalWriter::open_or_create(&wp)?;
         return Ok(Pager {
             file,
+            _writer_guard: Some(writer_guard),
             page_key,
             header_mac_key,
             page_count,
@@ -1491,6 +1515,7 @@ fn finish_open(
     let wal = WalWriter::open_or_create(&wp)?;
     Ok(Pager {
         file,
+        _writer_guard: Some(writer_guard),
         page_key,
         header_mac_key,
         page_count,
@@ -1533,6 +1558,7 @@ fn finish_open_readonly(
 
     let mut pager = Pager {
         file,
+        _writer_guard: None,
         page_key,
         header_mac_key,
         page_count,

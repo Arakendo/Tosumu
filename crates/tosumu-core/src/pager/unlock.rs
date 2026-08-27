@@ -7,6 +7,7 @@ use crate::crypto::{
 };
 use crate::error::{Result, TosumuError};
 use crate::format::*;
+use crate::writer_gate::WriterGuard;
 
 use super::page0::{keyslot_count, read_keyslot_field, read_page0, validate_header, write_page0};
 
@@ -18,6 +19,7 @@ pub(super) enum ProtectorUnlock<'a> {
 
 pub(super) struct Page0EditSession {
     file: File,
+    _writer_guard: WriterGuard,
     pub(super) page0: [u8; PAGE_SIZE],
     pub(super) dek_id: u64,
     pub(super) keyslot_count: usize,
@@ -25,6 +27,7 @@ pub(super) struct Page0EditSession {
 
 impl Page0EditSession {
     pub(super) fn open(path: &Path) -> Result<Self> {
+        let writer_guard = WriterGuard::acquire(path)?;
         let mut file = OpenOptions::new().read(true).write(true).open(path)?;
         let page0 = read_page0(&mut file)?;
         validate_header(&page0)?;
@@ -32,6 +35,7 @@ impl Page0EditSession {
             dek_id: read_u64(&page0, OFF_DEK_ID),
             keyslot_count: keyslot_count(&page0),
             file,
+            _writer_guard: writer_guard,
             page0,
         })
     }

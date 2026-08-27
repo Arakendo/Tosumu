@@ -4,8 +4,8 @@ This page is the public roadmap summary. It is intentionally shorter than the re
 
 ## Now
 
-- use the recorded MVP+10 baseline to design one-writer admission and reader
-  visibility under AR-0009
+- use the completed MVP+10 single-writer admission slice to design committed-LSN
+  reader visibility and version retention under AR-0009
 - keep the CLI, inspect contract, and TUI viewer coherent
 - keep crash, crypto, and verification behavior visible through tests and tooling
 - improve the trust surface around docs, diagnostics, and website guidance

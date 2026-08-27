@@ -8,6 +8,7 @@ fn empty_value_is_valid() {
     let mut store = PageStore::create(&path).unwrap();
     store.put(b"k", b"").unwrap();
     assert_eq!(store.get(b"k").unwrap(), Some(b"".to_vec()));
+    drop(store);
 
     let store2 = PageStore::open(&path).unwrap();
     assert_eq!(store2.get(b"k").unwrap(), Some(b"".to_vec()));
@@ -46,6 +47,7 @@ fn binary_keys_with_null_bytes() {
         Some(b"all-ff".to_vec())
     );
     assert_eq!(store.get(b"\x00").unwrap(), Some(b"single-null".to_vec()));
+    drop(store);
 
     let store2 = PageStore::open(&path).unwrap();
     assert_eq!(
@@ -76,6 +78,7 @@ fn large_value_forces_overflow_pages() {
         store.get(b"big").unwrap().as_deref(),
         Some(big_val.as_slice())
     );
+    drop(store);
 
     let store2 = PageStore::open(&path).unwrap();
     assert_eq!(
@@ -96,6 +99,7 @@ fn many_overwrites_same_key_final_value_correct() {
         store.put(b"x", format!("value-{i}").as_bytes()).unwrap();
     }
     assert_eq!(store.get(b"x").unwrap(), Some(b"value-499".to_vec()));
+    drop(store);
 
     let store2 = PageStore::open(&path).unwrap();
     assert_eq!(store2.get(b"x").unwrap(), Some(b"value-499".to_vec()));
@@ -119,6 +123,7 @@ fn delete_all_scan_returns_empty() {
         store.scan().unwrap().is_empty(),
         "scan should be empty after delete-all"
     );
+    drop(store);
 
     let store2 = PageStore::open(&path).unwrap();
     assert!(store2.scan().unwrap().is_empty());

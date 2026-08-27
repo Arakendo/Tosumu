@@ -4,7 +4,9 @@
 //! replace. They are observations, not snapshot-isolation or concurrency
 //! guarantees.
 
-use tosumu_core::KvStore;
+use tosumu_core::pager::Pager;
+use tosumu_core::wal::{checkpoint, wal_path};
+use tosumu_core::{KvStore, TosumuError};
 
 fn assert_send_sync<T: Send + Sync>() {}
 
@@ -65,13 +67,59 @@ fn readonly_open_during_transaction_sees_precommit_state_then_live_state() {
 }
 
 #[test]
-fn second_writable_handle_opens_without_a_writer_gate() {
+fn second_writable_handle_is_rejected_by_writer_gate() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("writer-gate.tsm");
     let first = KvStore::create(&path).unwrap();
 
-    let second = KvStore::open(&path).unwrap();
+    let error = match KvStore::open(&path) {
+        Ok(_) => panic!("second writer must not be admitted"),
+        Err(error) => error,
+    };
 
     assert!(first.get(b"missing").unwrap().is_none());
-    assert!(second.get(b"missing").unwrap().is_none());
+    match error {
+        TosumuError::FileBusy {
+            path: busy_path,
+            operation,
+        } => {
+            assert_eq!(busy_path, path.with_extension("tsm.writer.lock"));
+            assert_eq!(operation, "acquiring database writer gate");
+        }
+        other => panic!("expected FileBusy, got {other:?}"),
+    }
+}
+
+#[test]
+fn dropping_writer_releases_gate_but_preserves_sidecar() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("writer-release.tsm");
+    let lock_path = path.with_extension("tsm.writer.lock");
+    let writer = KvStore::create(&path).unwrap();
+
+    assert!(lock_path.exists());
+    drop(writer);
+
+    let reopened = KvStore::open(&path).unwrap();
+    assert!(reopened.get(b"missing").unwrap().is_none());
+    assert!(lock_path.exists());
+}
+
+#[test]
+fn protector_edit_and_checkpoint_share_writer_gate() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("maintenance-gate.tsm");
+    let writer = KvStore::create(&path).unwrap();
+
+    assert!(matches!(
+        Pager::remove_keyslot(&path, "ignored-for-sentinel", 0),
+        Err(TosumuError::FileBusy { .. })
+    ));
+    assert!(matches!(
+        checkpoint(&path, &wal_path(&path)),
+        Err(TosumuError::FileBusy { .. })
+    ));
+
+    drop(writer);
+    checkpoint(&path, &wal_path(&path)).unwrap();
 }

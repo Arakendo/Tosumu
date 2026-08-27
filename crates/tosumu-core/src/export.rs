@@ -4,7 +4,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::backup::create_stable_backup;
 use crate::error::{Result, TosumuError};
 use crate::page_store::PageStore;
-use crate::wal::{checkpoint, wal_path};
+use crate::wal::{checkpoint_guarded, wal_path};
+use crate::writer_gate::{writer_lock_path, WriterGuard};
 
 /// Result of publishing a self-contained database file.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -37,7 +38,9 @@ pub fn create_portable_export(source: &Path, destination: &Path) -> Result<Porta
         let source_had_wal = backup.destination_wal.is_some();
 
         if staging_wal.exists() {
-            checkpoint(&staging, &staging_wal)?;
+            let writer_guard = WriterGuard::acquire(&staging)?;
+            checkpoint_guarded(&staging, &staging_wal, &writer_guard)?;
+            drop(writer_guard);
             std::fs::remove_file(&staging_wal)?;
         }
 
@@ -66,9 +69,7 @@ pub fn create_portable_export(source: &Path, destination: &Path) -> Result<Porta
         })
     })();
 
-    if result.is_err() {
-        cleanup_export_temp(&staging, &staging_wal);
-    }
+    cleanup_export_temp(&staging, &staging_wal);
     result
 }
 
@@ -91,6 +92,7 @@ fn export_staging_path(destination: &Path) -> PathBuf {
 fn cleanup_export_temp(staging: &Path, staging_wal: &Path) {
     let _ = std::fs::remove_file(staging);
     let _ = std::fs::remove_file(staging_wal);
+    let _ = std::fs::remove_file(writer_lock_path(staging));
 }
 
 #[cfg(test)]
@@ -99,6 +101,7 @@ mod tests {
     use crate::error::TosumuError;
     use crate::page_store::PageStore;
     use crate::wal::{wal_path, WalRecord, WalWriter};
+    use crate::writer_gate::writer_lock_path;
     use std::path::PathBuf;
 
     fn paths(name: &str) -> (PathBuf, PathBuf) {
@@ -134,6 +137,7 @@ mod tests {
         assert!(report.source_had_wal);
         assert_eq!(report.bytes, std::fs::metadata(&destination).unwrap().len());
         assert!(!wal_path(&destination).exists());
+        assert!(!writer_lock_path(&destination).exists());
 
         let exported = PageStore::open_readonly(&destination).unwrap();
         assert_eq!(
@@ -195,7 +199,7 @@ mod tests {
             .unwrap()
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
-            .filter(|name| name.starts_with(&staging_prefix) && name.ends_with(".export.tmp"))
+            .filter(|name| name.starts_with(&staging_prefix))
             .collect();
         assert!(
             staged_files.is_empty(),

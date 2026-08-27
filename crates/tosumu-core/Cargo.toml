@@ -25,6 +25,9 @@ sha2 = "0.10.9"
 thiserror = "2.0.18"
 zeroize = "1.8.2"
 
+[target.'cfg(any(unix, windows))'.dependencies]
+fs4 = { version = "=1.1.0", default-features = false, features = ["sync"] }
+
 [dev-dependencies]
 proptest = "1"
 tempfile = "3"

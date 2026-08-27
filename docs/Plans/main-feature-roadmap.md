@@ -248,7 +248,7 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
 
 **Build**
 
-- [ ] Dedicated plan with an executable baseline of current lock/read behavior.
+- [x] Dedicated plan with an executable baseline of current lock/read behavior.
 - [ ] Read transactions pinned to a stable LSN snapshot.
 - [ ] Single-writer/multiple-reader coordination without readers observing
       partial commits.

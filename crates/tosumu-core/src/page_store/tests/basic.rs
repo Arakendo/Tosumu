@@ -69,6 +69,7 @@ fn delete_removes_key() {
     store.put(b"k", b"v").unwrap();
     store.delete(b"k").unwrap();
     assert_eq!(store.get(b"k").unwrap(), None);
+    drop(store);
 
     // Survives reopen.
     let store2 = PageStore::open(&path).unwrap();
@@ -86,6 +87,7 @@ fn overwrite_key() {
     store.put(b"k", b"v1").unwrap();
     store.put(b"k", b"v2").unwrap();
     assert_eq!(store.get(b"k").unwrap(), Some(b"v2".to_vec()));
+    drop(store);
 
     let store2 = PageStore::open(&path).unwrap();
     assert_eq!(store2.get(b"k").unwrap(), Some(b"v2".to_vec()));

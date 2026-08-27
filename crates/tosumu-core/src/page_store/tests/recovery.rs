@@ -497,6 +497,7 @@ fn spans_multiple_pages() {
         before_pages > 1,
         "expected multiple pages, got {before_pages}"
     );
+    drop(store);
 
     let store2 = PageStore::open(&path).unwrap();
     for i in 0u32..100 {

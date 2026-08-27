@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{Result, TosumuError};
 use crate::format::PAGE_SIZE;
+use crate::writer_gate::WriterGuard;
 
 // ── Transient-lock retry ─────────────────────────────────────────────────────
 
@@ -494,6 +495,15 @@ impl WalReader {
 ///
 /// Returns the LSN of the last checkpoint record seen (0 if none).
 pub fn recover(db_path: &Path, wal_path: &Path) -> Result<u64> {
+    let writer_guard = WriterGuard::acquire(db_path)?;
+    recover_guarded(db_path, wal_path, &writer_guard)
+}
+
+pub(crate) fn recover_guarded(
+    db_path: &Path,
+    wal_path: &Path,
+    _writer_guard: &WriterGuard,
+) -> Result<u64> {
     if !wal_path.exists() {
         return Ok(0);
     }
@@ -592,7 +602,16 @@ fn apply_committed_writes(
 /// Equivalent to a full checkpoint (`CheckpointMode::Truncate` in §7.8).
 /// For MVP+4 there is no reader LSN pinning — the WAL is always fully truncated.
 pub fn checkpoint(db_path: &Path, wal_path: &Path) -> Result<()> {
-    recover(db_path, wal_path)?;
+    let writer_guard = WriterGuard::acquire(db_path)?;
+    checkpoint_guarded(db_path, wal_path, &writer_guard)
+}
+
+pub(crate) fn checkpoint_guarded(
+    db_path: &Path,
+    wal_path: &Path,
+    writer_guard: &WriterGuard,
+) -> Result<()> {
+    recover_guarded(db_path, wal_path, writer_guard)?;
     // Truncate WAL — only reached if recovery succeeded, so safe to overwrite.
     let mut file = open_file_retrying(
         wal_path,

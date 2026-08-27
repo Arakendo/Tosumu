@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed; baseline recorded |
+| Status | In progress; Slice 1 complete |
 | Opened | 2026-08-27 |
 | Last updated | 2026-08-27 |
 | Owner | Tosumu maintainers |
@@ -14,11 +14,11 @@
 
 ## Status
 
-The pre-MVP+10 executable baseline is recorded. The repository does not yet
-implement a shared `Database`, sessions, committed-LSN snapshots, a writer
-gate, reader pinning, or checkpoint coordination. AR-0009 remains incubating,
-so this plan admits evidence work but does not yet authorize a public MVCC or
-format contract.
+The pre-MVP+10 executable baseline is recorded, and ADR-0004's cooperative
+single-writer admission is implemented. The repository does not yet implement
+a shared `Database`, sessions, committed-LSN snapshots, reader pinning, or
+reader-aware checkpoint coordination. AR-0009 remains incubating, so this plan
+does not yet authorize a public MVCC or format contract.
 
 ## Purpose
 
@@ -50,7 +50,8 @@ independent KvStore / PageStore handle
             -> one File and optional WalWriter per handle
 
 writable Pager open
-    -> checkpoints an existing WAL
+    -> acquires and retains <database>.writer.lock
+    -> checkpoints an existing WAL under that guard
     -> opens its own WalWriter
 
 read-only Pager open
@@ -67,20 +68,22 @@ read-only Pager open
 - A read-only handle opened during an uncommitted transaction observes the
   pre-transaction main-file state; after commit, that same handle can observe
   the newly flushed state.
-- Multiple writable handles can open simultaneously. There is no process-local
-  or cross-process writer gate, and this observation is not evidence that
-  concurrent writes are safe.
+- One writable handle is admitted at a time across cooperating processes by a
+  persistent advisory sidecar lock. A second writable open fails immediately
+  with structured `FILE_OPEN_BUSY` details.
 - Transaction exclusion is local to one mutable pager instance. Transaction
   IDs and WAL next-LSN state are also initialized per handle.
-- WAL open/recovery has bounded retry for transient operating-system file
-  conflicts, but that retry is not database writer serialization.
+- Protector edits and public recovery/checkpoint operations participate in the
+  same gate. Direct raw `WalWriter` mutation remains outside the coordination
+  contract as documented by ADR-0004.
 - There is no committed-LSN snapshot API, reader registry, checkpoint pin,
   cancellation token, busy timeout, coordinated shutdown operation, or
   long-lived-reader diagnostic. Dropping an independent handle is the only
   current lifecycle mechanism.
 
-These are observations of the 2026-08-27 implementation. They are not
-durability, isolation, fairness, or concurrency guarantees.
+These are observations of the 2026-08-27 implementation. The writer gate is an
+accepted cooperative admission guarantee; the reader observations are not
+snapshot-isolation, freshness, fairness, or broader concurrency guarantees.
 
 ## Goals
 
@@ -119,10 +122,11 @@ must not become the definition of commit visibility.
 
 ## Public Contract Impact
 
-No public or format contract changes in Slice 0. Future shared-handle, session,
-snapshot, busy-policy, or checkpoint types remain provisional. Before Slice 1
-stabilizes any of them, AR-0009 must record the chosen semantics and determine
-whether an ADR is required.
+Slice 0 changed no public or format contract. Slice 1 reuses the public
+`FileBusy`/`FILE_OPEN_BUSY` vocabulary and adds the persistent writer-sidecar
+operational contract accepted by ADR-0004; it changes no authenticated page or
+WAL bytes. Future shared-handle, session, snapshot, busy-policy, or reader-aware
+checkpoint types remain provisional under AR-0009.
 
 ## Implementation Slices
 
@@ -151,7 +155,7 @@ the target guarantees.
       staged, and diagnose unsupported scope.
 - [x] Update AR-0009 and create an ADR because the sidecar and busy behavior are
       a durable operational contract.
-- [ ] Exercise the contract through the provider and one independent caller.
+- [x] Exercise the contract through the provider and one independent caller.
 
 Exit state: one writer can be admitted or rejected deterministically, without
 claiming snapshot isolation.
@@ -191,19 +195,19 @@ waiting or stale-frame truncation.
 
 ## Failure And Diagnostic Semantics
 
-`FILE_OPEN_BUSY` currently represents bounded operating-system file-open
-contention. It must not silently become writer-gate contention without reviewing
-whether callers need a distinct stable code or structured detail. Unsupported
-cross-process coordination, snapshot exhaustion, checkpoint blocking, timeout,
-and cancellation must fail explicitly rather than wait indefinitely or fall
-back to live reads.
+ADR-0004 admits `FILE_OPEN_BUSY` for non-blocking writer-gate contention. Its
+structured path names the `.writer.lock` sidecar and its operation is
+`acquiring database writer gate`. Unsupported snapshot exhaustion, reader-aware
+checkpoint blocking, timeout, and cancellation behavior must still fail
+explicitly rather than wait indefinitely or fall back to live reads.
 
 ## Compatibility And Migration
 
-Slice 0 changes no format, WAL bytes, recovery behavior, Rust API, CLI, or
-consumer contract. Any retained-version representation, committed-LSN field, or
-cross-process lock protocol introduced later requires explicit compatibility
-and migration treatment before implementation.
+Slice 1 changes no format, WAL bytes, recovery ordering, Rust API shape, or CLI
+command. It adds a persistent `.writer.lock` operational artifact and changes a
+second cooperating writable open from admission to structured busy rejection.
+Any retained-version representation or committed-LSN field introduced later
+requires explicit compatibility and migration treatment before implementation.
 
 ## Security And Trust
 
@@ -274,8 +278,22 @@ format/recovery design that can retain committed versions safely.
 - Closed admission prerequisites in ADR-0004: exact sidecar lifecycle, guarded
   database/maintenance paths, raw-WAL unsupported concurrency scope,
   `FILE_OPEN_BUSY` details, and bounded dependency admission are now explicit.
-- Next slice: implement ADR-0004 as a separate semantic commit. The only
-  intended baseline change is rejection of the second cooperating writer.
+- Implemented ADR-0004 with a native-only exact `fs4` dependency, a retained
+  pager-lifetime guard, and guarded protector, recovery, checkpoint, and
+  portable-export staging paths.
+- Updated the executable baseline so the only reader/writer semantic change is
+  rejection of the second cooperating writer; existing live-reader behavior is
+  unchanged.
+- Exercised structured busy reporting through the public `KvStore` provider
+  boundary and exercised independent maintenance participation through public
+  checkpoint/protector calls.
+- Validation passed focused writer-gate and provider tests, all 207 active core
+  library tests, strict workspace Clippy, the full workspace all-targets suite,
+  formatting, and `mkdocs build --strict`. The native-only locking dependency
+  is absent from the WASM dependency graph; a direct core WASM check remains
+  blocked earlier by the pre-existing unconditional `getrandom` configuration.
+- Slice 1 is complete. Slice 2 remains gated on an admitted committed-LSN
+  snapshot and version-retention design under AR-0009.
 
 ## References
 

@@ -96,6 +96,26 @@ fn external_consumer_can_commit_and_reopen_multiple_records() {
 }
 
 #[test]
+fn external_consumer_gets_structured_busy_for_second_writer() {
+    let path = temp_store_path("writer_gate");
+    remove_store_files(&path);
+    let first = KvStore::create(&path).unwrap();
+
+    let error = match KvStore::open(&path) {
+        Ok(_) => panic!("second writer must not be admitted"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(error, TosumuError::FileBusy { .. }));
+    let report = error.error_report();
+    assert_eq!(report.code, "FILE_OPEN_BUSY");
+    assert_eq!(report.status.as_str(), "busy");
+
+    drop(first);
+    remove_store_files(&path);
+}
+
+#[test]
 fn external_consumer_keeps_database_identities_isolated() {
     let first = temp_store_path("identity_first");
     let second = temp_store_path("identity_second");

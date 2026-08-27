@@ -335,6 +335,7 @@ fn slot_zero_reuse_data_intact() {
     // Both p1 and p2 work, data intact.
     let s1 = PageStore::open_with_passphrase(&path, "p1").unwrap();
     assert_eq!(s1.get(b"sentinel").unwrap(), Some(b"value".to_vec()));
+    drop(s1);
     let s2 = PageStore::open_with_passphrase(&path, "p2").unwrap();
     assert_eq!(s2.get(b"sentinel").unwrap(), Some(b"value".to_vec()));
 

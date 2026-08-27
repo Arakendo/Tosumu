@@ -88,10 +88,14 @@ fn multi_slot_second_passphrase_can_unlock() {
     assert!(slot >= 1, "second protector should be in slot ≥1");
 
     // Both passphrases can open the DB.
-    let store_a = PageStore::open_with_passphrase(&path, "pass-a").unwrap();
-    assert_eq!(store_a.get(b"key").unwrap(), Some(b"val".to_vec()));
-    let store_b = PageStore::open_with_passphrase(&path, "pass-b").unwrap();
-    assert_eq!(store_b.get(b"key").unwrap(), Some(b"val".to_vec()));
+    {
+        let store_a = PageStore::open_with_passphrase(&path, "pass-a").unwrap();
+        assert_eq!(store_a.get(b"key").unwrap(), Some(b"val".to_vec()));
+    }
+    {
+        let store_b = PageStore::open_with_passphrase(&path, "pass-b").unwrap();
+        assert_eq!(store_b.get(b"key").unwrap(), Some(b"val".to_vec()));
+    }
 
     let _ = std::fs::remove_file(&path);
 }
