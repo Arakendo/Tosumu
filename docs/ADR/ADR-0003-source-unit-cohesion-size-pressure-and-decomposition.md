@@ -12,9 +12,9 @@ source unit accumulates several independently testable responsibilities, even
 if its public API remains small.
 
 At acceptance, the workspace contains core source units large enough to require
-deliberate review. `page_store.rs` and `pager.rs` exceed 2,000 physical lines,
-while `wal.rs`, `btree.rs`, `inspection_session.rs`, and `inspect.rs` exceed
-1,000. Line count does not prove that any of these files is incorrectly
+deliberate review. `page_store.rs`, `pager.rs`, and `wal.rs` exceed 2,000
+physical lines, while `btree.rs`, `inspection_session.rs`, and `inspect.rs`
+exceed 1,000. Line count does not prove that any of these files is incorrectly
 structured, but it is useful evidence that cohesion should be examined before
 more behavior is added.
 
@@ -165,9 +165,10 @@ the plan must distinguish mechanical moves from semantic changes.
 - Reviews and conservation reruns add work, and poorly chosen seams may expose
   coupling that requires a different decomposition.
 
-This decision requires review of `page_store.rs` and `pager.rs` when they next
-receive substantive changes. It does not predetermine their final module shape
-or require an unrelated immediate refactor.
+This decision requires explicit review of `page_store.rs`, `pager.rs`, and
+`wal.rs`. The initial dispositions and any resulting work are retained in the
+core source-unit decomposition plan. The decision does not predetermine their
+final module shape or require an unrelated semantic refactor.
 
 ## Alternatives Considered
 
@@ -193,4 +194,5 @@ checks fail to protect storage and format behavior.
 - `ADR-0002-authenticated-pager-trust-boundary.md`
 - `../Specifications/Tosumu Software Design Document.md`
 - `../Specifications/Tosumu Error Design Document.md`
+- `../Plans/core-source-unit-decomposition.md`
 - `../Plans/documentation-lifecycle-and-design-decomposition.md`

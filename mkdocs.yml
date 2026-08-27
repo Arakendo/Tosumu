@@ -84,6 +84,7 @@ nav:
           - Tosumu Inspection Island And UI Providers: Plans/tosumu-inspection-island-and-ui-providers.md
           - Public Website And Repository Records: Plans/public-website-and-repository-records.md
           - Documentation Lifecycle And Design Decomposition: Plans/documentation-lifecycle-and-design-decomposition.md
+          - Core Source Unit Decomposition: Plans/core-source-unit-decomposition.md
           - Template: Plans/TEMPLATE.md
       - Change Requests:
           - CRs/README.md

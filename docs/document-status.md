@@ -93,6 +93,7 @@ do not change accepted architecture by themselves.
 | [Tosumu Command Language](Plans/tosumu-command-language.md) | Proposed | Complete Slice 0 evidence and retain AR-0001 ownership review |
 | [Documentation Lifecycle And Design Decomposition](Plans/documentation-lifecycle-and-design-decomposition.md) | Active | Apply metadata and separate current design from future proposals incrementally |
 | [Public Website And Repository Records](Plans/public-website-and-repository-records.md) | Proposed | Validate indexed navigation, then curate the public reader path separately from GitHub work records |
+| [Core Source Unit Decomposition](Plans/core-source-unit-decomposition.md) | Proposed | Capture conservation baselines, then split page-store/WAL test families and validated pager-private responsibilities |
 
 ## Change Requests
 

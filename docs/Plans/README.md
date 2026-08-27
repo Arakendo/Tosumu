@@ -33,6 +33,9 @@ validation, and exit states.
 - [Documentation Lifecycle And Design Decomposition](documentation-lifecycle-and-design-decomposition.md)
   -- **Active** normalization of document status and the current/future design
   boundary.
+- [Core Source Unit Decomposition](core-source-unit-decomposition.md) --
+  **Proposed** behavior-preserving test and private-module decomposition
+  triggered by ADR-0003's initial core inventory.
 
 ## Plan Requirements
 
