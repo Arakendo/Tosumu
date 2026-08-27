@@ -56,7 +56,7 @@ crypto frames, SQL types, and CLI types are not part of the admitted contract.
 - The live inline record header stores key and value lengths as `u16`; overflow
   leaf records store a checked `u64` logical length and first-page reference.
 - The physical format is currently version `2`; newer versions are rejected
-  with `TosumuError::NewerFormat`. No automatic migration is performed by
+  with `TosumuError::UnsupportedFormat`. No automatic migration is performed by
   open paths.
 
 ## Slice 2 Format Decision
@@ -93,7 +93,7 @@ provider facade remains unchanged.
 Changing the record wire format and adding reachable overflow records will
 increment `format_version` to `2`. Version 1 files remain readable by the
 version-1 path; version 2 files require the new engine, and an older engine
-must return `NewerFormat` without attempting a partial open. No automatic
+must return `UnsupportedFormat` without attempting a partial open. No automatic
 migration is added. A future migration or export tool must be explicit and
 separately validated.
 

@@ -399,6 +399,11 @@ format/recovery design that can retain committed versions safely.
   work rolls back in memory, leaves the WAL unchanged, and reports structured
   `TRANSACTION_WAL_TOO_LARGE`; a focused low-limit fixture proves the handle can
   immediately begin another transaction.
+- Generalized physical-format admission from a one-sided "newer" check to an
+  explicit inclusive interval shared by pager open and bounded byte inspection.
+  Unsupported older and newer files now retain the stable
+  `FORMAT_VERSION_UNSUPPORTED` code while reporting `found`, `supported_min`,
+  and `supported_max`; this makes the later exact-v3 switch unambiguous.
 
 ## References
 

@@ -13,6 +13,8 @@ pub const MAGIC_LEN: usize = 16;
 
 /// Current format version written by this engine.
 pub const FORMAT_VERSION: u16 = 2;
+/// Oldest physical format version admitted by ordinary database open.
+pub const MIN_SUPPORTED_FORMAT_VERSION: u16 = 2;
 /// Oldest engine that can open files we write.
 pub const MIN_READER_VERSION: u16 = 2;
 

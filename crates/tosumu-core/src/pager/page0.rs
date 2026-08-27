@@ -62,9 +62,10 @@ pub(super) fn validate_header(page0: &[u8; PAGE_SIZE]) -> Result<()> {
         return Err(TosumuError::NotATosumFile);
     }
     let fv = read_u16(page0, OFF_FORMAT_VERSION);
-    if fv > FORMAT_VERSION {
-        return Err(TosumuError::NewerFormat {
+    if !(MIN_SUPPORTED_FORMAT_VERSION..=FORMAT_VERSION).contains(&fv) {
+        return Err(TosumuError::UnsupportedFormat {
             found: fv,
+            supported_min: MIN_SUPPORTED_FORMAT_VERSION,
             supported_max: FORMAT_VERSION,
         });
     }

@@ -501,9 +501,12 @@ pub fn inspect_observation_from_bytes(
     }
 
     let header = read_header_info_from_page0(bytes)?;
-    if header.format_version > crate::format::FORMAT_VERSION {
-        return Err(crate::error::TosumuError::NewerFormat {
+    if !(crate::format::MIN_SUPPORTED_FORMAT_VERSION..=crate::format::FORMAT_VERSION)
+        .contains(&header.format_version)
+    {
+        return Err(crate::error::TosumuError::UnsupportedFormat {
             found: header.format_version,
+            supported_min: crate::format::MIN_SUPPORTED_FORMAT_VERSION,
             supported_max: crate::format::FORMAT_VERSION,
         });
     }
@@ -1020,22 +1023,31 @@ mod tests {
     }
 
     #[test]
-    fn byte_input_rejects_header_versions_newer_than_this_reader() {
-        let path = new_store_path("newer_byte_input");
+    fn byte_input_rejects_header_versions_outside_the_supported_interval() {
+        let path = new_store_path("unsupported_byte_input");
         let store = PageStore::create(&path).unwrap();
         drop(store);
 
-        let mut bytes = std::fs::read(&path).unwrap();
-        let newer_version = crate::format::FORMAT_VERSION + 1;
-        bytes[crate::format::OFF_FORMAT_VERSION..crate::format::OFF_FORMAT_VERSION + 2]
-            .copy_from_slice(&newer_version.to_le_bytes());
+        let original = std::fs::read(&path).unwrap();
+        for unsupported_version in [
+            crate::format::MIN_SUPPORTED_FORMAT_VERSION - 1,
+            crate::format::FORMAT_VERSION + 1,
+        ] {
+            let mut bytes = original.clone();
+            bytes[crate::format::OFF_FORMAT_VERSION..crate::format::OFF_FORMAT_VERSION + 2]
+                .copy_from_slice(&unsupported_version.to_le_bytes());
 
-        let error = inspect_observation_from_bytes(&bytes, DEFAULT_INSPECTION_BYTE_INPUT_LIMIT)
-            .unwrap_err();
-        assert_eq!(
-            error.error_report().code,
-            crate::error::codes::FORMAT_VERSION_UNSUPPORTED
-        );
+            let error = inspect_observation_from_bytes(&bytes, DEFAULT_INSPECTION_BYTE_INPUT_LIMIT)
+                .unwrap_err();
+            assert!(matches!(
+                error,
+                crate::error::TosumuError::UnsupportedFormat {
+                    found,
+                    supported_min: crate::format::MIN_SUPPORTED_FORMAT_VERSION,
+                    supported_max: crate::format::FORMAT_VERSION,
+                } if found == unsupported_version
+            ));
+        }
 
         let _ = std::fs::remove_file(path);
     }

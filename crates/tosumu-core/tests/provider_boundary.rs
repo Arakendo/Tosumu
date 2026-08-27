@@ -2,7 +2,9 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use sha2::{Digest, Sha256};
-use tosumu_core::format::{FORMAT_VERSION, OFF_FORMAT_VERSION, PAGE_SIZE};
+use tosumu_core::format::{
+    FORMAT_VERSION, MIN_SUPPORTED_FORMAT_VERSION, OFF_FORMAT_VERSION, PAGE_SIZE,
+};
 use tosumu_core::inspect::VerifyIssueKind;
 use tosumu_core::page_store::PageStore;
 use tosumu_core::{KvStore, TosumuError};
@@ -166,29 +168,32 @@ fn external_consumer_gets_wrong_key_for_encrypted_store() {
 }
 
 #[test]
-fn external_consumer_gets_structured_error_for_newer_physical_format() {
-    let path = temp_store_path("newer_format");
-    remove_store_files(&path);
-    let newer_version = FORMAT_VERSION + 1;
+fn external_consumer_gets_structured_error_for_unsupported_physical_format() {
+    for unsupported_version in [MIN_SUPPORTED_FORMAT_VERSION - 1, FORMAT_VERSION + 1] {
+        let path = temp_store_path(&format!("unsupported_format_{unsupported_version}"));
+        remove_store_files(&path);
 
-    PageStore::create(&path).unwrap();
-    let mut page0 = std::fs::read(&path).unwrap();
-    page0[OFF_FORMAT_VERSION..OFF_FORMAT_VERSION + 2].copy_from_slice(&newer_version.to_le_bytes());
-    std::fs::write(&path, page0).unwrap();
+        PageStore::create(&path).unwrap();
+        let mut page0 = std::fs::read(&path).unwrap();
+        page0[OFF_FORMAT_VERSION..OFF_FORMAT_VERSION + 2]
+            .copy_from_slice(&unsupported_version.to_le_bytes());
+        std::fs::write(&path, page0).unwrap();
 
-    let error = match tosumu_core::inspect::inspect_verification(&path) {
-        Ok(_) => panic!("newer physical format must be rejected"),
-        Err(error) => error,
-    };
-    assert!(matches!(
-        error,
-        TosumuError::NewerFormat {
-            found,
-            supported_max: FORMAT_VERSION
-        } if found == newer_version
-    ));
+        let error = match tosumu_core::inspect::inspect_verification(&path) {
+            Ok(_) => panic!("unsupported physical format must be rejected"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error,
+            TosumuError::UnsupportedFormat {
+                found,
+                supported_min: MIN_SUPPORTED_FORMAT_VERSION,
+                supported_max: FORMAT_VERSION
+            } if found == unsupported_version
+        ));
 
-    remove_store_files(&path);
+        remove_store_files(&path);
+    }
 }
 
 #[test]

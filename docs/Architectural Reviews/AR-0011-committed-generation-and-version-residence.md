@@ -662,3 +662,16 @@ and the remaining implementation evidence stay provisional as listed below.
 - Disposition: ADR-0005 remains accepted without revision.
 - Resulting ADR or documentation change: the Error Design Document records the
   pre-append rejection contract; retained-history admission remains subsequent.
+
+### Cycle 16 -- 2026-08-27
+
+- Status entering review: Accepted
+- New evidence: ordinary pager open and bounded byte inspection now admit one
+  explicit physical-format interval and reject versions on either side with
+  direction-neutral `UnsupportedFormat` details. The stable external code
+  remains `FORMAT_VERSION_UNSUPPORTED`.
+- Findings: moving the admitted interval from exact v2 to exact v3 can now
+  refuse v2 before recovery or mutation without a false "newer" diagnosis.
+- Disposition: ADR-0005 remains accepted without revision.
+- Resulting ADR or documentation change: AR-0006 is accepted through ADR-0005;
+  format constants have not moved yet.

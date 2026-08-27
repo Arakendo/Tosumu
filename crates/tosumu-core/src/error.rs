@@ -110,8 +110,14 @@ pub enum TosumuError {
     #[error("not a tosumu file: bad magic or header")]
     NotATosumFile,
 
-    #[error("format version {found} is not supported (max supported: {supported_max})")]
-    NewerFormat { found: u16, supported_max: u16 },
+    #[error(
+        "format version {found} is not supported (supported: {supported_min} through {supported_max})"
+    )]
+    UnsupportedFormat {
+        found: u16,
+        supported_min: u16,
+        supported_max: u16,
+    },
 
     #[error("page size in header ({found}) does not match engine page size ({expected})")]
     PageSizeMismatch { found: u16, expected: u16 },
@@ -288,8 +294,9 @@ impl TosumuError {
                 message: self.to_string(),
                 details: Vec::new(),
             },
-            TosumuError::NewerFormat {
+            TosumuError::UnsupportedFormat {
                 found,
+                supported_min,
                 supported_max,
             } => ErrorReport {
                 code: codes::FORMAT_VERSION_UNSUPPORTED,
@@ -299,6 +306,10 @@ impl TosumuError {
                     ErrorDetail {
                         key: "found",
                         value: ErrorValue::U16(*found),
+                    },
+                    ErrorDetail {
+                        key: "supported_min",
+                        value: ErrorValue::U16(*supported_min),
                     },
                     ErrorDetail {
                         key: "supported_max",
@@ -494,8 +505,9 @@ mod tests {
             },
             TosumuError::Poisoned,
             TosumuError::NotATosumFile,
-            TosumuError::NewerFormat {
+            TosumuError::UnsupportedFormat {
                 found: 3,
+                supported_min: 2,
                 supported_max: 2,
             },
             TosumuError::PageSizeMismatch {

@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Incubating |
+| Status | Accepted via ADR-0005 |
 | Opened | 2026-08-03 |
 | Last reviewed | 2026-08-27 |
 | Scope | On-disk format / compatibility / migration tooling |
 | Trigger | The format is implemented and versioned but deliberately pre-stability, while future migration mechanisms remain speculative |
-| Related ADRs | ADR-0001, ADR-0002 |
+| Related ADRs | ADR-0001, ADR-0002, ADR-0005 |
 | Related evidence | `docs/Specifications/Tosumu Software Design Document.md` section 13, `docs/file-format.md`, format fixtures and version errors, AR-0009 snapshot admission findings |
 
 ## Architectural Question
@@ -132,8 +132,10 @@ that need preservation.
 
 ## Disposition
 
-Incubating. Keep one current baseline and explicit incompatibility errors. Use
-the first real incompatible change to decide clean break versus migration.
+Accepted through ADR-0005 for the first incompatible change: format v3 takes a
+clean pre-stability break and ordinary open uses an exact supported interval.
+Migration tooling remains unadmitted unless a reopening trigger supplies real
+preservation pressure.
 
 ## Required Follow-Up
 
@@ -195,3 +197,17 @@ the first real incompatible change to decide clean break versus migration.
   open refusal. Defer offline rewrite implementation until preservation demand.
 - Resulting ADR or documentation change: none until AR-0011 is promoted and the
   format change is authorized.
+
+### Cycle 4 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: ADR-0005 accepts the clean format-v3 break. Core file open and
+  bounded byte inspection now validate one explicit inclusive interval and
+  return `UnsupportedFormat { found, supported_min, supported_max }` for either
+  direction while retaining stable `FORMAT_VERSION_UNSUPPORTED` reports.
+- Findings: the direction-neutral compatibility failure is executable before
+  the constants move to v3. It rejects old formats before recovery or mutation
+  and removes the risk of describing v2 as "newer."
+- Disposition: Accepted via ADR-0005; migration remains outside the decision.
+- Resulting ADR or documentation change: SDD format-open rules and the Tokimu
+  provider baseline now use the interval contract.

@@ -98,6 +98,9 @@ Repository-specific guidance:
 - Use `TRANSACTION_WAL_TOO_LARGE` when the staged final unique frames exceed
   the configured encoded-WAL budget. Reports include `actual` and `maximum`;
   rejection occurs before `Begin` is appended and rolls back the transaction.
+- Use `FORMAT_VERSION_UNSUPPORTED` when `found` is outside the engine's
+  inclusive compatibility interval. Reports include `supported_min` and
+  `supported_max`; the same code applies to older and newer files.
 - Use `PermissionDenied` for wrong-key / unlock-denied style failures.
 - Use `ExternalFailure` for OS, file I/O, and dependency failures where the external system is the immediate cause.
 

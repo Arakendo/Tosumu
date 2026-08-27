@@ -881,7 +881,9 @@ mod tests {
         BTreeVerificationIssueKind, RecoveryDisposition,
     };
     use crate::error::TosumuError;
-    use crate::format::{FORMAT_VERSION, OFF_FORMAT_VERSION, OFF_ROOT_PAGE};
+    use crate::format::{
+        FORMAT_VERSION, MIN_SUPPORTED_FORMAT_VERSION, OFF_FORMAT_VERSION, OFF_ROOT_PAGE,
+    };
     use crate::page_store::PageStore;
     use crate::pager::Pager;
     use crate::wal::{wal_path, WalRecord, WalWriter};
@@ -1070,8 +1072,9 @@ mod tests {
         };
         assert!(matches!(
             error,
-            TosumuError::NewerFormat {
+            TosumuError::UnsupportedFormat {
                 found: 3,
+                supported_min: MIN_SUPPORTED_FORMAT_VERSION,
                 supported_max: FORMAT_VERSION
             }
         ));

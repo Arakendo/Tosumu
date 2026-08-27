@@ -687,7 +687,7 @@ One top-level `Error` enum via `thiserror`. Variants include:
 - `ProtectorUnavailable(&'static str)` — e.g. TPM not present on this machine
 - `KeyslotTampered { slot: u16 }` — header MAC mismatch localized to keyslot region
 - `VersionMismatch { found: u16, expected: u16 }`
-- `NewerFormat { found: u16, supported_max: u16 }` — file is from a newer engine; refuse to open
+- `UnsupportedFormat { found: u16, supported_min: u16, supported_max: u16 }` — file is outside the ordinary-open compatibility interval; refuse to open
 - `OutOfSpace`
 - `TxnConflict`
 - `InvalidArgument(&'static str)`
@@ -712,7 +712,7 @@ The flat variant list above can be classified into five categories. Knowing whic
 | Category | Variants | Caller response |
 |----------|----------|-----------------|
 | **Io** | `Io(std::io::Error)` | OS said no. Could be transient (disk full, network blip) or permanent (permission, removed device). Caller decides whether to retry. Never silently discard. |
-| **Corruption** | `Corrupt`, `KeyslotTampered`, `VersionMismatch`, `NewerFormat` | On-disk data is inconsistent or unrecognisable. Not safe to continue operating on this file. Surface to user with path context. |
+| **Corruption** | `Corrupt`, `KeyslotTampered`, `VersionMismatch`, `UnsupportedFormat` | On-disk data is inconsistent, unrecognisable, or outside the admitted compatibility interval. Not safe to continue operating on this file. Surface to user with path context. |
 | **AuthFailure** | `AuthFailed`, `WrongKey`, `NoProtectorAccepted` | Cryptographic authentication failed or no valid key. Distinct from corruption: the file may be intact but the key is wrong. User-actionable. |
 | **LogicInvariant** | `InvalidArgument`, `TxnConflict`, `OutOfSpace` | The caller did something the engine cannot satisfy given current state. The database itself is fine. Caller fixes their usage. |
 | **Busy** | `Busy` (from `BusyPolicy::FailFast`) | Another writer holds the gate. Caller should back off or wait with `BusyPolicy::Wait`. |
@@ -1999,15 +1999,18 @@ Two distinct `u16`s live in the header, but the current engine uses them conserv
 - **`format_version`** — what the file *is*. Bumped by every on-disk format change.
 - **`min_reader_version`** — currently written equal to `format_version`. Keep the field because it already exists in the header, but do not treat it as a live forward-compatibility contract yet.
 
-The engine itself has a `FORMAT_VERSION` constant. Open rules today:
+The engine has `MIN_SUPPORTED_FORMAT_VERSION` and `FORMAT_VERSION` constants.
+Open rules today:
 
 | File's `format_version` | Engine behavior |
 |---|---|
-| `== FORMAT_VERSION` | Open normally. |
-| `> FORMAT_VERSION` | Refuse with `NewerFormat`. |
-| `< FORMAT_VERSION` | No automatic path is promised today; explicit migration support is deferred until a real incompatible format change exists. |
+| Inside `MIN_SUPPORTED_FORMAT_VERSION..=FORMAT_VERSION` | Open normally. |
+| Outside that interval | Refuse with `UnsupportedFormat`; report both admitted bounds. |
 
-This matches the current implementation: pager validation checks `format_version` and rejects newer files outright. `min_reader_version` is recorded in the header, but Tosumu does not currently use it to promise forward-compatible opens or older-reader support.
+Pager and bounded byte-inspection validation apply the same interval before
+recovery or mutation. `min_reader_version` is recorded in the header, but
+Tosumu does not currently use it to promise forward-compatible opens or
+older-reader support.
 
 ### 13.2 Current migration posture
 
