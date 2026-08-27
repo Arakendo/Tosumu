@@ -4,10 +4,10 @@
 | --- | --- |
 | Status | Active |
 | Opened | 2026-08-03 |
-| Last updated | 2026-08-27 (MVP+10 baseline) |
+| Last updated | 2026-08-27 (ADR-0005 snapshot-mechanism admission) |
 | Owner | Tosumu maintainers |
 | Authority | Tracking plan; `docs/Specifications/Tosumu Software Design Document.md` remains normative |
-| Current milestone | MVP+10 baseline and coordination planning |
+| Current milestone | MVP+10 private format-v3 snapshot implementation |
 
 ## Purpose
 
@@ -249,6 +249,8 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
 **Build**
 
 - [x] Dedicated plan with an executable baseline of current lock/read behavior.
+- [x] Accepted format-v3 generation, retained-WAL, limit, checkpoint, and
+      compatibility architecture in ADR-0005.
 - [ ] Read transactions pinned to a stable LSN snapshot.
 - [ ] Single-writer/multiple-reader coordination without readers observing
       partial commits.
@@ -580,7 +582,7 @@ partial or stale milestones directly rather than forcing a pass/fail result.
 | +7 | Verified | Protector lifecycle and attack tests | Maintain key-management evidence |
 | +8 | Verified | TUI/view tests and structured inspect contracts | Maintain viewer evidence |
 | +9 | Verified baseline; deferred scope named | `initial-sql-layer.md`; audit and logical scans explicitly moved out | Post-MVP+10 SQL and future audit plans |
-| +10 | Baseline recorded | `mvp-10-multiple-readers.md`; `mvp10_baseline` tests | AR-0009 / MVP+10 plan |
+| +10 | Mechanism accepted; implementation active | ADR-0005; `mvp-10-multiple-readers.md`; baseline and WAL-pressure tests | Private format-v3 owner and crash fixtures |
 | +11 | Not started | Future dedicated plan | Unassigned |
 | +12 | Not started | Architectural Review required | Unassigned |
 | +13 | Not started | Future dedicated plan and format decision | Unassigned |
@@ -597,8 +599,8 @@ Before implementation moves beyond the completed MVP+9 baseline:
       focused executable baseline.
 - [x] Open an Architectural Review for multiple-reader visibility, coordination,
       and execution ownership. See [AR-0009](../Architectural%20Reviews/AR-0009-multiple-reader-execution-and-coordination.md).
-- [ ] Update AR-0009 and create or revise an ADR if MVP+10 changes accepted
-      ownership, a public contract, or the on-disk compatibility boundary.
+- [x] Update the reviews and create ADR-0005 for the accepted format-v3
+      ownership, generation, retained-WAL, and compatibility boundary.
 - [x] Keep secondary indexes subordinate to the MVCC/storage plan rather than
       teaching `tosumu-core` SQL semantics.
 

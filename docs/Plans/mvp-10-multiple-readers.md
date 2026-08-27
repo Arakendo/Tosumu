@@ -366,6 +366,11 @@ format/recovery design that can retain committed versions safely.
   MiB), so 128 MiB is invalid. AR-0011 now prefers initial private limits of
   160 MiB per transaction, 512 MiB retained committed WAL, and 64 registered
   snapshots, all rejected before append/registration when exceeded.
+- Promoted AR-0011's accepted mechanism to ADR-0005. Format-v3 committed
+  generation, retained-WAL page selection, process-local snapshot ownership,
+  zero-reader full checkpointing, finite private defaults, explicit v2 refusal,
+  and raw-WAL exclusion are now binding architecture. Public session type names
+  remain provisional pending the private implementation and independent caller.
 
 ## References
 

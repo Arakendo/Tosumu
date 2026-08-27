@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Incubating |
+| Status | Accepted |
 | Opened | 2026-08-27 |
 | Last reviewed | 2026-08-27 |
 | Scope | Core storage / WAL / snapshot visibility / format compatibility |
 | Trigger | AR-0009 Slice 2 requires an executable committed-LSN and retained-version contract before snapshot code begins |
-| Related ADRs | ADR-0001, ADR-0002, ADR-0004 |
+| Related ADRs | ADR-0001, ADR-0002, ADR-0004, ADR-0005 |
 | Related evidence | AR-0006, AR-0009, MVP+10 baseline tests, SDD §§7.2-7.8 and 13 |
 
 ## Architectural Question
@@ -399,9 +399,9 @@ tail even before a retained-WAL ceiling is selected.
 
 ## Disposition
 
-Incubating with Alternative C preferred. The candidate is specific enough for
-focused format, recovery, limit, and independent-caller evidence, but not yet
-accepted as an ADR or authorized for semantic implementation.
+Accepted through ADR-0005. Alternative C, retained committed WAL versions above
+one checkpoint horizon, is now binding architecture. Public owner/session names
+and the remaining implementation evidence stay provisional as listed below.
 
 ## Required Follow-Up
 
@@ -427,8 +427,8 @@ accepted as an ADR or authorized for semantic implementation.
 - [ ] Build the storage contract behind a private boundary and exercise it
       through the provider plus one independent caller before stabilizing shared
       database/session types.
-- [ ] Promote accepted generation, publication, retention, and compatibility
-      rules to an ADR before changing semantic storage behavior.
+- [x] Promote accepted generation, publication, retention, and compatibility
+      rules to ADR-0005 before changing semantic storage behavior.
 
 ## Reopening Triggers
 
@@ -578,3 +578,15 @@ accepted as an ADR or authorized for semantic implementation.
   and configuration await the private contract and independent caller.
 - Resulting ADR or documentation change: no behavior change; executable sizing
   evidence is retained as an ignored large test.
+
+### Cycle 10 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: generation, epoch, commit staging, crash ordering, v3 refusal,
+  reader ownership, checkpoint scope, and finite private defaults now have one
+  coherent candidate backed by focused and large-pressure tests.
+- Findings: the storage mechanism is sufficiently specific to authorize a
+  private format-v3 implementation without stabilizing public session types.
+- Disposition: Accepted through ADR-0005.
+- Resulting ADR or documentation change: ADR-0005 is binding; this review keeps
+  detailed evidence and remaining implementation/caller follow-up.

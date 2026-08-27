@@ -65,11 +65,13 @@ specifications and accepted ADRs.
 | [ADR-0001: Storage Engine Layer Boundaries](ADR/ADR-0001-storage-engine-layer-boundaries.md) | Accepted / binding |
 | [ADR-0002: Authenticated Pager Trust Boundary](ADR/ADR-0002-authenticated-pager-trust-boundary.md) | Accepted / binding |
 | [ADR-0003: Source Unit Cohesion, Size Pressure, And Decomposition](ADR/ADR-0003-source-unit-cohesion-size-pressure-and-decomposition.md) | Accepted / binding |
+| [ADR-0004: Cooperative Single-Writer Admission](ADR/ADR-0004-cooperative-single-writer-admission.md) | Accepted / binding |
+| [ADR-0005: Committed Generation And Retained-WAL Snapshots](ADR/ADR-0005-committed-generation-and-retained-wal-snapshots.md) | Accepted / binding |
 
 ## Architectural Reviews
 
-All current reviews are **Incubating**. They preserve unresolved evidence and
-do not change accepted architecture by themselves.
+AR-0011 is **Accepted** through ADR-0005. Other current reviews are
+**Incubating** and do not change accepted architecture by themselves.
 
 | Record | Question |
 | --- | --- |
@@ -83,13 +85,13 @@ do not change accepted architecture by themselves.
 | [AR-0008](Architectural%20Reviews/AR-0008-operation-outcome-closure-and-crash-evidence.md) | Terminal outcome and crash-observation evidence |
 | [AR-0009](Architectural%20Reviews/AR-0009-multiple-reader-execution-and-coordination.md) | Multiple-reader visibility, locking, and execution ownership |
 | [AR-0010](Architectural%20Reviews/AR-0010-dependency-trust-and-source-provenance.md) | Dependency trust, exact source identity, and release provenance |
-| [AR-0011](Architectural%20Reviews/AR-0011-committed-generation-and-version-residence.md) | Committed generation, retained versions, and checkpoint residence |
+| [AR-0011](Architectural%20Reviews/AR-0011-committed-generation-and-version-residence.md) | Accepted committed-generation, retained-WAL, checkpoint, and format-v3 evidence |
 
 ## Implementation Plans
 
 | Plan | Lifecycle | Next action |
 | --- | --- | --- |
-| [Main Feature Roadmap](Plans/main-feature-roadmap.md) | Active | Falsify the MVP+10 retained-WAL and format-v3 candidate under AR-0011 |
+| [Main Feature Roadmap](Plans/main-feature-roadmap.md) | Active | Implement ADR-0005 behind a private format-v3 owner and add crash fixtures |
 | [Initial SQL Layer](Plans/initial-sql-layer.md) | Completed baseline; retained | Resolve separately listed deferred SQL scope only through new evidence or a follow-up plan |
 | [Tosumu Command Language](Plans/tosumu-command-language.md) | Proposed | Complete Slice 0 evidence and retain AR-0001 ownership review |
 | [Documentation Lifecycle And Design Decomposition](Plans/documentation-lifecycle-and-design-decomposition.md) | Active | Apply metadata and separate current design from future proposals incrementally |

@@ -70,8 +70,8 @@ numbering. Copy `TEMPLATE.md` and add the record to this index.
   -- reviewing the source identity and audit burden of format- and
   authentication-critical dependencies.
 - [AR-0011: Committed Generation And Version Residence](AR-0011-committed-generation-and-version-residence.md)
-  -- incubating the MVP+10 commit-LSN, retained-WAL, reader-horizon, checkpoint,
-  and format-v3 candidate contract.
+  -- accepted through ADR-0005; retains the MVP+10 commit-LSN, retained-WAL,
+  reader-horizon, checkpoint, limit, and format-v3 evidence.
 
-All indexed reviews are currently **Incubating**. There are no accepted,
-rejected, deferred, or superseded reviews.
+AR-0011 is **Accepted** through ADR-0005. All other indexed reviews are
+currently **Incubating**; none are rejected, deferred, or superseded.
