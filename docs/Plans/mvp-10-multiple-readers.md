@@ -8,7 +8,7 @@
 | Owner | Tosumu maintainers |
 | Target | MVP+10 core storage and embedded provider coordination |
 | Related ADRs | ADR-0001, ADR-0002, ADR-0004 |
-| Related reviews | AR-0009 |
+| Related reviews | AR-0009, AR-0011 |
 | Related CRs | None |
 | Depends on | MVP+9 baseline, authenticated pager, WAL recovery, provider boundary |
 
@@ -314,6 +314,13 @@ format/recovery design that can retain committed versions safely.
   field already exists, so a snapshot format must exclude old writers and
   choose between a clean pre-stability break and an explicit offline logical
   rewrite; automatic migration on open remains rejected.
+- Opened AR-0011 with a concrete preferred candidate: the durable `Commit`
+  record LSN is the atomic generation; the main file represents the page-zero
+  checkpoint horizon; newer committed page versions remain in WAL; snapshots
+  select the newest owning commit no later than their captured generation; and
+  one shared database owner retains the writer gate plus a process-local reader
+  registry. Crash ordering, WAL epoch metadata, raw-WAL scope, finite retention
+  limits, and v3 migration behavior remain required evidence before an ADR.
 
 ## References
 
@@ -322,4 +329,5 @@ format/recovery design that can retain committed versions safely.
 - `docs/ADR/ADR-0002-authenticated-pager-trust-boundary.md`
 - `docs/ADR/ADR-0004-cooperative-single-writer-admission.md`
 - `docs/Architectural Reviews/AR-0009-multiple-reader-execution-and-coordination.md`
+- `docs/Architectural Reviews/AR-0011-committed-generation-and-version-residence.md`
 - `docs/Plans/main-feature-roadmap.md`

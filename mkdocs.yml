@@ -75,6 +75,7 @@ nav:
           - AR-0008 Operation Outcome Closure And Crash Evidence: Architectural Reviews/AR-0008-operation-outcome-closure-and-crash-evidence.md
           - AR-0009 Multiple Reader Execution And Coordination: Architectural Reviews/AR-0009-multiple-reader-execution-and-coordination.md
           - AR-0010 Dependency Trust And Source Provenance: Architectural Reviews/AR-0010-dependency-trust-and-source-provenance.md
+          - AR-0011 Committed Generation And Version Residence: Architectural Reviews/AR-0011-committed-generation-and-version-residence.md
           - Template: Architectural Reviews/TEMPLATE.md
       - Implementation Plans:
           - Plans/README.md

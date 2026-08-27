@@ -8,7 +8,7 @@
 | Scope | Core storage / transaction coordination / platform mechanism |
 | Trigger | MVP+10 requires a baseline for locking, LSN visibility, and reader/writer behavior before MVCC-style work begins |
 | Related ADRs | ADR-0001, ADR-0002, ADR-0004 |
-| Related evidence | Main Feature Roadmap, SDD §§7 and 28.4, current pager/WAL/transaction implementation |
+| Related evidence | Main Feature Roadmap, SDD §§7 and 28.4, AR-0011, current pager/WAL/transaction implementation |
 
 ## Architectural Question
 
@@ -207,6 +207,7 @@ public MVCC contract through that implementation.
       limitations, and `FILE_OPEN_BUSY` details before implementation.
 - [ ] Define one monotonic committed-generation source of truth across commit,
       checkpoint, WAL truncation, close, recovery, and reopen.
+      AR-0011 retains the preferred candidate and remaining falsification work.
 - [ ] Decide whether all ordinary writes become implicit transactions or use
       another single publication path; no main-file mutation may bypass the
       admitted commit generation.

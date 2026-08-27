@@ -69,6 +69,9 @@ numbering. Copy `TEMPLATE.md` and add the record to this index.
 - [AR-0010: Dependency Trust And Source Provenance](AR-0010-dependency-trust-and-source-provenance.md)
   -- reviewing the source identity and audit burden of format- and
   authentication-critical dependencies.
+- [AR-0011: Committed Generation And Version Residence](AR-0011-committed-generation-and-version-residence.md)
+  -- incubating the MVP+10 commit-LSN, retained-WAL, reader-horizon, checkpoint,
+  and format-v3 candidate contract.
 
 All indexed reviews are currently **Incubating**. There are no accepted,
 rejected, deferred, or superseded reviews.

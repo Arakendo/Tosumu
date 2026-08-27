@@ -83,12 +83,13 @@ do not change accepted architecture by themselves.
 | [AR-0008](Architectural%20Reviews/AR-0008-operation-outcome-closure-and-crash-evidence.md) | Terminal outcome and crash-observation evidence |
 | [AR-0009](Architectural%20Reviews/AR-0009-multiple-reader-execution-and-coordination.md) | Multiple-reader visibility, locking, and execution ownership |
 | [AR-0010](Architectural%20Reviews/AR-0010-dependency-trust-and-source-provenance.md) | Dependency trust, exact source identity, and release provenance |
+| [AR-0011](Architectural%20Reviews/AR-0011-committed-generation-and-version-residence.md) | Committed generation, retained versions, and checkpoint residence |
 
 ## Implementation Plans
 
 | Plan | Lifecycle | Next action |
 | --- | --- | --- |
-| [Main Feature Roadmap](Plans/main-feature-roadmap.md) | Active | Close MVP+9 follow-up and define the MVP+10 gate |
+| [Main Feature Roadmap](Plans/main-feature-roadmap.md) | Active | Falsify the MVP+10 retained-WAL and format-v3 candidate under AR-0011 |
 | [Initial SQL Layer](Plans/initial-sql-layer.md) | Completed baseline; retained | Resolve separately listed deferred SQL scope only through new evidence or a follow-up plan |
 | [Tosumu Command Language](Plans/tosumu-command-language.md) | Proposed | Complete Slice 0 evidence and retain AR-0001 ownership review |
 | [Documentation Lifecycle And Design Decomposition](Plans/documentation-lifecycle-and-design-decomposition.md) | Active | Apply metadata and separate current design from future proposals incrementally |
