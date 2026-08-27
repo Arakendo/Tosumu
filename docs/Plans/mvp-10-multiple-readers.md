@@ -371,6 +371,12 @@ format/recovery design that can retain committed versions safely.
   zero-reader full checkpointing, finite private defaults, explicit v2 refusal,
   and raw-WAL exclusion are now binding architecture. Public session type names
   remain provisional pending the private implementation and independent caller.
+- Added the first private ADR-0005 storage primitive: `CommittedWalIndex`
+  retains page versions by owning commit LSN above a checkpoint horizon and
+  selects the newest version visible to a requested generation. The existing
+  read-only WAL overlay now consumes that index for its latest view. Focused
+  atomic-selection tests and the current live-view baseline pass without a
+  format or public API change.
 
 ## References
 

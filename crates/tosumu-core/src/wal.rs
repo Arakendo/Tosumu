@@ -26,6 +26,9 @@ use crate::error::{Result, TosumuError};
 use crate::format::PAGE_SIZE;
 use crate::writer_gate::WriterGuard;
 
+mod index;
+pub(crate) use index::CommittedWalIndex;
+
 // ── Transient-lock retry ─────────────────────────────────────────────────────
 
 /// Default maximum number of retry attempts when a transient file-lock error is

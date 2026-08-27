@@ -590,3 +590,16 @@ and the remaining implementation evidence stay provisional as listed below.
 - Disposition: Accepted through ADR-0005.
 - Resulting ADR or documentation change: ADR-0005 is binding; this review keeps
   detailed evidence and remaining implementation/caller follow-up.
+
+### Cycle 11 -- 2026-08-27
+
+- Status entering review: Accepted
+- New evidence: a private `CommittedWalIndex` now groups page frames by owning
+  commit LSN above a supplied checkpoint horizon. Focused tests prove atomic
+  generation selection across two pages and exclude checkpointed/incomplete
+  transactions. The existing read-only WAL overlay is its first real caller.
+- Findings: snapshot page selection is executable without changing format-v2
+  open, checkpoint, or live-view behavior. Monotonic stream validation and a
+  shared owner remain subsequent v3 gates.
+- Disposition: ADR-0005 remains accepted without revision.
+- Resulting ADR or documentation change: no public or physical-format change.
