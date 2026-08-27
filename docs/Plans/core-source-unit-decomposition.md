@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | In progress |
+| Status | Complete |
 | Opened | 2026-08-27 |
 | Last updated | 2026-08-27 |
 | Authority | Tracking plan; ADR-0001, ADR-0002, and ADR-0003 remain binding |
@@ -217,19 +217,19 @@ pipeline remains intact.
 
 ### Slice 3: Pager Private Responsibilities
 
-- [~] Extract page-zero validation and atomic editing behind private inputs and
+- [x] Extract page-zero validation and atomic editing behind private inputs and
       typed results. Stateless layout, validation, field access, keyslot writes,
-      and header construction now live in `pager/page0.rs`; the atomic edit
-      session remains in the pager root until its unlock dependency has a clean
-      direction.
-- [ ] Extract protector-specific unlock mechanics without moving authority or
+      and header construction live in `pager/page0.rs`; the atomic edit session
+      lives with its unlock dependency in `pager/unlock.rs`.
+- [x] Extract protector-specific unlock mechanics without moving authority or
       key material outside the pager boundary.
 - [x] Review the resulting dependency direction and state access before moving
       open or transaction orchestration.
-- [ ] Extract another seam only if it reduces coupling and preserves a thin,
+- [x] Extract another seam only if it reduces coupling and preserves a thin,
       understandable pager composition root.
-- [ ] Retain a failed extraction as evidence rather than hiding broad shared
-      state behind pass-through functions.
+- [x] Retain a rejected extraction as evidence rather than hiding broad shared
+      state behind pass-through functions. Transaction publication remains in
+      the parent because it directly owns most mutable `Pager` state.
 
 Exit state: the pager trust boundary remains structurally identical while its
 demonstrated private responsibilities are easier to inspect and test.
@@ -309,3 +309,30 @@ Architectural Review or ADR is updated first.
   --all-targets`, and `mkdocs build --strict`. The post-change page-store
   property test and 64 MiB external-provider case retained their baseline
   outcomes and comparable long-running behavior.
+
+### 2026-08-27 -- Pager Unlock And Atomic Edit Session
+
+- `pager/unlock.rs` now owns protector selection for key management, bounded
+  passphrase/KEK slot scans, exact-length keyfile loading, and the atomic
+  page-zero edit session. It is a private pager child; its exported surface is
+  restricted to `pub(super)` inputs consumed by the pager composition root.
+- The edit session moved with its unlock dependency, resolving the coupling
+  noted in the first extraction without giving key material, raw file access,
+  or protector mechanics public visibility. `pager.rs` is now 1,824 physical
+  lines and `pager/unlock.rs` is 188 physical lines.
+- The pager root depends on `page0` and `unlock`; neither child receives a
+  `Pager`, WAL writer, or broad mutable context. The child dependency remains
+  one-way from `unlock` to stateless `page0` helpers.
+- Open/recovery orchestration remains in the root because it constructs the
+  complete pager state and coordinates WAL checkpoint or read-only overlay.
+  Transaction publication also remains there because extracting it would
+  require sharing nearly every mutable transaction, file, header, and WAL
+  field. That would obscure ownership rather than reduce coupling.
+- Focused validation passed all 11 pager tests, all 12 protector lifecycle
+  tests, and 25 key-management resilience tests; the existing 2,048-Argon2-call
+  bit-flip test remained explicitly ignored.
+- Final validation passed `cargo fmt --all -- --check`, strict workspace
+  Clippy, `cargo test --workspace --all-targets`, and `mkdocs build --strict`,
+  including the long differential crash-recovery property and maximum-size
+  external-provider case. Rust reported only the known incremental-cache
+  hard-link fallback warning.
