@@ -382,6 +382,11 @@ format/recovery design that can retain committed versions safely.
   offset; the physical inspection reader remains observational. Focused order
   fixtures, committed-index tests, all nine MVP+10 baseline tests, and strict
   core Clippy pass.
+- Routed writable pager WAL construction through the private database-seeded
+  opener. Page-zero `wal_checkpoint_lsn + 1` supplies the minimum next LSN for
+  an empty/obsolete sidecar, while a higher validated existing LSN is preserved.
+  Raw public `WalWriter` remains epoch-local. Focused seed tests, the unchanged
+  format-v2 LSN baseline, and strict core Clippy pass.
 
 ## References
 

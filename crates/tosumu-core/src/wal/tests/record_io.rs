@@ -136,6 +136,27 @@ fn open_continues_lsn() {
 }
 
 #[test]
+fn database_seed_controls_empty_wal_and_never_moves_existing_lsn_backward() {
+    let empty = tmp("seeded_empty");
+    let _ = std::fs::remove_file(&empty);
+    let mut writer = WalWriter::open_or_create_seeded(&empty, 42).unwrap();
+    assert_eq!(writer.next_lsn(), 42);
+    assert_eq!(writer.append(&WalRecord::Begin { txn_id: 1 }).unwrap(), 42);
+    writer.sync().unwrap();
+    drop(writer);
+
+    let mut reopened = WalWriter::open_or_create_seeded(&empty, 10).unwrap();
+    assert_eq!(reopened.next_lsn(), 43);
+    assert_eq!(
+        reopened.append(&WalRecord::Commit { txn_id: 1 }).unwrap(),
+        43
+    );
+    reopened.sync().unwrap();
+
+    let _ = std::fs::remove_file(&empty);
+}
+
+#[test]
 fn wal_writer_open_truncates_partial_tail_before_append() {
     let p = tmp("open_truncates_partial_tail");
     let _ = std::fs::remove_file(&p);

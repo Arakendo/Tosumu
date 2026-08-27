@@ -156,7 +156,7 @@ impl Pager {
 
         // Open/create WAL sidecar.  Failure is fatal: we must not advertise
         // transaction semantics while WAL is unavailable.
-        let wal = WalWriter::open_or_create(&wal_path(path))?;
+        let wal = WalWriter::open_or_create_seeded(&wal_path(path), wal_seed_from_page0(&page0)?)?;
 
         Ok(Pager {
             file,
@@ -270,7 +270,7 @@ impl Pager {
         file.sync_data()?;
 
         // Open/create WAL sidecar.  Failure is fatal.
-        let wal = WalWriter::open_or_create(&wal_path(path))?;
+        let wal = WalWriter::open_or_create_seeded(&wal_path(path), wal_seed_from_page0(&page0)?)?;
 
         Ok(Pager {
             file,
@@ -1537,7 +1537,7 @@ fn finish_open(
         }
         let freelist_head = read_u64(&refreshed, OFF_FREELIST_HEAD);
         let root_page = read_u64(&refreshed, OFF_ROOT_PAGE);
-        let wal = WalWriter::open_or_create(&wp)?;
+        let wal = WalWriter::open_or_create_seeded(&wp, wal_seed_from_page0(page0)?)?;
         return Ok(Pager {
             file,
             _writer_guard: Some(writer_guard),
@@ -1559,7 +1559,7 @@ fn finish_open(
             txn_saved_freelist_head: 0,
         });
     }
-    let wal = WalWriter::open_or_create(&wp)?;
+    let wal = WalWriter::open_or_create_seeded(&wp, wal_seed_from_page0(page0)?)?;
     Ok(Pager {
         file,
         _writer_guard: Some(writer_guard),
@@ -1630,6 +1630,15 @@ fn finish_open_readonly(
         overlay_committed_wal(&wp, &mut pager)?;
     }
     Ok(pager)
+}
+
+fn wal_seed_from_page0(page0: &[u8; PAGE_SIZE]) -> Result<u64> {
+    read_u64(page0, OFF_WAL_CHECKPOINT_LSN)
+        .checked_add(1)
+        .ok_or(TosumuError::Corrupt {
+            pgno: 0,
+            reason: "wal_checkpoint_lsn overflow",
+        })
 }
 
 fn overlay_committed_wal(wal_path: &Path, pager: &mut Pager) -> Result<()> {

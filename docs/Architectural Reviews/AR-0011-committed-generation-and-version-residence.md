@@ -617,3 +617,16 @@ and the remaining implementation evidence stay provisional as listed below.
 - Disposition: ADR-0005 remains accepted without revision.
 - Resulting ADR or documentation change: no format change; malformed ordering
   now fails explicitly on database recovery/overlay paths.
+
+### Cycle 13 -- 2026-08-27
+
+- Status entering review: Accepted
+- New evidence: writable pager construction now opens its WAL through a private
+  database-seeded path using `wal_checkpoint_lsn + 1`. An empty sidecar adopts
+  that lower bound; an existing higher next LSN never moves backward. The
+  public raw physical writer retains its epoch-local behavior.
+- Findings: page zero is now the executable sole epoch authority at the database
+  boundary, although valid format-v2 files continue to seed 1 because their
+  checkpoint field remains zero.
+- Disposition: ADR-0005 remains accepted without revision.
+- Resulting ADR or documentation change: no format or public API change.

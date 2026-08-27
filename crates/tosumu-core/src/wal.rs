@@ -317,6 +317,13 @@ impl WalWriter {
         }
     }
 
+    /// Database-owned open with a durable lower bound for the next LSN.
+    pub(crate) fn open_or_create_seeded(path: &Path, minimum_next_lsn: u64) -> Result<Self> {
+        let mut writer = Self::open_or_create(path)?;
+        writer.next_lsn = writer.next_lsn.max(minimum_next_lsn);
+        Ok(writer)
+    }
+
     /// Write one record to the WAL. Does NOT fsync — call `sync()` after a full transaction.
     pub fn append(&mut self, record: &WalRecord) -> Result<u64> {
         let lsn = self.next_lsn;
