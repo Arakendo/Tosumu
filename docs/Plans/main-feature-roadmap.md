@@ -594,8 +594,10 @@ Before implementation moves beyond the completed MVP+9 baseline:
 - [ ] Create `docs/Plans/mvp-10-multiple-readers.md` from `TEMPLATE.md`.
 - [ ] Record current locking, LSN visibility, and reader/writer behavior with a
       focused executable baseline.
-- [ ] Open an Architectural Review if MVCC changes the accepted ownership,
-      public contract, or on-disk compatibility boundary.
+- [x] Open an Architectural Review for multiple-reader visibility, coordination,
+      and execution ownership. See [AR-0009](../Architectural%20Reviews/AR-0009-multiple-reader-execution-and-coordination.md).
+- [ ] Update AR-0009 and create or revise an ADR if MVP+10 changes accepted
+      ownership, a public contract, or the on-disk compatibility boundary.
 - [ ] Keep secondary indexes subordinate to the MVCC/storage plan rather than
       teaching `tosumu-core` SQL semantics.
 

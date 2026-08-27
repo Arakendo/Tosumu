@@ -33,6 +33,30 @@ See `docs/Specifications/Tosumu Software Design Document.md §8.1` (in scope) an
 - Consistent multi-page rollback (acknowledged limitation; see `docs/Specifications/Tosumu Software Design Document.md §5.3`).
 - Remote attestation, network key escrow, KMS integration.
 
+## Authority and input boundaries
+
+Security includes integrity and availability at storage boundaries, not only
+secret handling. Implemented and future adapters follow these rules:
+
+- possession or discovery of a database, provider, command, or host capability
+  does not grant unrelated observation or mutation authority;
+- successful parsing and authentication do not establish authorization,
+  freshness, semantic validity, or trust in application meaning;
+- files, uploaded bytes, serialized state, provider responses, host messages,
+  and remote input remain untrusted until they are structurally validated and
+  resource-bounded for the operation being attempted;
+- adapters receive the narrowest storage operations and data projections needed
+  for their responsibility rather than pager, key, filesystem, or process
+  authority by default;
+- missing, stale, revoked, unknown, or expanded authority fails explicitly at
+  the protected boundary; and
+- diagnostics must preserve useful bounded provenance without exposing keys,
+  passphrases, decrypted values, unnecessary paths, or arbitrary payloads.
+
+These rules do not claim process isolation, multi-tenant security, a stable
+authorization API, or an implemented remote-service policy. Those questions
+remain under `docs/Architectural Reviews/AR-0003-service-authority-and-host-modes.md`.
+
 ## Reporting a vulnerability
 
 If you believe you have found a cryptographic or integrity-affecting flaw in the design or implementation, please report it privately rather than by public issue.

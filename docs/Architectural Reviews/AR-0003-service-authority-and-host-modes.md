@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Incubating |
 | Opened | 2026-08-03 |
-| Last reviewed | 2026-08-03 |
+| Last reviewed | 2026-08-27 |
 | Scope | Core storage / service adapter / deployment hosts |
 | Trigger | Architecture notes describe embedded, daemon, and remote hosts without an implemented service boundary |
 | Related ADRs | ADR-0001 |
@@ -45,6 +45,15 @@ without implementation evidence.
 - Host adapters own IPC, HTTP, process management, and platform mechanisms.
 - Hosts must not reimplement storage semantics or make remote deployment imply
   distributed storage.
+- Discovery, successful parsing, possession of a database handle, and
+  authentication are not interchangeable grants of authority.
+- A future host must grant only the operations and database scope required by
+  its policy. Missing, stale, revoked, or expanded authority must reject
+  explicitly at the protected boundary.
+- External input remains untrusted after authentication and must be bounded and
+  structurally validated before it reaches storage mutation or expensive work.
+- Running in the same process does not authorize an adapter to bypass the
+  public storage, transaction, inspection, or error boundaries.
 
 ## Alternatives Considered
 
@@ -72,6 +81,9 @@ without implementation evidence.
 - Embedded operation remains the only established host mode.
 - A service boundary is plausible but not admitted.
 - Remote administration and distributed storage are different concepts.
+- A future service boundary must keep authentication, authorization, parsing,
+  and execution as separate decisions; this constraint does not admit a role,
+  ACL, identity, or policy subsystem.
 
 ## Disposition
 
@@ -90,6 +102,10 @@ implemented or accepted subsystem.
 - A consumer requires process isolation or shared local authority.
 - Two host adapters duplicate lifecycle or write-serialization policy.
 - Hosted operation pressures the current single-process guarantee.
+- A host, tool, or provider begins relying on ambient process authority or a
+  broad engine object to perform unrelated operations.
+- Authentication or successful decoding is treated as authorization to inspect
+  or mutate storage.
 
 ## Review History
 
@@ -101,3 +117,14 @@ implemented or accepted subsystem.
 - Disposition: Incubating
 - Resulting ADR or documentation change: none
 
+### Cycle 2 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: browser inspection and provider work demonstrated that a
+  bounded adapter can operate without receiving paths, unlock state, or pager
+  authority.
+- Findings: least-authority and explicit input-admission constraints apply to
+  any future host, but no identity or authorization vocabulary has been earned.
+- Disposition: Incubating
+- Resulting ADR or documentation change: `SECURITY.md` now records the shared
+  authority and input-boundary rules.

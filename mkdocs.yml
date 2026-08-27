@@ -60,6 +60,7 @@ nav:
           - ADR/README.md
           - ADR-0001 Storage Engine Layer Boundaries: ADR/ADR-0001-storage-engine-layer-boundaries.md
           - ADR-0002 Authenticated Pager Trust Boundary: ADR/ADR-0002-authenticated-pager-trust-boundary.md
+          - ADR-0003 Source Unit Cohesion Size Pressure And Decomposition: ADR/ADR-0003-source-unit-cohesion-size-pressure-and-decomposition.md
           - Template: ADR/TEMPLATE.md
       - Architectural Reviews:
           - Architectural Reviews/README.md
@@ -69,6 +70,10 @@ nav:
           - AR-0004 Semantic Change History And Sync: Architectural Reviews/AR-0004-semantic-change-history-and-sync.md
           - AR-0005 Witness Observer And Freshness: Architectural Reviews/AR-0005-witness-observer-and-freshness.md
           - AR-0006 Format Evolution And Migration Boundary: Architectural Reviews/AR-0006-format-evolution-and-migration-boundary.md
+          - AR-0007 Core Change Evidence And Resilience: Architectural Reviews/AR-0007-core-change-evidence-and-resilience.md
+          - AR-0008 Operation Outcome Closure And Crash Evidence: Architectural Reviews/AR-0008-operation-outcome-closure-and-crash-evidence.md
+          - AR-0009 Multiple Reader Execution And Coordination: Architectural Reviews/AR-0009-multiple-reader-execution-and-coordination.md
+          - AR-0010 Dependency Trust And Source Provenance: Architectural Reviews/AR-0010-dependency-trust-and-source-provenance.md
           - Template: Architectural Reviews/TEMPLATE.md
       - Implementation Plans:
           - Plans/README.md

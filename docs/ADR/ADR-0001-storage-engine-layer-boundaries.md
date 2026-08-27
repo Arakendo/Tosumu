@@ -29,6 +29,18 @@ turn their schema into storage-engine truth.
 - Dependency direction remains from semantic adapters toward storage
   mechanics, never from storage mechanics toward a consumer.
 
+When ownership is unclear, separate three questions:
+
+1. Who owns the meaning promised to callers?
+2. Who owns the public vocabulary used to express it?
+3. Who owns the mechanism that executes it?
+
+Tosumu core owns provider-neutral storage meaning. Optional adapters own their
+domain meaning. Replaceable providers and dependencies may supply mechanics
+without acquiring ownership of Tosumu's public storage vocabulary. A new core
+abstraction is justified by demonstrated storage semantics and independent
+callers, not merely by repeated convenience or the breadth of a dependency.
+
 ```text
 Consumer meaning and schema
     ↓
@@ -65,4 +77,3 @@ Pager, B+ tree, WAL, recovery, authenticated pages
 - `docs/Specifications/Tosumu Software Design Document.md`, especially goals, non-goals, and guiding principle 7
 - `docs/Plans/initial-sql-layer.md`
 - `docs/CRs/Tokimu/tokimu-001-tasset-storage-provider-boundary.md`
-

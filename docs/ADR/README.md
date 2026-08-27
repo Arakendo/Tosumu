@@ -22,3 +22,4 @@ remain in history when superseded.
 
 - [ADR-0001: Storage Engine Layer Boundaries](ADR-0001-storage-engine-layer-boundaries.md)
 - [ADR-0002: Authenticated Pager Trust Boundary](ADR-0002-authenticated-pager-trust-boundary.md)
+- [ADR-0003: Source Unit Cohesion, Size Pressure, And Decomposition](ADR-0003-source-unit-cohesion-size-pressure-and-decomposition.md)

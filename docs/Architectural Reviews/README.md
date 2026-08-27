@@ -58,6 +58,17 @@ numbering. Copy `TEMPLATE.md` and add the record to this index.
 - [AR-0006: Format Evolution And Migration Boundary](AR-0006-format-evolution-and-migration-boundary.md)
   -- holding pre-stability format evolution and migration policy open until a
   concrete incompatible change exists.
+- [AR-0007: Core Change Evidence And Resilience Discipline](AR-0007-core-change-evidence-and-resilience.md)
+  -- incubating proportional validation and failure-evidence gates for core
+  contracts and risky adapter crossings.
+- [AR-0008: Operation Outcome Closure And Crash Evidence](AR-0008-operation-outcome-closure-and-crash-evidence.md)
+  -- defining honest terminal evidence for crash, survival, and hosted-operation
+  claims without guessing causes from missing reports.
+- [AR-0009: Multiple-Reader Execution And Coordination](AR-0009-multiple-reader-execution-and-coordination.md)
+  -- owning the MVP+10 locking, visibility, checkpoint, and mechanism baseline.
+- [AR-0010: Dependency Trust And Source Provenance](AR-0010-dependency-trust-and-source-provenance.md)
+  -- reviewing the source identity and audit burden of format- and
+  authentication-critical dependencies.
 
 All indexed reviews are currently **Incubating**. There are no accepted,
 rejected, deferred, or superseded reviews.

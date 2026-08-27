@@ -64,6 +64,7 @@ specifications and accepted ADRs.
 | --- | --- |
 | [ADR-0001: Storage Engine Layer Boundaries](ADR/ADR-0001-storage-engine-layer-boundaries.md) | Accepted / binding |
 | [ADR-0002: Authenticated Pager Trust Boundary](ADR/ADR-0002-authenticated-pager-trust-boundary.md) | Accepted / binding |
+| [ADR-0003: Source Unit Cohesion, Size Pressure, And Decomposition](ADR/ADR-0003-source-unit-cohesion-size-pressure-and-decomposition.md) | Accepted / binding |
 
 ## Architectural Reviews
 
@@ -78,6 +79,10 @@ do not change accepted architecture by themselves.
 | [AR-0004](Architectural%20Reviews/AR-0004-semantic-change-history-and-sync.md) | Semantic history and sync ownership |
 | [AR-0005](Architectural%20Reviews/AR-0005-witness-observer-and-freshness.md) | Witness, observer, and freshness evidence |
 | [AR-0006](Architectural%20Reviews/AR-0006-format-evolution-and-migration-boundary.md) | Format evolution and migration ownership |
+| [AR-0007](Architectural%20Reviews/AR-0007-core-change-evidence-and-resilience.md) | Proportional evidence and resilience gates for core changes and risky crossings |
+| [AR-0008](Architectural%20Reviews/AR-0008-operation-outcome-closure-and-crash-evidence.md) | Terminal outcome and crash-observation evidence |
+| [AR-0009](Architectural%20Reviews/AR-0009-multiple-reader-execution-and-coordination.md) | Multiple-reader visibility, locking, and execution ownership |
+| [AR-0010](Architectural%20Reviews/AR-0010-dependency-trust-and-source-provenance.md) | Dependency trust, exact source identity, and release provenance |
 
 ## Implementation Plans
 
