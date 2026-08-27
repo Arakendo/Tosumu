@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | In progress |
 | Opened | 2026-08-27 |
 | Last updated | 2026-08-27 |
 | Authority | Tracking plan; ADR-0001, ADR-0002, and ADR-0003 remain binding |
@@ -180,12 +180,12 @@ change record must retain the local disposition.
 
 ### Slice 0: Conservation Baseline
 
-- [ ] Record the current focused test names and counts for page store, pager,
+- [x] Record the current focused test names and counts for page store, pager,
       and WAL.
-- [ ] Run focused package tests and the full workspace tests.
-- [ ] Retain representative fixture hashes or output artifacts where tests
+- [x] Run focused package tests and the full workspace tests.
+- [x] Retain representative fixture hashes or output artifacts where tests
       depend on committed fixtures.
-- [ ] Record any existing ignored, environment-dependent, or flaky evidence
+- [x] Record any existing ignored, environment-dependent, or flaky evidence
       before moving code.
 
 Exit state: the structural campaign has a reproducible baseline and does not
@@ -193,35 +193,38 @@ mistake an existing failure for decomposition drift.
 
 ### Slice 1: Page Store Test Families
 
-- [ ] Move shared test-only construction into a narrow private support module.
-- [ ] Move basic operations, transaction/recovery, consumer recovery,
+- [x] Move shared test-only construction into a narrow private support module.
+- [x] Move basic operations, transaction/recovery, consumer recovery,
       protector lifecycle, hostile-input, differential, and failure-preservation
       tests into invariant-named private modules.
-- [ ] Preserve test assertions, fixtures, feature gates, and production
+- [x] Preserve test assertions, fixtures, feature gates, and production
       visibility.
-- [ ] Confirm the implementation remains a coherent store composition unit.
+- [x] Confirm the implementation remains a coherent store composition unit.
 
 Exit state: `page_store.rs` communicates the store responsibility without a
 2,600-line anonymous test body.
 
 ### Slice 2: WAL Test Families
 
-- [ ] Move record I/O, recovery, checkpoint, locking, and crash-preservation
+- [x] Move record I/O, recovery, checkpoint, locking, and crash-preservation
       evidence into invariant-named private modules.
-- [ ] Keep framing, decoding, retry, and recovery semantics solely in the
+- [x] Keep framing, decoding, retry, and recovery semantics solely in the
       production WAL implementation.
-- [ ] Preserve fault-injection cleanup and serialized test behavior.
+- [x] Preserve fault-injection cleanup and serialized test behavior.
 
 Exit state: WAL tests are navigable by invariant while the cohesive production
 pipeline remains intact.
 
 ### Slice 3: Pager Private Responsibilities
 
-- [ ] Extract page-zero validation and atomic editing behind private inputs and
-      typed results.
+- [~] Extract page-zero validation and atomic editing behind private inputs and
+      typed results. Stateless layout, validation, field access, keyslot writes,
+      and header construction now live in `pager/page0.rs`; the atomic edit
+      session remains in the pager root until its unlock dependency has a clean
+      direction.
 - [ ] Extract protector-specific unlock mechanics without moving authority or
       key material outside the pager boundary.
-- [ ] Review the resulting dependency direction and state access before moving
+- [x] Review the resulting dependency direction and state access before moving
       open or transaction orchestration.
 - [ ] Extract another seam only if it reduces coupling and preserves a thin,
       understandable pager composition root.
@@ -269,3 +272,40 @@ The plan may close when:
 If a proposed seam requires a public API, changes the authenticated pager trust
 boundary, or alters WAL/format behavior, this plan pauses and the responsible
 Architectural Review or ADR is updated first.
+
+## Progress Log
+
+### 2026-08-27 -- Conservation Baseline And First Extraction
+
+- Baseline page-store evidence discovered 85 focused tests: 82 passed and three
+  expensive Argon2/large-recovery cases remained explicitly ignored.
+- Baseline WAL evidence discovered 30 focused tests: 29 passed and one manual
+  Windows file-lock case remained explicitly ignored.
+- The 11-test pager-focused run passed. The pre-change workspace
+  `cargo test --workspace --all-targets` run also passed, including Criterion
+  benchmarks, the long differential crash-recovery property, and the 64 MiB
+  external-provider case. Rust reported only the known incremental-cache
+  hard-link fallback warning.
+- No fixture or golden file changed during the decomposition, so committed
+  fixture identity remains the retained baseline.
+- `page_store.rs` now retains its 415-line composition implementation and
+  delegates test evidence to private `basic`, `recovery`, `protectors`,
+  `hostile_input`, `storage_behavior`, `differential`, and
+  `key_management_resilience` modules. All 85 test identities remain present
+  under the added invariant path component.
+- `wal.rs` now retains its 733-line production pipeline and delegates evidence
+  to private `record_io`, `recovery`, `locking`, and `crash_preservation`
+  modules. All 28 runnable and one ignored WAL-module tests remain present; the
+  focused `wal` filter also executes one export test, for 30 total cases.
+- `pager/page0.rs` is a 219-line private child depending only on file I/O,
+  format constants, and typed core errors. The pager root consumes those
+  helpers; the child does not receive a `Pager`, WAL writer, protector policy,
+  or broad mutable context. `pager.rs` is now 1,998 lines.
+- Moving `Page0EditSession` now would create a dependency back to pager-owned
+  unlock orchestration. It remains local until the unlock seam is reviewed;
+  reduced line count is not treated as sufficient evidence for that move.
+- Post-change validation passed `cargo fmt --all -- --check`, strict workspace
+  Clippy, focused page-store/WAL/pager tests, `cargo test --workspace
+  --all-targets`, and `mkdocs build --strict`. The post-change page-store
+  property test and 64 MiB external-provider case retained their baseline
+  outcomes and comparable long-running behavior.
