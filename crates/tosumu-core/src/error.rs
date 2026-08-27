@@ -136,6 +136,11 @@ pub enum TosumuError {
         operation: &'static str,
     },
 
+    /// The process-local snapshot registry is full. The caller may retry after
+    /// another snapshot owned by the same database handle is dropped.
+    #[error("snapshot limit reached: {active} active, maximum {maximum}")]
+    SnapshotLimitReached { active: u64, maximum: u64 },
+
     /// The supplied passphrase (or other protector secret) is wrong.
     ///
     /// Distinct from `AuthFailed` which indicates page-level AEAD corruption.
@@ -371,6 +376,21 @@ impl TosumuError {
                     },
                 ],
             },
+            TosumuError::SnapshotLimitReached { active, maximum } => ErrorReport {
+                code: codes::SNAPSHOT_LIMIT_REACHED,
+                status: ErrorStatus::Busy,
+                message: self.to_string(),
+                details: vec![
+                    ErrorDetail {
+                        key: "active",
+                        value: ErrorValue::U64(*active),
+                    },
+                    ErrorDetail {
+                        key: "maximum",
+                        value: ErrorValue::U64(*maximum),
+                    },
+                ],
+            },
             TosumuError::WrongKey => ErrorReport {
                 code: codes::PROTECTOR_UNLOCK_WRONG_KEY,
                 status: ErrorStatus::PermissionDenied,
@@ -475,6 +495,10 @@ mod tests {
             TosumuError::FileBusy {
                 path: "test.tsm".into(),
                 operation: "test",
+            },
+            TosumuError::SnapshotLimitReached {
+                active: 2,
+                maximum: 2,
             },
             TosumuError::WrongKey,
             TosumuError::CommittedButFlushFailed {

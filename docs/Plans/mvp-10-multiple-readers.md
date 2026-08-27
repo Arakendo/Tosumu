@@ -387,6 +387,12 @@ format/recovery design that can retain committed versions safely.
   an empty/obsolete sidecar, while a higher validated existing LSN is preserved.
   Raw public `WalWriter` remains epoch-local. Focused seed tests, the unchanged
   format-v2 LSN baseline, and strict core Clippy pass.
+- Added the private bounded snapshot registry required by ADR-0005. Each
+  registration pins one committed generation until its non-cloneable guard is
+  dropped; diagnostics report active count, maximum count, and the oldest
+  generation deterministically. The 65th default registration fails fast with
+  structured `SNAPSHOT_LIMIT_REACHED`; WAL retention remains unchanged until
+  the shared owner becomes its first production caller.
 
 ## References
 

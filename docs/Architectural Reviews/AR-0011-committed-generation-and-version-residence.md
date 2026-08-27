@@ -630,3 +630,19 @@ and the remaining implementation evidence stay provisional as listed below.
   checkpoint field remains zero.
 - Disposition: ADR-0005 remains accepted without revision.
 - Resulting ADR or documentation change: no format or public API change.
+
+### Cycle 14 -- 2026-08-27
+
+- Status entering review: Accepted
+- New evidence: a private process-local snapshot registry now issues one
+  non-cloneable pin per admitted generation, reports the deterministic oldest
+  pinned generation, removes registrations on drop, and enforces the accepted
+  default ceiling of 64 registrations. Exhaustion emits structured
+  `SNAPSHOT_LIMIT_REACHED` with `active` and `maximum` details.
+- Findings: snapshot lifetime and finite admission can be made structural
+  before a public session vocabulary exists. The registry remains staged until
+  the shared database owner is its first production caller; it does not yet pin
+  WAL bytes or change current read behavior.
+- Disposition: ADR-0005 remains accepted without revision.
+- Resulting ADR or documentation change: the Error Design Document now records
+  the snapshot-exhaustion contract; no format or public snapshot API change.
