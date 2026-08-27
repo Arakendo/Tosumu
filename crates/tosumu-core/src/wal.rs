@@ -196,6 +196,18 @@ const MAX_WAL_PAYLOAD_LEN: usize = 16 + PAGE_SIZE;
 /// Fixed overhead per record: lsn(8) + type(1) + payload_len(4) + crc32(4) = 17 bytes.
 pub const RECORD_HEADER_SIZE: usize = 17;
 
+const BOUNDARY_RECORD_ENCODED_SIZE: u64 = (RECORD_HEADER_SIZE + 8) as u64;
+const PAGE_WRITE_RECORD_ENCODED_SIZE: u64 = (RECORD_HEADER_SIZE + 16 + PAGE_SIZE) as u64;
+
+/// Exact encoded size of one staged transaction with `page_write_count` final
+/// unique frames, including its `Begin` and `Commit` records.
+pub(crate) fn transaction_encoded_len(page_write_count: usize) -> Option<u64> {
+    let page_write_count = u64::try_from(page_write_count).ok()?;
+    page_write_count
+        .checked_mul(PAGE_WRITE_RECORD_ENCODED_SIZE)?
+        .checked_add(BOUNDARY_RECORD_ENCODED_SIZE.checked_mul(2)?)
+}
+
 // ── WalRecord ────────────────────────────────────────────────────────────────
 
 /// A decoded WAL record.

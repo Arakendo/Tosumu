@@ -95,6 +95,9 @@ Repository-specific guidance:
   admitted its configured maximum number of snapshot registrations. Reports
   include `active` and `maximum`; callers may retry after another snapshot is
   dropped, but the engine must not silently substitute a live read.
+- Use `TRANSACTION_WAL_TOO_LARGE` when the staged final unique frames exceed
+  the configured encoded-WAL budget. Reports include `actual` and `maximum`;
+  rejection occurs before `Begin` is appended and rolls back the transaction.
 - Use `PermissionDenied` for wrong-key / unlock-denied style failures.
 - Use `ExternalFailure` for OS, file I/O, and dependency failures where the external system is the immediate cause.
 
@@ -434,6 +437,7 @@ ARGUMENT_INVALID
 INSPECT_PAGE_OUT_OF_RANGE
 FILE_OPEN_BUSY
 SNAPSHOT_LIMIT_REACHED
+TRANSACTION_WAL_TOO_LARGE
 PROTECTOR_UNLOCK_WRONG_KEY
 COMMITTED_FLUSH_FAILED
 ```

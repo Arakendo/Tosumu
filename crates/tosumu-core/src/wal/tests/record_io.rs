@@ -1,6 +1,13 @@
 use super::*;
 
 #[test]
+fn staged_transaction_encoded_length_is_exact() {
+    assert_eq!(transaction_encoded_len(0), Some(50));
+    assert_eq!(transaction_encoded_len(1), Some(4_179));
+    assert_eq!(transaction_encoded_len(33_274), Some(137_388_396));
+}
+
+#[test]
 fn encoded_record_sizes_make_transaction_pressure_exact() {
     let mut encoded = Vec::new();
     WalRecord::Begin { txn_id: 1 }.encode(1, &mut encoded);

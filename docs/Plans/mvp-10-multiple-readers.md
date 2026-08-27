@@ -393,6 +393,12 @@ format/recovery design that can retain committed versions safely.
   generation deterministically. The 65th default registration fails fast with
   structured `SNAPSHOT_LIMIT_REACHED`; WAL retention remains unchanged until
   the shared owner becomes its first production caller.
+- Enforced ADR-0005's private 160 MiB final encoded-WAL transaction ceiling at
+  commit. The pager counts exact `Begin`, unique final page frames, optional
+  page zero, and `Commit` bytes with checked arithmetic before append. Rejected
+  work rolls back in memory, leaves the WAL unchanged, and reports structured
+  `TRANSACTION_WAL_TOO_LARGE`; a focused low-limit fixture proves the handle can
+  immediately begin another transaction.
 
 ## References
 

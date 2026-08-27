@@ -141,6 +141,11 @@ pub enum TosumuError {
     #[error("snapshot limit reached: {active} active, maximum {maximum}")]
     SnapshotLimitReached { active: u64, maximum: u64 },
 
+    /// The final unique frame set for one transaction cannot fit within the
+    /// configured encoded-WAL budget. No bytes have been appended.
+    #[error("transaction WAL size {actual} exceeds maximum {maximum}")]
+    TransactionWalTooLarge { actual: u64, maximum: u64 },
+
     /// The supplied passphrase (or other protector secret) is wrong.
     ///
     /// Distinct from `AuthFailed` which indicates page-level AEAD corruption.
@@ -391,6 +396,21 @@ impl TosumuError {
                     },
                 ],
             },
+            TosumuError::TransactionWalTooLarge { actual, maximum } => ErrorReport {
+                code: codes::TRANSACTION_WAL_TOO_LARGE,
+                status: ErrorStatus::InvalidInput,
+                message: self.to_string(),
+                details: vec![
+                    ErrorDetail {
+                        key: "actual",
+                        value: ErrorValue::U64(*actual),
+                    },
+                    ErrorDetail {
+                        key: "maximum",
+                        value: ErrorValue::U64(*maximum),
+                    },
+                ],
+            },
             TosumuError::WrongKey => ErrorReport {
                 code: codes::PROTECTOR_UNLOCK_WRONG_KEY,
                 status: ErrorStatus::PermissionDenied,
@@ -499,6 +519,10 @@ mod tests {
             TosumuError::SnapshotLimitReached {
                 active: 2,
                 maximum: 2,
+            },
+            TosumuError::TransactionWalTooLarge {
+                actual: 2,
+                maximum: 1,
             },
             TosumuError::WrongKey,
             TosumuError::CommittedButFlushFailed {

@@ -646,3 +646,19 @@ and the remaining implementation evidence stay provisional as listed below.
 - Disposition: ADR-0005 remains accepted without revision.
 - Resulting ADR or documentation change: the Error Design Document now records
   the snapshot-exhaustion contract; no format or public snapshot API change.
+
+### Cycle 15 -- 2026-08-27
+
+- Status entering review: Accepted
+- New evidence: pager commit now computes the exact encoded size of `Begin`,
+  final unique page frames (including page zero when dirty), and `Commit` before
+  appending. The private default is 160 MiB. A focused low-limit fixture proves
+  rejection leaves a zero-byte WAL, restores transaction metadata, and leaves
+  the handle reusable.
+- Findings: the accepted transaction ceiling is executable over the staged
+  representation and cannot be amplified by repeat writes to one page.
+  `TRANSACTION_WAL_TOO_LARGE` reports `actual` and `maximum`; unchanged work
+  cannot succeed by retrying, so its status is `InvalidInput`, not `Busy`.
+- Disposition: ADR-0005 remains accepted without revision.
+- Resulting ADR or documentation change: the Error Design Document records the
+  pre-append rejection contract; retained-history admission remains subsequent.
