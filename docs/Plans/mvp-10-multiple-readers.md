@@ -326,6 +326,11 @@ format/recovery design that can retain committed versions safely.
   transaction ID no longer makes an incomplete later sequence appear committed;
   focused framing tests, all 211 active core tests, and strict workspace Clippy
   pass without changing snapshot, format, or public API behavior.
+- Preferred page-zero checkpoint state over a duplicate WAL header as the sole
+  monotonic-LSN epoch authority. Future database-owned WAL mutation is seeded
+  from that checkpoint plus validated retained records; raw `WalWriter`
+  mutation is reduced to an internal or explicit physical-fixture boundary and
+  does not participate in the format-v3 database contract.
 
 ## References
 

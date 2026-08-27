@@ -211,6 +211,26 @@ mutation, or a deliberately physical API that cannot be used as a database WAL
 writer. Continuing to open an empty database WAL at LSN 1 is not compatible
 with this candidate.
 
+The preferred resolution is one source of epoch authority rather than a second
+WAL header:
+
+- page-zero `wal_checkpoint_lsn`, under the existing protector-specific header
+  authentication rules, supplies the durable lower bound;
+- the database-owned WAL opener validates retained record LSNs and seeds an
+  empty WAL at `wal_checkpoint_lsn + 1`;
+- inspection continues to start from the database path and can report both the
+  checkpoint horizon and retained records without treating a detached WAL as a
+  database;
+- backup and export continue treating main/WAL as a pair and do not need to
+  reconcile duplicate epoch fields; and
+- raw `WalWriter` construction remains useful only as an epoch-local physical
+  fixture mechanism and is removed from the future coordinated database
+  mutation path. Its mutation visibility should become crate-private or an
+  explicitly non-database test-support boundary before format v3 ships.
+
+This preference does not strengthen Sentinel header authentication. It relies
+only on the page-zero trust rules already documented for each protector.
+
 ## Alternatives Considered
 
 ### Alternative A: Copy the whole database for each read transaction
@@ -271,10 +291,10 @@ accepted as an ADR or authorized for semantic implementation.
 
 - [ ] Falsify or confirm the candidate with a crash-ordering matrix for commit,
       main checkpoint, page-zero horizon, and WAL reclamation.
-- [ ] Decide whether WAL epoch/base metadata is stored in a versioned WAL header
-      or supplied only through the authenticated database header.
-- [ ] Decide the fate of public raw `WalWriter` database mutation before a
-      monotonic-LSN implementation.
+- [x] Prefer page-zero checkpoint state as the sole epoch/base authority; do not
+      add a duplicate WAL header solely to seed monotonic LSNs.
+- [x] Remove raw `WalWriter` from the future coordinated database mutation path;
+      retain at most a crate-private or explicit physical fixture boundary.
 - [ ] Select and diagnose finite active-reader and retained-WAL limits using
       representative transaction sizes, including the 64 MiB provider case.
 - [ ] Define format-v3 open/refusal and optional v2 offline logical rewrite
@@ -322,3 +342,19 @@ accepted as an ADR or authorized for semantic implementation.
 - Disposition: remain Incubating with Alternative C preferred.
 - Resulting ADR or documentation change: no semantic or format change; shared
   private transaction analysis is now executable evidence.
+
+### Cycle 3 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: supported inspection begins with a database path, stable backup
+  preserves a main/WAL pair, page zero already carries the checkpoint horizon,
+  and no independent production caller requires raw WAL mutation. The raw
+  writer is otherwise used primarily by physical/recovery fixtures.
+- Findings: a WAL header would duplicate epoch authority and introduce mismatch
+  states without current consumer value. The database owner can seed monotonic
+  LSNs from page zero and validated retained records. Raw mutation cannot remain
+  a coordinated database path because it lacks that context.
+- Disposition: remain Incubating; prefer page zero as the sole epoch authority
+  and a database-seeded internal writer boundary.
+- Resulting ADR or documentation change: none until the complete snapshot
+  contract is promoted.
