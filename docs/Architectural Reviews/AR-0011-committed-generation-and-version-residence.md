@@ -519,3 +519,20 @@ accepted as an ADR or authorized for semantic implementation.
   mechanism. Numeric budget evidence remains open.
 - Resulting ADR or documentation change: no format change; implementation may
   first prove equivalent format-v2 commit/recovery behavior as preparation.
+
+### Cycle 8 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: format-v2 pager commits now stage `Begin`, sorted final unique
+  page frames, optional page zero, and `Commit` only after the closure succeeds.
+  Focused tests prove caller rollback leaves a zero-byte WAL, three rewrites of
+  one page emit one page frame, recovery publishes the final value, and a
+  phase-two flush failure rejects subsequent reads and writes with
+  `HANDLE_POISONED`.
+- Findings: staged commit preserves committed/recovery behavior while removing
+  ordinary rollback tails and intermediate-frame amplification. The final frame
+  set is now available for exact budget admission before append.
+- Disposition: remain Incubating; staged commit prerequisite is executable.
+  Numeric budget, retained versions, and snapshot ownership remain open.
+- Resulting ADR or documentation change: SDD fatal-session wording now includes
+  commit-path ambiguity; no physical-format change.

@@ -50,6 +50,12 @@ mod unlock;
 use page0::*;
 use unlock::*;
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum PagerHealth {
+    Healthy,
+    Poisoned,
+}
+
 /// The pager. Holds an open file and the derived page key.
 pub struct Pager {
     file: File,
@@ -69,6 +75,8 @@ pub struct Pager {
     wal: Option<WalWriter>,
     /// Read-only handles never open the WAL for appending and reject mutation APIs.
     read_only: bool,
+    /// Set after a commit-path I/O failure leaves durability or cache state ambiguous.
+    health: PagerHealth,
     /// Whether a transaction is currently active.
     txn_active: bool,
     /// txn_id of the current open transaction.
@@ -160,6 +168,7 @@ impl Pager {
             root_page: 0,
             wal: Some(wal),
             read_only: false,
+            health: PagerHealth::Healthy,
             txn_active: false,
             txn_id: 0,
             next_txn_id: 1,
@@ -273,6 +282,7 @@ impl Pager {
             root_page: 0,
             wal: Some(wal),
             read_only: false,
+            health: PagerHealth::Healthy,
             txn_active: false,
             txn_id: 0,
             next_txn_id: 1,
@@ -867,6 +877,7 @@ impl Pager {
     /// Prefer `with_page` for normal reads; this is for inspection tooling that
     /// also needs the page_version field.
     pub fn read_page(&self, pgno: u64) -> Result<([u8; PAGE_PLAINTEXT_SIZE], u64)> {
+        self.ensure_healthy()?;
         self.validate_data_pgno(pgno)?;
         let frame = if let Some(buffered) = self.dirty_pages.get(&pgno) {
             **buffered
@@ -884,6 +895,7 @@ impl Pager {
     where
         F: FnOnce(&[u8; PAGE_PLAINTEXT_SIZE]) -> Result<T>,
     {
+        self.ensure_healthy()?;
         self.validate_data_pgno(pgno)?;
         // Read-your-own-writes: check dirty buffer first when inside a transaction.
         let frame = if let Some(buffered) = self.dirty_pages.get(&pgno) {
@@ -902,9 +914,8 @@ impl Pager {
     ///
     /// - Outside a transaction: writes directly to `.tsm` (auto-commit, for
     ///   internal ops like `init_page` and header flushes).
-    /// - Inside a transaction (`begin_txn` called): buffers the encrypted frame
-    ///   in memory and appends a `PageWrite` to the WAL; `.tsm` is not touched
-    ///   until `commit_txn` flushes the dirty pages.
+    /// - Inside a transaction (`begin_txn` called): buffers the final encrypted
+    ///   frame in memory; `commit_txn` stages the WAL and then flushes `.tsm`.
     pub fn with_page_mut<F>(&mut self, pgno: u64, f: F) -> Result<()>
     where
         F: FnOnce(&mut [u8; PAGE_PLAINTEXT_SIZE]) -> Result<()>,
@@ -937,12 +948,8 @@ impl Pager {
         )?;
 
         if self.txn_active {
-            // WAL path: buffer the frame, append PageWrite.
-            self.wal_mut()?.append(&WalRecord::PageWrite {
-                pgno,
-                page_version: version + 1,
-                frame: Box::new(new_frame),
-            })?;
+            // Keep only the final frame for this page. The complete WAL
+            // transaction is staged from this map at commit time.
             self.dirty_pages.insert(pgno, Box::new(new_frame));
         } else {
             // Auto-commit path: write directly to .tsm.
@@ -1031,12 +1038,8 @@ impl Pager {
         // fragmented_bytes=0, reserved=0, next_leaf=0 — already zero
         let frame = encrypt_page(&self.page_key, pgno, 1, page_type, &plaintext)?;
         if self.txn_active {
-            // Buffer through WAL so rollback discards the page and recovery can replay it.
-            self.wal_mut()?.append(&WalRecord::PageWrite {
-                pgno,
-                page_version: 1,
-                frame: Box::new(frame),
-            })?;
+            // Buffer the final frame. Commit publishes it through the WAL;
+            // rollback can discard it without fallible physical cleanup.
             self.dirty_pages.insert(pgno, Box::new(frame));
         } else {
             self.write_frame(pgno, &frame)?
@@ -1061,8 +1064,6 @@ impl Pager {
         self.txn_saved_page_count = self.page_count;
         self.txn_saved_root_page = self.root_page;
         self.txn_saved_freelist_head = self.freelist_head;
-        let txn_id = self.txn_id;
-        self.wal_mut()?.append(&WalRecord::Begin { txn_id })?;
         Ok(())
     }
 
@@ -1108,28 +1109,61 @@ impl Pager {
         // Phase 1: make the transaction durable in the WAL.
         // Build page 0 bytes once so they can be reused in both the WAL record and
         // the .tsm flush (avoids reading page 0 twice and eliminates a second fsync).
-        let page0_frame: Option<Box<[u8; PAGE_SIZE]>> = if self.pending_header_flush {
-            let page0 = self.build_updated_page0()?;
-            self.wal_mut()?.append(&WalRecord::PageWrite {
-                pgno: 0,
-                page_version: 0,
-                frame: Box::new(page0),
-            })?;
-            Some(Box::new(page0))
+        let page0_frame = if self.pending_header_flush {
+            match self.build_updated_page0() {
+                Ok(page0) => Some(Box::new(page0)),
+                Err(error) => {
+                    self.health = PagerHealth::Poisoned;
+                    self.txn_active = false;
+                    return Err(error);
+                }
+            }
         } else {
             None
         };
-        let txn_id = self.txn_id;
-        self.wal_mut()?.append(&WalRecord::Commit { txn_id })?;
-        self.wal_mut()?.sync()?;
 
-        // Transaction is now committed.  Clear txn_active *before* the .tsm flush so
-        // the handle is never left stuck in txn_active=true even if the flush fails.
-        self.txn_active = false;
-        self.pending_header_flush = false;
-        // Drain dirty pages, sorted by pgno for sequential I/O.
+        // Drain and sort final unique page frames before writing the first WAL
+        // byte. This is also the representation a transaction budget can
+        // preflight without counting repeated mutations of the same page.
         let mut pages: Vec<(u64, Box<[u8; PAGE_SIZE]>)> = self.dirty_pages.drain().collect();
         pages.sort_unstable_by_key(|(pgno, _)| *pgno);
+
+        let txn_id = self.txn_id;
+        let wal_result = (|| -> Result<()> {
+            self.wal_mut()?.append(&WalRecord::Begin { txn_id })?;
+            for (pgno, frame) in &pages {
+                let page_version = u64::from_le_bytes(
+                    frame[PAGE_VERSION_OFFSET..PAGE_VERSION_OFFSET + PAGE_VERSION_SIZE]
+                        .try_into()
+                        .expect("page-version field has a fixed width"),
+                );
+                self.wal_mut()?.append(&WalRecord::PageWrite {
+                    pgno: *pgno,
+                    page_version,
+                    frame: frame.clone(),
+                })?;
+            }
+            if let Some(frame) = &page0_frame {
+                self.wal_mut()?.append(&WalRecord::PageWrite {
+                    pgno: 0,
+                    page_version: 0,
+                    frame: frame.clone(),
+                })?;
+            }
+            self.wal_mut()?.append(&WalRecord::Commit { txn_id })?;
+            self.wal_mut()?.sync()
+        })();
+        if let Err(error) = wal_result {
+            self.health = PagerHealth::Poisoned;
+            self.txn_active = false;
+            self.pending_header_flush = false;
+            return Err(error);
+        }
+
+        // Transaction is now committed. Clear txn_active before the .tsm flush
+        // so a failure has one explicit terminal handle state.
+        self.txn_active = false;
+        self.pending_header_flush = false;
 
         // Phase 2: write all pages (data + optional page 0) to .tsm with a single
         // fsync at the end.  WAL recovery covers crashes, so this flush is opportunistic.
@@ -1137,6 +1171,7 @@ impl Pager {
         // longer reflect .tsm — caller must reopen.
         let flush_result = Self::flush_committed_pages(flush_file, &pages, page0_frame.as_ref());
         if let Err(e) = flush_result {
+            self.health = PagerHealth::Poisoned;
             let io_err = match e {
                 TosumuError::Io(io) => io,
                 other => return Err(other),
@@ -1146,7 +1181,10 @@ impl Pager {
 
         // The committed frames now live in .tsm, so leaving them in the WAL would
         // let a later reopen replay stale snapshots over newer auto-commit writes.
-        self.wal_mut()?.truncate()?;
+        if let Err(error) = self.wal_mut()?.truncate() {
+            self.health = PagerHealth::Poisoned;
+            return Err(error);
+        }
         Ok(())
     }
 
@@ -1258,8 +1296,16 @@ impl Pager {
     }
 
     fn ensure_writable(&self) -> Result<()> {
+        self.ensure_healthy()?;
         if self.read_only {
             return Err(TosumuError::InvalidArgument("database handle is read-only"));
+        }
+        Ok(())
+    }
+
+    fn ensure_healthy(&self) -> Result<()> {
+        if self.health == PagerHealth::Poisoned {
+            return Err(TosumuError::Poisoned);
         }
         Ok(())
     }
@@ -1502,6 +1548,7 @@ fn finish_open(
             root_page,
             wal: Some(wal),
             read_only: false,
+            health: PagerHealth::Healthy,
             txn_active: false,
             txn_id: 0,
             next_txn_id: 1,
@@ -1523,6 +1570,7 @@ fn finish_open(
         root_page,
         wal: Some(wal),
         read_only: false,
+        health: PagerHealth::Healthy,
         txn_active: false,
         txn_id: 0,
         next_txn_id: 1,
@@ -1566,6 +1614,7 @@ fn finish_open_readonly(
         root_page: read_u64(page0, OFF_ROOT_PAGE),
         wal: None,
         read_only: true,
+        health: PagerHealth::Healthy,
         txn_active: false,
         txn_id: 0,
         next_txn_id: 1,

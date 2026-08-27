@@ -104,7 +104,7 @@ pub enum TosumuError {
 
     /// Database handle is unusable after an unrecoverable corruption or auth failure.
     /// The caller must close and re-open (or restore from backup).
-    #[error("database handle is poisoned after corruption or authentication failure")]
+    #[error("database handle is poisoned; drop and reopen it before further use")]
     Poisoned,
 
     #[error("not a tosumu file: bad magic or header")]

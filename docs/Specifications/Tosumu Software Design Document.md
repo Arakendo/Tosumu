@@ -736,7 +736,7 @@ Panics are **not** appropriate for:
 
 **Errors that bubble to the caller** — everything caused by external state: I/O, cryptography, format version, key material, busy state, caller logic errors. The caller decides whether to retry, prompt the user, abort, or log.
 
-**Errors that are fatal to the session** — `AuthFailed { pgno }` and `Corrupt { pgno }` indicate the database file cannot be trusted. After either of these, the `Database` handle should be treated as poisoned. Reading further pages from it is not safe. The engine closes the file and all subsequent operations on that handle return `Err(Poisoned)` until the handle is dropped and re-opened.
+**Errors that are fatal to the session** — `AuthFailed { pgno }` and `Corrupt { pgno }` indicate the database file cannot be trusted. A commit-path I/O failure can likewise leave WAL durability or the opportunistic main-file flush ambiguous. After any such terminal outcome, the `Database` handle is poisoned. Reading or mutating further through it is not safe; all subsequent page operations return `Err(Poisoned)` until the handle is dropped and re-opened so recovery can establish one coherent state.
 
 ```rust
 // Conceptual (Stage 2+): poisoned state propagation

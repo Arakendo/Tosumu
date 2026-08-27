@@ -47,6 +47,11 @@ fn transaction_rollback_leaves_no_data() {
         None,
         "rolled-back write must not be visible"
     );
+    assert_eq!(
+        std::fs::metadata(&wal).unwrap().len(),
+        0,
+        "ordinary rollback must not leave an uncommitted WAL tail"
+    );
 
     let _ = std::fs::remove_file(&path);
     let _ = std::fs::remove_file(&wal);
@@ -80,12 +85,64 @@ fn transaction_propagates_committed_but_flush_failed_and_recovers_on_reopen() {
         )
         .unwrap_err();
     assert!(matches!(err, TosumuError::CommittedButFlushFailed { .. }));
+    assert!(matches!(store.get(b"outer-a"), Err(TosumuError::Poisoned)));
+    let poisoned: Result<()> = store.transaction(|_| Ok(()));
+    assert!(matches!(poisoned, Err(TosumuError::Poisoned)));
 
     drop(store);
 
     let reopened = PageStore::open(&path).unwrap();
     assert_eq!(reopened.get(b"outer-a").unwrap(), Some(b"1".to_vec()));
     assert_eq!(reopened.get(b"outer-b").unwrap(), Some(b"2".to_vec()));
+
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&wal);
+}
+
+#[test]
+fn staged_commit_logs_only_the_final_frame_for_a_rewritten_page() {
+    use crate::test_helpers::{CrashFile, CrashPhase};
+    use crate::wal::{WalReader, WalRecord};
+
+    let path = temp_path("txn_stages_final_frame");
+    let wal = diff_wal_path(&path);
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&wal);
+
+    let mut store = PageStore::create(&path).unwrap();
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    let mut crash_file = CrashFile::new(file, CrashPhase::AfterWrite);
+
+    let err = store
+        .transaction_with_crash_file(
+            |tx| {
+                tx.put(b"same-page", b"first")?;
+                tx.put(b"same-page", b"second")?;
+                tx.put(b"same-page", b"final")?;
+                Ok(())
+            },
+            &mut crash_file,
+        )
+        .unwrap_err();
+    assert!(matches!(err, TosumuError::CommittedButFlushFailed { .. }));
+
+    let records = WalReader::read_all(&wal).unwrap();
+    let writes: Vec<_> = records
+        .iter()
+        .filter_map(|(_, record)| match record {
+            WalRecord::PageWrite { pgno, .. } => Some(*pgno),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(writes, vec![1]);
+
+    drop(store);
+    let reopened = PageStore::open(&path).unwrap();
+    assert_eq!(reopened.get(b"same-page").unwrap(), Some(b"final".to_vec()));
 
     let _ = std::fs::remove_file(&path);
     let _ = std::fs::remove_file(&wal);

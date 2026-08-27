@@ -354,6 +354,12 @@ format/recovery design that can retain committed versions safely.
   consume one final frame, and an exact transaction byte budget can be checked
   before append. Commit append/sync ambiguity poisons the handle for validated
   reopen rather than silently truncating a possibly complete commit.
+- Implemented that staging prerequisite without changing format v2: rollback
+  leaves no WAL tail, commit logs one final frame per dirty page in page order,
+  and recovery still publishes the final value. Commit-path I/O ambiguity now
+  structurally poisons both reads and writes until reopen. Focused tests, all
+  212 active core library tests, the nine-test MVP+10 baseline, and strict
+  workspace Clippy pass.
 
 ## References
 
