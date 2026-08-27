@@ -1,11 +1,11 @@
-//! Executable observations for the pre-MVP+10 coordination model.
+//! Executable observations for the MVP+10 coordination model.
 //!
 //! These tests preserve the baseline that MVP+10 must explain or deliberately
 //! replace. They are observations, not snapshot-isolation or concurrency
 //! guarantees.
 
 use tosumu_core::pager::Pager;
-use tosumu_core::wal::{checkpoint, wal_path};
+use tosumu_core::wal::{checkpoint, wal_path, WalReader, WalWriter};
 use tosumu_core::{KvStore, TosumuError};
 
 fn assert_send_sync<T: Send + Sync>() {}
@@ -122,4 +122,37 @@ fn protector_edit_and_checkpoint_share_writer_gate() {
 
     drop(writer);
     checkpoint(&path, &wal_path(&path)).unwrap();
+}
+
+#[test]
+fn successful_commit_retains_no_monotonic_committed_lsn() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("commit-lsn.tsm");
+    let mut writer = KvStore::create(&path).unwrap();
+    writer
+        .transaction(|transaction| transaction.put(b"key", b"value"))
+        .unwrap();
+    drop(writer);
+
+    let header = tosumu_core::inspect::read_header_info(&path).unwrap();
+    assert_eq!(header.wal_checkpoint_lsn, 0);
+    assert!(WalReader::read_all(&wal_path(&path)).unwrap().is_empty());
+
+    let wal = WalWriter::open(&wal_path(&path)).unwrap();
+    assert_eq!(wal.next_lsn(), 1);
+}
+
+#[test]
+fn ordinary_put_publishes_without_a_wal_commit_generation() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("direct-put.tsm");
+    let mut writer = KvStore::create(&path).unwrap();
+    writer.put(b"key", b"value").unwrap();
+    drop(writer);
+
+    assert!(WalReader::read_all(&wal_path(&path)).unwrap().is_empty());
+    assert_eq!(
+        KvStore::open_readonly(&path).unwrap().get(b"key").unwrap(),
+        Some(b"value".to_vec())
+    );
 }

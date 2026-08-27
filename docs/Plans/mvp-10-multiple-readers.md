@@ -162,6 +162,15 @@ claiming snapshot isolation.
 
 ### Slice 2: Committed-LSN Reader Snapshots
 
+- [x] Trace current LSN assignment, page-zero checkpoint state, main-file
+      publication, WAL truncation, direct writes, and read-only overlay behavior.
+- [ ] Define a monotonic committed generation across checkpoint and reopen.
+- [ ] Route explicit transactions and ordinary writes through one atomic
+      publication path.
+- [ ] Decide main-file/WAL version residence, page selection, crash ordering,
+      and format/migration impact.
+- [ ] Decide whether snapshots are scoped to one shared database owner or join
+      a cross-process reader protocol.
 - [ ] Define the committed-LSN source of truth and reader capture point.
 - [ ] Retain versions needed by the oldest active reader.
 - [ ] Prove that a reader does not observe commits newer than its snapshot.
@@ -294,6 +303,12 @@ format/recovery design that can retain committed versions safely.
   blocked earlier by the pre-existing unconditional `getrandom` configuration.
 - Slice 1 is complete. Slice 2 remains gated on an admitted committed-LSN
   snapshot and version-retention design under AR-0009.
+- Traced the Slice 2 storage prerequisites. Current LSNs reset with WAL
+  truncation, page zero does not advance its checkpoint LSN, successful commits
+  discard old frames, ordinary writes may bypass WAL, and read-only handles mix
+  open-time metadata with live page reads. AR-0009 Cycle 5 therefore blocks
+  snapshot implementation until publication, version residence, reader scope,
+  and format impact are explicit.
 
 ## References
 

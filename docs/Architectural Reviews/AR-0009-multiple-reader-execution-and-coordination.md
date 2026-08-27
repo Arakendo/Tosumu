@@ -7,7 +7,7 @@
 | Last reviewed | 2026-08-27 |
 | Scope | Core storage / transaction coordination / platform mechanism |
 | Trigger | MVP+10 requires a baseline for locking, LSN visibility, and reader/writer behavior before MVCC-style work begins |
-| Related ADRs | ADR-0001, ADR-0002 |
+| Related ADRs | ADR-0001, ADR-0002, ADR-0004 |
 | Related evidence | Main Feature Roadmap, SDD §§7 and 28.4, current pager/WAL/transaction implementation |
 
 ## Architectural Question
@@ -20,8 +20,8 @@ mechanisms remain replaceable implementation details?
 
 The normative design describes a shared database handle, one writer, multiple
 readers, committed-LSN snapshots, checkpoint blocking, and typed `Send`/`Sync`
-intent. The roadmap correctly records MVP+10 as not started and requires an
-executable baseline before implementation proceeds.
+intent. MVP+10 now has an executable baseline and the narrower ADR-0004 writer
+gate, but it has not admitted snapshot or reader-aware checkpoint semantics.
 
 Concurrency risks mixing several separate questions: what a reader is allowed
 to observe, how long its snapshot remains valid, how a writer is serialized,
@@ -32,17 +32,19 @@ durability semantics.
 
 ## Evidence
 
-- Tests or fuzzing: current storage and recovery tests establish single-process
-  behavior, but no focused executable MVP+10 baseline is retained.
-- Independent consumers: CLI and provider consumers use the current embedded
-  surface; they do not yet prove concurrent snapshot semantics.
+- Tests or fuzzing: `tests/mvp10_baseline.rs` retains focused reader visibility,
+  writer contention, maintenance-gate, and lifecycle evidence. It proves that
+  existing read-only handles are live views, not snapshots.
+- Independent consumers: the provider boundary now proves structured
+  `FILE_OPEN_BUSY` rejection for a second cooperating writer; no independent
+  consumer yet proves concurrent snapshot semantics.
 - Diagnostics or audits: the design names active-reader and checkpoint-blocking
   observations, but implementation parity is not established.
 - Repeated implementation friction: none yet; this review precedes the first
   deliberate multiple-reader implementation slice.
-- Missing evidence: actual lock ownership, current LSN visibility, cross-thread
-  type behavior, writer contention, checkpoint pinning, cancellation, timeout,
-  and long-lived-reader pressure.
+- Missing evidence: an authoritative committed-LSN lifecycle, retained-version
+  representation, reader registration scope, checkpoint pinning, cancellation,
+  timeout, and long-lived-reader pressure.
 
 ## Ownership And Dependency Analysis
 
@@ -98,6 +100,10 @@ durability semantics.
   recreated while locked, or documentation overstates advisory cooperation as
   mandatory filesystem exclusion.
 
+ADR-0004 accepted and the implementation completed this alternative as the
+first coordination slice. It remains narrower than the alternatives for reader
+snapshots.
+
 Locking the database file itself is not the preferred first slice: a whole-file
 exclusive lock would also reject the multiple readers MVP+10 intends to retain.
 A process-local registry is also insufficient because a second process could
@@ -122,7 +128,7 @@ still open an independent writer, while path aliases make identity fragile.
 
 ### Mutation-Path Inventory
 
-| Path | Current mutation | Proposed gate treatment |
+| Path | Current mutation | Gate treatment |
 | --- | --- | --- |
 | `KvStore` / `PageStore` / `BTree` create and writable open | Converges on a writable `Pager` | Acquire before creating/opening or recovering; retain for pager lifetime |
 | Live pager page, header, allocation, and transaction writes | Mutates main file and WAL through the owned pager | Covered by the pager's retained writer guard |
@@ -137,11 +143,41 @@ Creation should acquire the stable sidecar before publishing a new main file;
 the lock file may persist when unlocked and must never be deleted as ordinary
 cleanup, because deleting and recreating a locked pathname can split writers
 across different file identities. Backup and portable export do not copy the
-writer sidecar. The proposed gate is cooperative and advisory: it coordinates
+writer sidecar. The accepted gate is cooperative and advisory: it coordinates
 participating Tosumu mutation paths, not arbitrary file writers.
 - Any change to the on-disk format, WAL retention model, public transaction
   contract, or ownership boundary requires explicit review and possibly a new
   ADR.
+
+### Snapshot Admission Findings
+
+- The current WAL LSN is an append position within one WAL lifetime, not a
+  database-wide committed generation. `WalWriter::truncate` resets the next LSN
+  to 1, and a successful transaction truncates immediately after copying its
+  frames into the main file.
+- `OFF_WAL_CHECKPOINT_LSN` exists in page zero but is initialized to zero and is
+  not advanced by current commit, recovery, or checkpoint paths. It cannot yet
+  serve as the committed-LSN source of truth.
+- A commit record's assigned LSN is currently ignored by the pager. Page
+  versions are per-page rewrite counters and do not identify one atomic commit.
+- Successful transaction commit overwrites current main-file frames and then
+  discards their WAL copies. Neither the previous main-file frame nor a retained
+  WAL version remains available to an older reader.
+- Ordinary `put` and `delete` calls outside an explicit transaction can write
+  page frames directly to the main file. Snapshot publication cannot become
+  coherent while this path bypasses a common commit generation.
+- A read-only pager captures page-zero metadata and any committed WAL overlay
+  once at open, but subsequent page misses read the live main file. This can
+  combine open-time root/page-count state with later page contents; it is not a
+  usable seed for an LSN-pinned contract.
+- The SDD's intended shape—main file at a checkpoint generation, newer
+  committed versions retained in WAL, and reads selecting the latest frame no
+  newer than their captured LSN—requires a deliberate publication and
+  checkpoint change. Adding only a reader registry would pin nothing.
+- A process-local reader registry is only sufficient if snapshots belong to one
+  shared database owner that retains the cross-process writer gate. Independent
+  read-only handles must either remain explicitly live-view handles or join a
+  separately admitted cross-process reader protocol.
 
 ## Disposition
 
@@ -169,6 +205,18 @@ public MVCC contract through that implementation.
       under AR-0010, including Rust 1.75 and native/WASM behavior.
 - [x] Define sidecar naming, persistence, backup/export treatment, advisory
       limitations, and `FILE_OPEN_BUSY` details before implementation.
+- [ ] Define one monotonic committed-generation source of truth across commit,
+      checkpoint, WAL truncation, close, recovery, and reopen.
+- [ ] Decide whether all ordinary writes become implicit transactions or use
+      another single publication path; no main-file mutation may bypass the
+      admitted commit generation.
+- [ ] Define frame residence and selection between the checkpointed main file
+      and retained WAL versions, including crash ordering and page-zero state.
+- [ ] Scope snapshot readers to a shared database owner or admit a
+      cross-process reader-registration protocol. Preserve independent live-view
+      handles only if their weaker contract is explicit.
+- [ ] Decide the format and migration impact before implementing retained
+      versions or assigning meaning to `OFF_WAL_CHECKPOINT_LSN`.
 
 ## Reopening Triggers
 
@@ -231,3 +279,19 @@ public MVCC contract through that implementation.
 - Disposition: remain Incubating for snapshots/checkpoint pinning; accept the
   narrower writer-admission decision through ADR-0004.
 - Resulting ADR or documentation change: ADR-0004.
+
+### Cycle 5 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: ADR-0004 is implemented and validated through pager-lifetime
+  admission, maintenance paths, provider reporting, and the full workspace
+  suite. A source trace covered commit LSN assignment, page-zero checkpoint
+  state, direct writes, read-only overlay, recovery, and WAL truncation.
+- Findings: the current LSN is WAL-epoch-local, old page versions are discarded
+  on successful commit, direct writes lack a commit generation, and read-only
+  handles mix open-time metadata with live main-file reads. A registry alone
+  cannot create snapshot semantics.
+- Disposition: remain Incubating. Close the committed-generation, publication,
+  version-residence, reader-scope, and format questions before Slice 2 code.
+- Resulting ADR or documentation change: none; the snapshot admission gate is
+  retained here and in the MVP+10 plan.
