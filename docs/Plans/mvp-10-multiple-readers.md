@@ -141,7 +141,10 @@ the target guarantees.
 
 ### Slice 1: First Coordination Contract
 
-- [ ] Use the baseline to choose the smallest shared ownership boundary.
+- [x] Use the baseline to choose the smallest candidate ownership boundary: a
+      pager-lifetime writer guard plus short-lived guarded maintenance paths.
+- [ ] Audit the preferred persistent writer-sidecar mechanism and its sync-only
+      locking dependency under AR-0009 and AR-0010.
 - [ ] Specify fail-fast writer admission and typed contention without adding an
       unbounded queue.
 - [ ] Decide whether coordination is process-local, cross-process, or explicitly
@@ -253,8 +256,21 @@ format/recovery design that can retain committed versions safely.
   baseline tests, and `mkdocs build --strict`; Rust reported only the known
   incremental-cache hard-link fallback warning.
 - Kept all target snapshot and checkpoint semantics provisional under AR-0009.
-- Next slice: validate the baseline, then use AR-0009 to choose the smallest
-  writer-admission contract.
+- Reviewed mechanism constraints: standard file locking would raise the Rust
+  1.75 MSRV, a database-file exclusive lock would reject readers, and a
+  process-local registry would not coordinate other processes.
+- Retained a persistent advisory writer-lock sidecar as the preferred first
+  candidate, pending mutation-path inventory and sync-only dependency review.
+- Inventoried normal pager writes, protector edits, recovery/checkpoint,
+  direct public WAL mutation, and backup/export paths. Direct `WalWriter`
+  mutation remains an unresolved coordination bypass.
+- Retained the exact `fs4` 1.1.0 sync-only native closure and found that an
+  unconditional dependency breaks `wasm32-unknown-unknown`; any admitted
+  dependency must be target-specific to Unix/Windows with an explicit
+  unsupported non-native writer path.
+- Next slice: resolve or explicitly scope that bypass and complete the
+  transitive dependency review before accepting or implementing writer
+  admission.
 
 ## References
 

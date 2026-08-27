@@ -131,6 +131,33 @@ the current build is fully source-audited, vendored, or reproducible offline.
 - [ ] Decide whether the result becomes an ADR, dependency-audit policy, CI
       check, or a combination of those artifacts.
 
+The first concrete addition candidate is `fs4` with only its synchronous
+feature for AR-0009's writer gate. Before admission, retain its exact resolved
+version and checksum, transitive Unix/Windows closure, unsafe/platform boundary,
+licenses, build scripts, selected features, Rust 1.75 result, native target
+matrix, and WASM exclusion or behavior. Do not enable async runtime features.
+
+### Focused Candidate Inventory: `fs4` 1.1.0
+
+| Concern | Retained observation |
+| --- | --- |
+| Source identity | crates.io `fs4` 1.1.0; archive SHA-256 `7e72ed92b67c146290f88e9c89d60ca163ea417a446f61ffd7b72df3e7f1dfd5` |
+| License | `MIT OR Apache-2.0`, matching Tosumu's license expression |
+| Selected features | `default-features = false`, `features = ["sync"]`; no async runtime or `fs-err` adapter |
+| Declared MSRV | Rust 1.75.0 |
+| Windows normal closure | `fs4 1.1.0 -> windows-sys 0.61.2 -> windows-link 0.2.1` |
+| Linux normal closure | `fs4 1.1.0 -> rustix 1.1.4 -> bitflags 2.13.1 + linux-raw-sys 0.12.1` |
+| Build/proc-macro closure | No build dependency or procedural macro in the resolved normal/build tree; `rustix` does contain its own `build.rs`, which remains part of the source review |
+| Unsafe/platform boundary | Direct raw-handle Windows locking calls and Unix borrowed-fd conversion; platform calls are supplied by `windows-sys` or `rustix` |
+| Public vocabulary | Candidate remains private; `fs4` types/errors must map into Tosumu-owned guard and typed error details |
+| Native check | Sync-only candidate compiled on `x86_64-pc-windows-msvc` in the isolated audit manifest |
+| WASM check | An unconditional dependency fails `wasm32-unknown-unknown` through `rustix/errno`; a `cfg(any(unix, windows))` target dependency compiles while excluding the closure on WASM |
+| Build scripts | No `fs4` build script observed; transitive source/build-script review remains required before final admission |
+
+This inventory is sufficient to reject an unconditional dependency and all
+async features. It is not a complete source audit of `rustix`, `windows-sys`,
+or their generated/platform bindings, so candidate admission remains open.
+
 ## Reopening Triggers
 
 - A new dependency enters `tosumu-core` or the authenticated format path.
@@ -152,3 +179,30 @@ the current build is fully source-audited, vendored, or reproducible offline.
   mechanism is not yet justified.
 - Disposition: Incubating
 - Resulting ADR or documentation change: none
+
+### Cycle 2 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: MVP+10 needs cooperative cross-process writer admission, while
+  standard Rust file locking starts after Tosumu's declared MSRV. `fs4` 1.1.0
+  documents Rust 1.75 support for its sync feature and uses platform-specific
+  locking beneath a sealed extension trait.
+- Findings: this is a format-adjacent core dependency even though it changes no
+  authenticated bytes. Its platform and transitive closure must be retained
+  before use; async features are unrelated and excluded.
+- Disposition: remain Incubating; admit no dependency until the focused
+  inventory and target checks are recorded.
+- Resulting ADR or documentation change: AR-0009 names `fs4` only as a candidate.
+
+### Cycle 3 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: exact archive identity, sync-only native closures, direct unsafe
+  boundaries, and target checks were retained in the focused candidate table.
+- Findings: the candidate fits Rust 1.75 and the project license on native
+  targets; unconditional use breaks `wasm32-unknown-unknown`, while a native-
+  target-only dependency leaves the WASM closure empty.
+- Disposition: remain Incubating pending transitive source/build-script review
+  and the AR-0009 decision about the public raw-WAL bypass.
+- Resulting ADR or documentation change: any future manifest entry must be
+  target-specific to Unix/Windows and sync-only.

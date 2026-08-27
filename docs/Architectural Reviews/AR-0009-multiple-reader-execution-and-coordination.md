@@ -82,6 +82,27 @@ durability semantics.
 - Failure mode: a narrow first slice is mislabeled as full MVCC or multiple-
   reader completion.
 
+### Alternative D: Admit one writer through a persistent advisory sidecar
+
+- Mechanism: every normal writable pager open takes a non-blocking exclusive
+  lock on a stable `<database>.writer.lock` sidecar and holds that file handle
+  for the pager lifetime. Read-only handles do not take this lock.
+- Benefits: cross-process cooperative writers share one fail-fast admission
+  point while readers remain able to open; lock release follows file-handle
+  lifetime after ordinary drop or process termination; no authenticated page or
+  WAL byte changes.
+- Costs: the sidecar path and participating mutation paths become an operational
+  protocol; advisory locks cannot stop non-cooperating writers; Rust 1.75 needs
+  a reviewed cross-platform locking dependency.
+- Failure mode: a mutating path bypasses the gate, the sidecar is deleted and
+  recreated while locked, or documentation overstates advisory cooperation as
+  mandatory filesystem exclusion.
+
+Locking the database file itself is not the preferred first slice: a whole-file
+exclusive lock would also reject the multiple readers MVP+10 intends to retain.
+A process-local registry is also insufficient because a second process could
+still open an independent writer, while path aliases make identity fragile.
+
 ## Findings
 
 - Visibility and checkpoint safety are storage semantics; threads and waiting
@@ -90,6 +111,34 @@ durability semantics.
   choices unless evidence proves otherwise.
 - The SDD is a target design, not evidence that the current implementation
   already provides snapshot isolation or concurrent-reader guarantees.
+- Rust's standard cross-platform `File` locking APIs require Rust 1.89, while
+  Tosumu declares Rust 1.75. Raising the MSRV solely for this mechanism is not
+  justified by the baseline.
+- A persistent writer-only sidecar is the narrowest mechanism found that can
+  reject cooperating cross-process writers without excluding readers. It does
+  not establish snapshot visibility or checkpoint pinning.
+- The sync-only `fs4` candidate declares Rust 1.75 support, but adding it is
+  evidence-changing work owned jointly with AR-0010 and is not yet accepted.
+
+### Mutation-Path Inventory
+
+| Path | Current mutation | Proposed gate treatment |
+| --- | --- | --- |
+| `KvStore` / `PageStore` / `BTree` create and writable open | Converges on a writable `Pager` | Acquire before creating/opening or recovering; retain for pager lifetime |
+| Live pager page, header, allocation, and transaction writes | Mutates main file and WAL through the owned pager | Covered by the pager's retained writer guard |
+| Protector add/remove/rekey | Opens and rewrites page zero through `Page0EditSession` | Acquire a short-lived writer guard before reading or editing page zero |
+| Keyslot listing and all read-only opens | Reads page zero/main file and may overlay committed WAL in memory | No writer gate; future reader registration is separate |
+| `wal::recover` / `wal::checkpoint` | Public functions mutate main file and/or truncate WAL | Must gain a guarded entry or an internal already-guarded variant before the guarantee is accepted |
+| `WalWriter::{create, open, open_or_create, append, truncate}` | Public physical WAL mutation without a database path contract | Unresolved bypass: scope as unsupported concurrent physical API, revise visibility deliberately, or add an explicit coordination token |
+| Stable backup source | Copies a changing source and proves bounded stability | Remains an observing reader; do not serialize it behind the writer gate |
+| Backup/export destinations and export staging | Creates previously absent or privately owned artifacts | No shared writer identity until publication; staging checkpoint uses an explicitly internal path |
+
+Creation should acquire the stable sidecar before publishing a new main file;
+the lock file may persist when unlocked and must never be deleted as ordinary
+cleanup, because deleting and recreating a locked pathname can split writers
+across different file identities. Backup and portable export do not copy the
+writer sidecar. The proposed gate is cooperative and advisory: it coordinates
+participating Tosumu mutation paths, not arbitrary file writers.
 - Any change to the on-disk format, WAL retention model, public transaction
   contract, or ownership boundary requires explicit review and possibly a new
   ADR.
@@ -97,8 +146,11 @@ durability semantics.
 ## Disposition
 
 Incubating. Use this review as the architectural owner for the MVP+10 baseline.
-Do not add a general executor, async runtime, background worker, or public MVCC
-contract before the visibility and locking evidence exists.
+Retain Alternative D as the preferred first implementation candidate, but do
+not implement it until the sidecar lifecycle, all participating mutation paths,
+typed busy mapping, and dependency closure are reviewed. Do not add a general
+executor, async runtime, background worker, or public MVCC contract before the
+visibility and locking evidence exists.
 
 ## Required Follow-Up
 
@@ -113,6 +165,12 @@ contract before the visibility and locking evidence exists.
       reader behavior.
 - [ ] Decide whether the first implementation changes only private mechanism or
       accepts a durable public or format contract requiring an ADR.
+- [x] Inventory every public or crate-visible path that can mutate the database
+      file or WAL and state whether it participates in the writer gate.
+- [ ] Review the sync-only locking dependency and transitive platform closure
+      under AR-0010, including Rust 1.75 and native/WASM behavior.
+- [ ] Define sidecar naming, persistence, backup/export treatment, advisory
+      limitations, and `FILE_OPEN_BUSY` details before implementation.
 
 ## Reopening Triggers
 
@@ -148,3 +206,17 @@ contract before the visibility and locking evidence exists.
   contract is selected.
 - Resulting ADR or documentation change: none; no public or format contract has
   yet changed.
+
+### Cycle 3 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: the workspace MSRV is Rust 1.75; standard `File` locks are only
+  available from Rust 1.89. A sync-only `fs4` candidate declares Rust 1.75 and
+  exposes whole-file shared/exclusive advisory locks on Unix and Windows.
+- Findings: locking the database file would exclude readers; a process-local
+  registry would not reject cross-process writers; a persistent writer-only
+  sidecar is the smallest viable fail-fast mechanism, subject to mutation-path
+  and dependency review.
+- Disposition: remain Incubating with Alternative D preferred but not accepted.
+- Resulting ADR or documentation change: AR-0010 receives the dependency
+  candidate; no dependency, public API, sidecar, or format change was made.
