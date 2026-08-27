@@ -307,3 +307,18 @@ accepted as an ADR or authorized for semantic implementation.
   whole-database copies. It requires format, raw-WAL, limit, and crash decisions.
 - Disposition: Incubating with Alternative C preferred.
 - Resulting ADR or documentation change: none.
+
+### Cycle 2 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: recovery and read-only WAL overlay now share one private
+  sequential transaction analyzer. Four focused tests cover matching commit,
+  incomplete reuse of a prior transaction ID, mismatched commit, and nested
+  begin behavior; all 211 active core tests and strict workspace Clippy pass.
+- Findings: commitment can be derived from sequential framing without global
+  transaction-ID uniqueness. This closes one unsafe assumption before retained
+  WAL work, but strict malformed-stream diagnostics still need record-offset
+  provenance and remain part of the format-v3 design.
+- Disposition: remain Incubating with Alternative C preferred.
+- Resulting ADR or documentation change: no semantic or format change; shared
+  private transaction analysis is now executable evidence.

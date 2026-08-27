@@ -1585,50 +1585,32 @@ fn finish_open_readonly(
 
 fn overlay_committed_wal(wal_path: &Path, pager: &mut Pager) -> Result<()> {
     let records = WalReader::read_all(wal_path)?;
-    let committed: std::collections::HashSet<u64> = records
-        .iter()
-        .filter_map(|(_, r)| {
-            if let WalRecord::Commit { txn_id } = r {
-                Some(*txn_id)
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    let mut current_txn: Option<u64> = None;
-    for (_, record) in &records {
-        match record {
-            WalRecord::Begin { txn_id } => current_txn = Some(*txn_id),
-            WalRecord::PageWrite { pgno, frame, .. } => {
-                if let Some(txn_id) = current_txn {
-                    if committed.contains(&txn_id) {
-                        if *pgno == 0 {
-                            let page0 = frame.as_ref();
-                            validate_header(page0)?;
-                            if let Some(ref hmk) = pager.header_mac_key {
-                                let keyslot_count = keyslot_count(page0);
-                                let stored_mac = read_header_mac_field(page0)?;
-                                verify_header_mac(hmk, page0, keyslot_count, &stored_mac)?;
-                            }
-                            pager.page_count = read_u64(page0, OFF_PAGE_COUNT);
-                            pager.freelist_head = read_u64(page0, OFF_FREELIST_HEAD);
-                            pager.root_page = read_u64(page0, OFF_ROOT_PAGE);
-                        } else {
-                            pager.dirty_pages.insert(*pgno, frame.clone());
+    crate::wal::for_each_committed_transaction(&records, |_, _, transaction_records| {
+        for (_, record) in transaction_records {
+            match record {
+                WalRecord::PageWrite { pgno, frame, .. } => {
+                    if *pgno == 0 {
+                        let page0 = frame.as_ref();
+                        validate_header(page0)?;
+                        if let Some(ref hmk) = pager.header_mac_key {
+                            let keyslot_count = keyslot_count(page0);
+                            let stored_mac = read_header_mac_field(page0)?;
+                            verify_header_mac(hmk, page0, keyslot_count, &stored_mac)?;
                         }
+                        pager.page_count = read_u64(page0, OFF_PAGE_COUNT);
+                        pager.freelist_head = read_u64(page0, OFF_FREELIST_HEAD);
+                        pager.root_page = read_u64(page0, OFF_ROOT_PAGE);
+                    } else {
+                        pager.dirty_pages.insert(*pgno, frame.clone());
                     }
                 }
+                WalRecord::Begin { .. }
+                | WalRecord::Commit { .. }
+                | WalRecord::Checkpoint { .. } => {}
             }
-            WalRecord::Commit { txn_id } => {
-                if current_txn == Some(*txn_id) {
-                    current_txn = None;
-                }
-            }
-            WalRecord::Checkpoint { .. } => {}
         }
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
 // ── Pager unit tests ─────────────────────────────────────────────────────────

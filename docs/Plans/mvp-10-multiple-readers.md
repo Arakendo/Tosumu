@@ -321,6 +321,11 @@ format/recovery design that can retain committed versions safely.
   one shared database owner retains the writer gate plus a process-local reader
   registry. Crash ordering, WAL epoch metadata, raw-WAL scope, finite retention
   limits, and v3 migration behavior remain required evidence before an ADR.
+- Replaced duplicate recovery/read-overlay committed-ID classification with one
+  private sequential transaction analyzer. Reusing a previously committed
+  transaction ID no longer makes an incomplete later sequence appear committed;
+  focused framing tests, all 211 active core tests, and strict workspace Clippy
+  pass without changing snapshot, format, or public API behavior.
 
 ## References
 

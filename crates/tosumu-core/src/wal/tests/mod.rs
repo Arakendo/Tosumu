@@ -14,3 +14,4 @@ mod crash_preservation;
 mod locking;
 mod record_io;
 mod recovery;
+mod transactions;

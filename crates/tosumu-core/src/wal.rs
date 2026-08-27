@@ -485,6 +485,37 @@ impl WalReader {
     }
 }
 
+/// Visit each sequentially framed transaction that reaches its matching commit.
+///
+/// Transaction IDs are not treated as globally unique: a later incomplete
+/// transaction may reuse an earlier ID without making its frames committed.
+pub(crate) fn for_each_committed_transaction<F>(
+    records: &[(u64, WalRecord)],
+    mut visit: F,
+) -> Result<()>
+where
+    F: FnMut(u64, u64, &[(u64, WalRecord)]) -> Result<()>,
+{
+    let mut active: Option<(u64, usize)> = None;
+
+    for (index, (lsn, record)) in records.iter().enumerate() {
+        match record {
+            WalRecord::Begin { txn_id } => active = Some((*txn_id, index + 1)),
+            WalRecord::Commit { txn_id } => {
+                if let Some((active_txn_id, first_record)) = active {
+                    if active_txn_id == *txn_id {
+                        visit(*txn_id, *lsn, &records[first_record..index])?;
+                        active = None;
+                    }
+                }
+            }
+            WalRecord::PageWrite { .. } | WalRecord::Checkpoint { .. } => {}
+        }
+    }
+
+    Ok(())
+}
+
 // ── Recovery ─────────────────────────────────────────────────────────────────
 
 /// Apply all committed WAL transactions from `wal_path` into `db_path`.
@@ -510,19 +541,6 @@ pub(crate) fn recover_guarded(
 
     let records = WalReader::read_all(wal_path)?;
 
-    // Find all committed txn_ids.
-    let committed: std::collections::HashSet<u64> = records
-        .iter()
-        .filter_map(|(_, r)| {
-            if let WalRecord::Commit { txn_id } = r {
-                Some(*txn_id)
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    // Track the last active txn_id for Begin records.
     let mut last_checkpoint_lsn = 0u64;
 
     // Open the main file for writing page frames.
@@ -532,25 +550,13 @@ pub(crate) fn recover_guarded(
         "applying WAL recovery to database",
     )?;
 
-    for (lsn, record) in &records {
-        match record {
-            WalRecord::PageWrite { pgno, frame, .. } => {
-                // Only apply if this write's transaction was committed.
-                // We need to know which txn this PageWrite belongs to.
-                // Simple approach: apply all PageWrites whose txn committed.
-                // Since we process in order, every PageWrite before a Commit belongs to that txn.
-                // We'll do a two-pass approach handled by the `apply_committed` helper below.
-                let _ = (lsn, pgno, frame); // handled in second pass below
-            }
-            WalRecord::Checkpoint { up_to_lsn } => {
-                last_checkpoint_lsn = *up_to_lsn;
-            }
-            _ => {}
+    for (_, record) in &records {
+        if let WalRecord::Checkpoint { up_to_lsn } = record {
+            last_checkpoint_lsn = *up_to_lsn;
         }
     }
 
-    // Second pass: apply PageWrites from committed transactions.
-    apply_committed_writes(&records, &committed, &mut db_file)?;
+    apply_committed_writes(&records, &mut db_file)?;
 
     db_file.sync_data()?;
     Ok(last_checkpoint_lsn)
@@ -558,41 +564,27 @@ pub(crate) fn recover_guarded(
 
 /// Walk records in order, tracking the current txn_id.
 /// Apply PageWrite records that belong to committed transactions.
-fn apply_committed_writes(
-    records: &[(u64, WalRecord)],
-    committed: &std::collections::HashSet<u64>,
-    db_file: &mut File,
-) -> Result<()> {
-    let mut current_txn: Option<u64> = None;
-
-    for (_, record) in records {
-        match record {
-            WalRecord::Begin { txn_id } => {
-                current_txn = Some(*txn_id);
-            }
-            WalRecord::PageWrite { pgno, frame, .. } => {
-                if let Some(tid) = current_txn {
-                    if committed.contains(&tid) {
-                        let offset =
-                            pgno.checked_mul(PAGE_SIZE as u64)
-                                .ok_or(TosumuError::Corrupt {
-                                    pgno: *pgno,
-                                    reason: "WAL page offset overflow",
-                                })?;
-                        db_file.seek(SeekFrom::Start(offset))?;
-                        db_file.write_all(frame.as_ref())?;
-                    }
+fn apply_committed_writes(records: &[(u64, WalRecord)], db_file: &mut File) -> Result<()> {
+    for_each_committed_transaction(records, |_, _, transaction_records| {
+        for (_, record) in transaction_records {
+            match record {
+                WalRecord::PageWrite { pgno, frame, .. } => {
+                    let offset =
+                        pgno.checked_mul(PAGE_SIZE as u64)
+                            .ok_or(TosumuError::Corrupt {
+                                pgno: *pgno,
+                                reason: "WAL page offset overflow",
+                            })?;
+                    db_file.seek(SeekFrom::Start(offset))?;
+                    db_file.write_all(frame.as_ref())?;
                 }
+                WalRecord::Begin { .. }
+                | WalRecord::Commit { .. }
+                | WalRecord::Checkpoint { .. } => {}
             }
-            WalRecord::Commit { txn_id } => {
-                if current_txn == Some(*txn_id) {
-                    current_txn = None;
-                }
-            }
-            WalRecord::Checkpoint { .. } => {}
         }
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
 // ── Checkpoint ───────────────────────────────────────────────────────────────
