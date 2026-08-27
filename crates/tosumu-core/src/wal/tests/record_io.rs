@@ -21,6 +21,30 @@ fn encoded_record_sizes_make_transaction_pressure_exact() {
 }
 
 #[test]
+fn strict_database_reader_rejects_duplicate_or_decreasing_lsns() {
+    for (label, second_lsn) in [("duplicate_lsn", 2), ("decreasing_lsn", 1)] {
+        let p = tmp(label);
+        let _ = std::fs::remove_file(&p);
+
+        let mut bytes = Vec::new();
+        WalRecord::Begin { txn_id: 1 }.encode(2, &mut bytes);
+        WalRecord::Commit { txn_id: 1 }.encode(second_lsn, &mut bytes);
+        std::fs::write(&p, bytes).unwrap();
+
+        let error = WalReader::read_all_strict(&p).unwrap_err();
+        assert!(matches!(
+            error,
+            TosumuError::CorruptRecord {
+                offset: 25,
+                reason: "WAL LSN is not strictly increasing"
+            }
+        ));
+
+        let _ = std::fs::remove_file(&p);
+    }
+}
+
+#[test]
 fn write_and_read_all_record_types() {
     let p = tmp("all_types");
     let _ = std::fs::remove_file(&p);

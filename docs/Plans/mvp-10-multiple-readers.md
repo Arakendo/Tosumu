@@ -377,6 +377,11 @@ format/recovery design that can retain committed versions safely.
   read-only WAL overlay now consumes that index for its latest view. Focused
   atomic-selection tests and the current live-view baseline pass without a
   format or public API change.
+- Added strict database-WAL LSN validation. Recovery and read-only overlay now
+  reject CRC-valid duplicate or decreasing record LSNs with the offending byte
+  offset; the physical inspection reader remains observational. Focused order
+  fixtures, committed-index tests, all nine MVP+10 baseline tests, and strict
+  core Clippy pass.
 
 ## References
 

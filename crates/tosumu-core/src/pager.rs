@@ -1633,7 +1633,7 @@ fn finish_open_readonly(
 }
 
 fn overlay_committed_wal(wal_path: &Path, pager: &mut Pager) -> Result<()> {
-    let records = WalReader::read_all(wal_path)?;
+    let records = WalReader::read_all_strict(wal_path)?;
     let index = CommittedWalIndex::from_records(&records, 0)?;
     let latest = index.latest_commit_lsn();
     index.for_each_page_at(latest, |pgno, version| {

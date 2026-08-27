@@ -466,11 +466,33 @@ impl WalReader {
 
     /// Collect all valid records from the WAL, stopping at the first CRC error or EOF.
     pub fn read_all(path: &Path) -> Result<Vec<(u64, WalRecord)>> {
+        Self::read_all_inner(path, false)
+    }
+
+    /// Read a database WAL and require record LSNs to increase strictly.
+    pub(crate) fn read_all_strict(path: &Path) -> Result<Vec<(u64, WalRecord)>> {
+        Self::read_all_inner(path, true)
+    }
+
+    fn read_all_inner(path: &Path, require_increasing_lsn: bool) -> Result<Vec<(u64, WalRecord)>> {
         let mut rdr = Self::open(path)?;
         let mut out = Vec::new();
+        let mut previous_lsn = None;
         loop {
+            let record_start = rdr.pos;
             match rdr.next_record() {
-                Ok(Some(r)) => out.push(r),
+                Ok(Some((lsn, record))) => {
+                    if require_increasing_lsn
+                        && previous_lsn.is_some_and(|previous| lsn <= previous)
+                    {
+                        return Err(TosumuError::CorruptRecord {
+                            offset: record_start,
+                            reason: "WAL LSN is not strictly increasing",
+                        });
+                    }
+                    previous_lsn = Some(lsn);
+                    out.push((lsn, record));
+                }
                 Ok(None) => break,
                 // Ignore only torn tail records; complete-record corruption must surface.
                 Err(TosumuError::CorruptRecord {
@@ -542,7 +564,7 @@ pub(crate) fn recover_guarded(
         return Ok(0);
     }
 
-    let records = WalReader::read_all(wal_path)?;
+    let records = WalReader::read_all_strict(wal_path)?;
 
     let mut last_checkpoint_lsn = 0u64;
 

@@ -603,3 +603,17 @@ and the remaining implementation evidence stay provisional as listed below.
   shared owner remain subsequent v3 gates.
 - Disposition: ADR-0005 remains accepted without revision.
 - Resulting ADR or documentation change: no public or physical-format change.
+
+### Cycle 12 -- 2026-08-27
+
+- Status entering review: Accepted
+- New evidence: recovery and read-only database overlay now use a strict WAL
+  stream reader that rejects duplicate or decreasing LSNs at the offending byte
+  offset. Focused fixtures cover both order failures; physical inspection can
+  still decode records without claiming database-valid ordering.
+- Findings: CRC-valid records are insufficient for a database WAL when their
+  generation order is ambiguous. Strict database consumption closes that
+  prerequisite without changing record bytes or current valid behavior.
+- Disposition: ADR-0005 remains accepted without revision.
+- Resulting ADR or documentation change: no format change; malformed ordering
+  now fails explicitly on database recovery/overlay paths.
