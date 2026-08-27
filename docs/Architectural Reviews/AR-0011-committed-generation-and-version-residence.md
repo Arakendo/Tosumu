@@ -282,6 +282,38 @@ sizes and an admitted transaction-abort contract. This is a discovered design
 dependency, not permission to leave WAL growth invisible or unbounded in the
 eventual snapshot API.
 
+### Transaction staging and abort mechanics
+
+The preferred abort contract avoids fallible physical rollback for ordinary
+caller cancellation. The pager already retains the final encrypted frame for
+each dirty page in a transaction-local map. It should stage the WAL transaction
+from that map at commit time instead of appending `Begin` and every intermediate
+`PageWrite` during mutation:
+
+```text
+mutate transaction-local pages
+    -> on caller error: discard pages; no WAL bytes were appended
+    -> on commit: build final page-zero frame and sorted unique page frames
+    -> compute exact encoded transaction bytes and enforce the admitted budget
+    -> append Begin + final PageWrite frames + Commit
+    -> sync WAL
+    -> publish committed index with an infallible state swap
+```
+
+This makes the transaction byte budget a bound over final unique frames rather
+than an operation counter. Rewriting one page repeatedly does not inflate the
+committed history, and a rejected over-budget transaction fails before its
+first WAL byte. It also preserves the existing closure guarantee that returning
+an error rolls back without hiding a second cleanup failure.
+
+An append or sync failure during commit is different: durability may be
+ambiguous and a torn/incomplete tail may exist. The handle must become poisoned
+and reject further work; reopen validates the stream, trims only the incomplete
+physical tail, and determines whether a complete synced commit exists. The
+engine must not silently truncate a complete commit merely because `sync`
+returned an error. The admitted transaction budget bounds this exceptional
+tail even before a retained-WAL ceiling is selected.
+
 ## Alternatives Considered
 
 ### Alternative A: Copy the whole database for each read transaction
@@ -332,6 +364,9 @@ eventual snapshot API.
 - A per-value size limit cannot enforce a retained-WAL ceiling while one
   transaction may append an unbounded number of frames and rollback leaves its
   physical tail behind.
+- Commit-time staging of final unique frames can make ordinary rollback
+  infallible and the transaction WAL size exactly preflightable; commit I/O
+  ambiguity instead poisons the handle until validated reopen.
 - No evidence yet selects numeric reader/transaction/WAL defaults, the public
   shared-owner API, or v2 offline rewrite behavior.
 
@@ -353,8 +388,11 @@ accepted as an ADR or authorized for semantic implementation.
       retain at most a crate-private or explicit physical fixture boundary.
 - [x] Quantify the current 64 MiB single-value WAL lower bound and establish
       that the existing per-value limit does not bound a transaction.
-- [ ] Define bounded transaction admission plus safe uncommitted-tail
-      reclamation before claiming a hard retained-WAL byte ceiling.
+- [x] Define the transaction abort mechanism: stage final unique frames, reject
+      an over-budget commit before append, and poison on commit I/O ambiguity so
+      reopen can validate and trim only an incomplete tail.
+- [ ] Select the numeric transaction byte/frame budget before claiming a hard
+      retained-WAL byte ceiling.
 - [ ] Collect representative Tokimu snapshot sizes, then select and diagnose
       numeric active-reader, transaction, and retained-WAL defaults.
 - [x] Define format-v3 open/refusal and optional v2 offline logical rewrite
@@ -465,3 +503,19 @@ accepted as an ADR or authorized for semantic implementation.
   an ADR but remains coupled to unresolved transaction/retention limits.
 - Resulting ADR or documentation change: AR-0006 Cycle 3 records the preferred
   clean-break contract.
+
+### Cycle 7 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: current pager mutation already keeps one final encrypted frame
+  per dirty page, while eagerly appended WAL records duplicate intermediate
+  writes and make rollback reclamation fallible. `HANDLE_POISONED` already
+  exists as a typed terminal handle state.
+- Findings: commit-time WAL staging makes ordinary rollback append-free and
+  permits exact budget admission over final unique frames. A commit append/sync
+  failure remains durability-ambiguous and must poison the handle until reopen
+  validates the tail; it must not be treated as ordinary rollback.
+- Disposition: remain Incubating; prefer staged commit as the transaction-bound
+  mechanism. Numeric budget evidence remains open.
+- Resulting ADR or documentation change: no format change; implementation may
+  first prove equivalent format-v2 commit/recovery behavior as preparation.

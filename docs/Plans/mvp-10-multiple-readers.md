@@ -349,6 +349,11 @@ format/recovery design that can retain committed versions safely.
   generalized for older unsupported files. Any future v2 preservation path is
   an offline logical rewrite to a separate verified destination, admitted only
   when non-regenerable data supplies evidence for it.
+- Preferred commit-time WAL staging from the pager's existing final dirty-frame
+  map. Ordinary closure rollback then appends nothing, repeated page rewrites
+  consume one final frame, and an exact transaction byte budget can be checked
+  before append. Commit append/sync ambiguity poisons the handle for validated
+  reopen rather than silently truncating a possibly complete commit.
 
 ## References
 
