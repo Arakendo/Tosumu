@@ -76,6 +76,10 @@ until a concrete incompatible change supplies evidence.
 - Reusing the existing `wal_checkpoint_lsn` bytes does not make the change
   behaviorally compatible. A v2 writer can reset WAL LSNs, overwrite the main
   file, and truncate history that a snapshot-capable engine would retain.
+- The SDD's former assertion that Stage 6 needed no new storage format confused
+  reusable `PageWrite` frame bytes with an implemented retention protocol. The
+  normative text now defers the actual compatibility decision to AR-0006 and
+  AR-0009.
 - The accepted Tokimu provider fixture records physical format 2 and explicitly
   does not stabilize that pre-release format permanently. It requires explicit
   unsupported-version reporting, not automatic migration on open.
@@ -119,8 +123,9 @@ the first real incompatible change to decide clean break versus migration.
 - Status entering review: Incubating
 - New evidence: AR-0009 Cycle 5 shows that format-v2 WAL LSNs reset, the
   checkpoint field remains zero, old frames are discarded, and direct writes
-  bypass a commit generation. The accepted Tokimu fixture names physical
-  format 2 without claiming permanent stability.
+  bypass a commit generation. The SDD's unsupported no-format-change assertion
+  was corrected. The accepted Tokimu fixture names physical format 2 without
+  claiming permanent stability.
 - Findings: snapshot publication is the first concrete incompatible format
   pressure. Activating existing header bytes is insufficient because older
   writers would violate the new retained-history protocol.
