@@ -146,6 +146,13 @@ or ignoring records at or below the checkpoint is idempotent. WAL bytes must
 not be removed before the checkpointed main state and page-zero horizon are
 durable.
 
+The WAL sidecar remains present when empty. Reclamation truncates and syncs the
+existing file rather than deleting and recreating it, so correctness does not
+depend on a directory-entry durability window. Checkpoint success is not
+reported until the truncation metadata is synced. If that sync fails, the main
+file is already authoritative at T and reopening must accept any surviving
+obsolete prefix/tail as records at or below the checkpoint horizon.
+
 The preferred Slice 2 scope is narrower: do not move the main checkpoint while
 any registered snapshot exists. When the reader count is zero, a full
 checkpoint may advance to the latest durable commit and truncate the entire
@@ -168,8 +175,9 @@ and diagnostic before Slice 2 completes.
 | After WAL sync but before in-memory publication | Transaction is committed | Rebuild the committed index from WAL; prepare allocations before sync so post-sync publication is an infallible state change |
 | During data-page checkpoint writes before main-file sync | WAL remains authoritative | Expose no handle before recovery reapplies committed frames and restores coherent page zero |
 | After checkpointed page zero and main-file sync, before WAL truncate | Main file durably represents T; WAL may contain obsolete records `<= T` | Ignore or idempotently replay obsolete records, then finish reclamation |
-| During full WAL truncate | Main file still durably represents the latest commit | Accept intact obsolete prefixes and a torn obsolete tail; do not infer a newer commit without a complete record |
-| After full WAL truncate | Main file is authoritative at T | Seed the next record LSN above T rather than restarting at 1 |
+| After WAL `set_len(0)` but before truncation sync | Main file still durably represents T; reclamation durability is unknown | Report checkpoint failure; on reopen accept an empty WAL or surviving obsolete bytes, all bounded by T |
+| After full WAL truncate and sync | Main file is authoritative at T and the persistent WAL is empty | Seed the next record LSN at `T + 1` rather than restarting at 1 |
+| Reopen with page-zero horizon T and nonempty WAL | Main is the base at T; only complete committed transactions above T can advance current state | Reject decreasing/duplicate post-horizon LSNs, ignore obsolete records `<= T`, and ignore only a structurally incomplete final transaction/torn tail |
 
 The in-memory committed-frame index must be fully prepared before the commit
 fsync. After that fsync, publication should be an infallible pointer/state swap;
@@ -335,8 +343,10 @@ accepted as an ADR or authorized for semantic implementation.
 
 ## Required Follow-Up
 
-- [ ] Falsify or confirm the candidate with a crash-ordering matrix for commit,
-      main checkpoint, page-zero horizon, and WAL reclamation.
+- [x] Confirm the candidate ordering with a crash matrix for commit, main
+      checkpoint, page-zero horizon, persistent-sidecar truncation, and reopen.
+- [ ] Turn the admitted matrix into format-v3 crash fixtures before semantic
+      snapshot behavior ships.
 - [x] Prefer page-zero checkpoint state as the sole epoch/base authority; do not
       add a duplicate WAL header solely to seed monotonic LSNs.
 - [x] Remove raw `WalWriter` from the future coordinated database mutation path;
@@ -424,3 +434,19 @@ accepted as an ADR or authorized for semantic implementation.
   and retained-history limits rather than hiding all three behind one WAL size.
 - Resulting ADR or documentation change: none until numeric defaults and abort
   mechanics have executable evidence.
+
+### Cycle 5 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: the candidate already orders page frames and authenticated page
+  zero before one main-file sync; current reclamation truncates and syncs an
+  existing persistent sidecar rather than deleting it.
+- Findings: every crash boundary has one recovery authority. Before main sync,
+  WAL wins; after main sync, page zero at T wins and surviving WAL bytes at or
+  below T are obsolete. An empty reopened WAL must start at `T + 1`. The matrix
+  does not require prefix checkpointing while Slice 2 forbids checkpoint with
+  registered readers.
+- Disposition: ordering candidate confirmed for Slice 2; executable format-v3
+  crash fixtures remain an implementation gate.
+- Resulting ADR or documentation change: none until the format contract is
+  accepted.

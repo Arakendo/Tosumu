@@ -337,6 +337,12 @@ format/recovery design that can retain committed versions safely.
   arbitrarily many values, and rollback does not reclaim its appended WAL tail.
   Hard retention limits are therefore gated on transaction budgeting and safe
   tail reclamation; a pre-begin watermark alone is only pressure telemetry.
+- Confirmed the Slice 2 crash ordering: WAL remains authoritative until data
+  pages plus authenticated page zero at T are synced; afterward main is the
+  base at T and persistent-sidecar truncation may be retried safely. Reopening
+  an empty WAL seeds `T + 1`; surviving obsolete bytes cannot publish a new
+  generation. Format-v3 crash fixtures remain required before implementation
+  claims the behavior.
 
 ## References
 
