@@ -152,6 +152,17 @@ pub enum TosumuError {
     #[error("transaction WAL size {actual} exceeds maximum {maximum}")]
     TransactionWalTooLarge { actual: u64, maximum: u64 },
 
+    /// Publishing the staged transaction would exceed the retained committed
+    /// WAL budget. No bytes have been appended.
+    #[error(
+        "retained WAL limit reached: {retained} retained + {transaction} transaction bytes exceeds maximum {maximum}"
+    )]
+    WalRetentionLimitReached {
+        retained: u64,
+        transaction: u64,
+        maximum: u64,
+    },
+
     /// The supplied passphrase (or other protector secret) is wrong.
     ///
     /// Distinct from `AuthFailed` which indicates page-level AEAD corruption.
@@ -422,6 +433,29 @@ impl TosumuError {
                     },
                 ],
             },
+            TosumuError::WalRetentionLimitReached {
+                retained,
+                transaction,
+                maximum,
+            } => ErrorReport {
+                code: codes::WAL_RETENTION_LIMIT_REACHED,
+                status: ErrorStatus::Busy,
+                message: self.to_string(),
+                details: vec![
+                    ErrorDetail {
+                        key: "retained",
+                        value: ErrorValue::U64(*retained),
+                    },
+                    ErrorDetail {
+                        key: "transaction",
+                        value: ErrorValue::U64(*transaction),
+                    },
+                    ErrorDetail {
+                        key: "maximum",
+                        value: ErrorValue::U64(*maximum),
+                    },
+                ],
+            },
             TosumuError::WrongKey => ErrorReport {
                 code: codes::PROTECTOR_UNLOCK_WRONG_KEY,
                 status: ErrorStatus::PermissionDenied,
@@ -535,6 +569,11 @@ mod tests {
             TosumuError::TransactionWalTooLarge {
                 actual: 2,
                 maximum: 1,
+            },
+            TosumuError::WalRetentionLimitReached {
+                retained: 2,
+                transaction: 2,
+                maximum: 3,
             },
             TosumuError::WrongKey,
             TosumuError::CommittedButFlushFailed {

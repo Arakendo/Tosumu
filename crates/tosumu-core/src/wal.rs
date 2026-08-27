@@ -336,6 +336,10 @@ impl WalWriter {
         Ok(writer)
     }
 
+    pub(crate) fn encoded_len(&self) -> Result<u64> {
+        Ok(self.file.metadata()?.len())
+    }
+
     /// Write one record to the WAL. Does NOT fsync — call `sync()` after a full transaction.
     pub fn append(&mut self, record: &WalRecord) -> Result<u64> {
         let lsn = self.next_lsn;

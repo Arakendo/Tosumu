@@ -675,3 +675,19 @@ and the remaining implementation evidence stay provisional as listed below.
 - Disposition: ADR-0005 remains accepted without revision.
 - Resulting ADR or documentation change: AR-0006 is accepted through ADR-0005;
   format constants have not moved yet.
+
+### Cycle 17 -- 2026-08-27
+
+- Status entering review: Accepted
+- New evidence: commit admission now checks current encoded WAL bytes plus the
+  exact staged transaction size against the private 512 MiB retention ceiling
+  using checked arithmetic before `Begin`. A focused low-limit fixture proves
+  rejection leaves a zero-byte WAL, rolls back metadata, and keeps the handle
+  reusable.
+- Findings: retained-history capacity now has a distinct typed pressure signal:
+  `WAL_RETENTION_LIMIT_REACHED` is `Busy` because releasing snapshots and a
+  later checkpoint may make unchanged work admissible. Transaction oversize
+  remains `InvalidInput` because retry alone cannot change its size.
+- Disposition: ADR-0005 remains accepted without revision.
+- Resulting ADR or documentation change: the Error Design Document now records
+  the retained-pressure details; retained commit residence is still subsequent.

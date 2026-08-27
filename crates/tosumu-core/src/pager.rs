@@ -59,6 +59,7 @@ enum PagerHealth {
 }
 
 const DEFAULT_MAX_TRANSACTION_WAL_BYTES: u64 = 160 * 1024 * 1024;
+const DEFAULT_MAX_RETAINED_WAL_BYTES: u64 = 512 * 1024 * 1024;
 
 /// The pager. Holds an open file and the derived page key.
 pub struct Pager {
@@ -1104,13 +1105,18 @@ impl Pager {
         &mut self,
         flush_file: &mut T,
     ) -> Result<()> {
-        self.commit_txn_with_phase_two_file_and_limit(flush_file, DEFAULT_MAX_TRANSACTION_WAL_BYTES)
+        self.commit_txn_with_phase_two_file_and_limits(
+            flush_file,
+            DEFAULT_MAX_TRANSACTION_WAL_BYTES,
+            DEFAULT_MAX_RETAINED_WAL_BYTES,
+        )
     }
 
-    fn commit_txn_with_phase_two_file_and_limit<T: PagerPhaseTwoFile>(
+    fn commit_txn_with_phase_two_file_and_limits<T: PagerPhaseTwoFile>(
         &mut self,
         flush_file: &mut T,
         maximum_wal_bytes: u64,
+        maximum_retained_wal_bytes: u64,
     ) -> Result<()> {
         self.ensure_writable()?;
         assert!(
@@ -1130,6 +1136,27 @@ impl Pager {
             return Err(TosumuError::TransactionWalTooLarge {
                 actual: actual_wal_bytes,
                 maximum: maximum_wal_bytes,
+            });
+        }
+
+        let retained_wal_bytes = self.wal_mut()?.encoded_len()?;
+        let resulting_retained_wal_bytes = match retained_wal_bytes.checked_add(actual_wal_bytes) {
+            Some(bytes) => bytes,
+            None => {
+                self.rollback_txn();
+                return Err(TosumuError::WalRetentionLimitReached {
+                    retained: retained_wal_bytes,
+                    transaction: actual_wal_bytes,
+                    maximum: maximum_retained_wal_bytes,
+                });
+            }
+        };
+        if resulting_retained_wal_bytes > maximum_retained_wal_bytes {
+            self.rollback_txn();
+            return Err(TosumuError::WalRetentionLimitReached {
+                retained: retained_wal_bytes,
+                transaction: actual_wal_bytes,
+                maximum: maximum_retained_wal_bytes,
             });
         }
 
@@ -1231,7 +1258,21 @@ impl Pager {
     #[cfg(test)]
     fn commit_txn_with_limit(&mut self, maximum_wal_bytes: u64) -> Result<()> {
         let mut flush_file = self.file.try_clone()?;
-        self.commit_txn_with_phase_two_file_and_limit(&mut flush_file, maximum_wal_bytes)
+        self.commit_txn_with_phase_two_file_and_limits(
+            &mut flush_file,
+            maximum_wal_bytes,
+            DEFAULT_MAX_RETAINED_WAL_BYTES,
+        )
+    }
+
+    #[cfg(test)]
+    fn commit_txn_with_retained_limit(&mut self, maximum_retained_wal_bytes: u64) -> Result<()> {
+        let mut flush_file = self.file.try_clone()?;
+        self.commit_txn_with_phase_two_file_and_limits(
+            &mut flush_file,
+            DEFAULT_MAX_TRANSACTION_WAL_BYTES,
+            maximum_retained_wal_bytes,
+        )
     }
 
     /// Roll back the current transaction: discard dirty pages and restore
@@ -1763,6 +1804,34 @@ mod tests {
                 maximum: 8_307
             }
         ));
+        assert_eq!(std::fs::metadata(&wal).unwrap().len(), 0);
+        assert!(!pager.txn_active);
+        assert_eq!(pager.page_count(), 1);
+
+        pager.begin_txn().unwrap();
+        pager.rollback_txn();
+    }
+
+    #[test]
+    fn retained_wal_budget_rejects_before_append_and_reports_pressure() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("retained_wal_budget.tsm");
+        let wal = wal_path(&path);
+        let mut pager = Pager::create(&path).unwrap();
+
+        pager.begin_txn().unwrap();
+        pager.allocate(PAGE_TYPE_LEAF).unwrap();
+        let error = pager.commit_txn_with_retained_limit(8_307).unwrap_err();
+        let report = error.error_report();
+
+        assert_eq!(
+            report.code,
+            crate::error::codes::WAL_RETENTION_LIMIT_REACHED
+        );
+        assert_eq!(report.status, crate::error::ErrorStatus::Busy);
+        assert_eq!(report.detail_u64("retained"), Some(0));
+        assert_eq!(report.detail_u64("transaction"), Some(8_308));
+        assert_eq!(report.detail_u64("maximum"), Some(8_307));
         assert_eq!(std::fs::metadata(&wal).unwrap().len(), 0);
         assert!(!pager.txn_active);
         assert_eq!(pager.page_count(), 1);

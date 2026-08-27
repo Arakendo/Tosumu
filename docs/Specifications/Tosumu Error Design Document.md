@@ -98,6 +98,10 @@ Repository-specific guidance:
 - Use `TRANSACTION_WAL_TOO_LARGE` when the staged final unique frames exceed
   the configured encoded-WAL budget. Reports include `actual` and `maximum`;
   rejection occurs before `Begin` is appended and rolls back the transaction.
+- Use `WAL_RETENTION_LIMIT_REACHED` when retained committed WAL bytes plus the
+  staged transaction would exceed the configured retention budget. Reports
+  include `retained`, `transaction`, and `maximum`; the `Busy` status indicates
+  that releasing snapshots and checkpointing may make a retry admissible.
 - Use `FORMAT_VERSION_UNSUPPORTED` when `found` is outside the engine's
   inclusive compatibility interval. Reports include `supported_min` and
   `supported_max`; the same code applies to older and newer files.
@@ -441,6 +445,7 @@ INSPECT_PAGE_OUT_OF_RANGE
 FILE_OPEN_BUSY
 SNAPSHOT_LIMIT_REACHED
 TRANSACTION_WAL_TOO_LARGE
+WAL_RETENTION_LIMIT_REACHED
 PROTECTOR_UNLOCK_WRONG_KEY
 COMMITTED_FLUSH_FAILED
 ```

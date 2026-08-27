@@ -404,6 +404,12 @@ format/recovery design that can retain committed versions safely.
   Unsupported older and newer files now retain the stable
   `FORMAT_VERSION_UNSUPPORTED` code while reporting `found`, `supported_min`,
   and `supported_max`; this makes the later exact-v3 switch unambiguous.
+- Enforced the private 512 MiB retained-WAL admission ceiling using checked
+  `current WAL + staged transaction` arithmetic before append. Pressure reports
+  `WAL_RETENTION_LIMIT_REACHED` with retained, transaction, and maximum byte
+  counts and rolls the in-memory transaction back without touching the WAL.
+  Its `Busy` status distinguishes reclaimable reader/checkpoint pressure from
+  an intrinsically oversized transaction.
 
 ## References
 
