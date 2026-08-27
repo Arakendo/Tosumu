@@ -15,7 +15,10 @@ validation, and exit states.
 
 - [Main Feature Roadmap](main-feature-roadmap.md) -- canonical implementation
   status tracker; **Active**. MVP 0-8 and the MVP+9 baseline are complete;
-  MVP+10 is the next planning gate.
+  the MVP+10 baseline is now the active planning gate.
+- [MVP+10 Multiple Readers And Coordination](mvp-10-multiple-readers.md) --
+  **Proposed; baseline recorded** for current handle, visibility, writer, and
+  checkpoint behavior under AR-0009.
 - [Initial SQL Layer](initial-sql-layer.md) -- MVP+9 baseline complete; retained
   as **Completed baseline** implementation history and a source for deferred
   SQL work.
@@ -34,7 +37,7 @@ validation, and exit states.
   -- **Active** normalization of document status and the current/future design
   boundary.
 - [Core Source Unit Decomposition](core-source-unit-decomposition.md) --
-  **Proposed** behavior-preserving test and private-module decomposition
+  **Complete** behavior-preserving test and private-module decomposition
   triggered by ADR-0003's initial core inventory.
 
 ## Plan Requirements

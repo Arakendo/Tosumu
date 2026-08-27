@@ -896,7 +896,8 @@ Gate: no coding until the design-doc sync for the selected namespace-backed mode
 
 - [x] Add broader explicit projection coverage and documentation.
 - [x] Add constrained richer predicates (`AND`, `OR`, comparison operators).
-- [ ] Decide whether logical scan support belongs before or after MVP+10.
+- [x] Defer logical scan support until after MVP+10 establishes reader
+      visibility; admit it through a dedicated post-MVP+10 SQL plan.
 
 The predicate extension supports `pk = value AND column = value` point lookups
 (with the primary-key equality first), including `!=` and ordered residual
@@ -1042,4 +1043,8 @@ All baseline MVP+9 implementation phases and repository-level validation are com
 
 The MVP+9 baseline is complete. Remaining tracked work:
 
-1. Decide whether logical scan support belongs before or after MVP+10.
+1. Open a dedicated post-MVP+10 SQL plan before adding logical full-table
+   scans, so scans consume the admitted snapshot contract rather than defining
+   storage visibility themselves.
+2. Treat `tosumu audit` as a separate future diagnostics/audit milestone, as
+   required by §15.3, rather than as unfinished MVP+9 query work.

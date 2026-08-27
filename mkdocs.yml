@@ -78,6 +78,7 @@ nav:
       - Implementation Plans:
           - Plans/README.md
           - Main Feature Roadmap: Plans/main-feature-roadmap.md
+          - MVP+10 Multiple Readers And Coordination: Plans/mvp-10-multiple-readers.md
           - Initial SQL Layer: Plans/initial-sql-layer.md
           - Tosumu Command Language: Plans/tosumu-command-language.md
           - Tokimu Reciprocal Website Evidence: Plans/tokimu-reciprocal-website-evidence.md

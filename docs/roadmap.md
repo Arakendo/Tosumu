@@ -4,19 +4,22 @@ This page is the public roadmap summary. It is intentionally shorter than the re
 
 ## Now
 
-- close or deliberately defer the remaining MVP+9 audit and logical-scan scope
+- use the recorded MVP+10 baseline to design one-writer admission and reader
+  visibility under AR-0009
 - keep the CLI, inspect contract, and TUI viewer coherent
 - keep crash, crypto, and verification behavior visible through tests and tooling
 - improve the trust surface around docs, diagnostics, and website guidance
 
 ## Next
 
-- begin MVP+10 work on MVCC-style readers and multiple-reader coordination
+- admit the smallest shared-handle and fail-fast writer coordination contract
+- add committed-LSN reader snapshots only after their retention and checkpoint
+  semantics are explicit
 - continued work on inspection, audit, and structured diagnostics may still reshape near-term priorities while the project remains pre-stability
 
 ## Later
 
-- MVCC-style reader work
+- logical SQL scans built on the admitted reader-visibility contract
 - secondary indexes and `VACUUM`
 - mobile-facing wrappers and protector integrations
 - witness, observer, and deployment work for clustered scenarios

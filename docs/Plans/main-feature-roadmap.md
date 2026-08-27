@@ -4,10 +4,10 @@
 | --- | --- |
 | Status | Active |
 | Opened | 2026-08-03 |
-| Last updated | 2026-08-03 (criterion audit) |
+| Last updated | 2026-08-27 (MVP+10 baseline) |
 | Owner | Tosumu maintainers |
 | Authority | Tracking plan; `docs/Specifications/Tosumu Software Design Document.md` remains normative |
-| Current milestone | MVP+9 closure and MVP+10 planning |
+| Current milestone | MVP+10 baseline and coordination planning |
 
 ## Purpose
 
@@ -30,8 +30,8 @@ beyond the normative specifications.
       TUI, and initial SQL foundations through MVP+9.
 - [x] Expose a provider-neutral embedded KV boundary, stable backup, portable
       export, and structured embedded verification for independent consumers.
-- [ ] Close remaining MVP+9 audit and logical-scan decisions explicitly.
-- [ ] Open a focused MVP+10 plan before implementing MVCC, conditional writes,
+- [x] Close remaining MVP+9 audit and logical-scan decisions explicitly.
+- [x] Open a focused MVP+10 plan before implementing MVCC, conditional writes,
       secondary indexes, or `VACUUM`.
 
 ## MVP Delivery And Acceptance Checklist
@@ -223,9 +223,10 @@ The retained evidence is in [Initial SQL Layer](initial-sql-layer.md).
       multi-point operations.
 - [x] `tosumu sql` execution and `--explain` output.
 - [x] Typed rejection for unsupported syntax, semantics, and query shapes.
-- [ ] Stable logical full-table scan contract, if retained in MVP+9 scope.
-- [ ] `tosumu audit` and structured `inspect.audit` findings, if retained in
-      MVP+9 scope.
+- [x] Stable logical full-table scans are explicitly outside MVP+9 and require
+      a dedicated post-MVP+10 SQL plan built on admitted reader visibility.
+- [x] `tosumu audit` and structured audit findings are explicitly outside
+      MVP+9 and require a separate future diagnostics/audit plan.
 
 **Acceptance Criteria**
 
@@ -237,11 +238,11 @@ The retained evidence is in [Initial SQL Layer](initial-sql-layer.md).
       scans.
 - [x] Focused SQL/CLI tests, workspace tests, and strict workspace Clippy are
       recorded by the retained plan.
-- [ ] Audit and logical-scan scope is either implemented with evidence or moved
-      to a named follow-on plan with `docs/Specifications/Tosumu Software Design Document.md` reconciled.
+- [x] Audit and logical-scan scope is moved to named follow-on planning gates;
+      the initial SQL plan and SDD already identify both as future work.
 
-**Status:** baseline complete; broader audit/scan scope remains open. Do not
-close the full design milestone until that scope is implemented or revised.
+**Status:** MVP+9 baseline complete. Logical scans move to a dedicated
+post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
 
 ### MVP+10: Multiple Readers
 
@@ -469,7 +470,7 @@ covered.
 | Prepared values remain AST leaves and are not reparsed | PASS | lexer/parser parameter tests and prepared execution tests |
 | Unsupported shapes fail explicitly instead of scanning | PASS | semantic/planner rejection tests |
 | Focused SQL/CLI/workspace tests and strict Clippy are recorded | PASS | `initial-sql-layer.md`; workspace tests pass. Clippy command must be rerun with valid arguments |
-| Audit and logical-scan scope is implemented or moved to a reconciled plan | OPEN | `initial-sql-layer.md` and `docs/Specifications/Tosumu Software Design Document.md` still leave both scopes unresolved |
+| Audit and logical-scan scope is implemented or moved to a reconciled plan | DEFERRED / RESOLVED | Initial SQL §15.3 and Phase 8: logical scans follow MVP+10 visibility; audit remains a separate future diagnostics milestone |
 
 ### MVP+10 Audit
 
@@ -578,8 +579,8 @@ partial or stale milestones directly rather than forcing a pass/fail result.
 | +6 | Verified | Crypto tests, unlock tests, and `SECURITY.md` review | Maintain crypto evidence |
 | +7 | Verified | Protector lifecycle and attack tests | Maintain key-management evidence |
 | +8 | Verified | TUI/view tests and structured inspect contracts | Maintain viewer evidence |
-| +9 | Partial; audit complete | `initial-sql-layer.md`; audit/scan remain open | MVP+9 closure decision |
-| +10 | Not started | Future dedicated plan | Unassigned |
+| +9 | Verified baseline; deferred scope named | `initial-sql-layer.md`; audit and logical scans explicitly moved out | Post-MVP+10 SQL and future audit plans |
+| +10 | Baseline recorded | `mvp-10-multiple-readers.md`; `mvp10_baseline` tests | AR-0009 / MVP+10 plan |
 | +11 | Not started | Future dedicated plan | Unassigned |
 | +12 | Not started | Architectural Review required | Unassigned |
 | +13 | Not started | Future dedicated plan and format decision | Unassigned |
@@ -589,16 +590,16 @@ partial or stale milestones directly rather than forcing a pass/fail result.
 
 Before implementation moves beyond the completed MVP+9 baseline:
 
-- [ ] Resolve whether audit/logical scans close MVP+9 or move into a separate
+- [x] Resolve whether audit/logical scans close MVP+9 or move into a separate
       focused plan.
-- [ ] Create `docs/Plans/mvp-10-multiple-readers.md` from `TEMPLATE.md`.
-- [ ] Record current locking, LSN visibility, and reader/writer behavior with a
+- [x] Create `docs/Plans/mvp-10-multiple-readers.md` from `TEMPLATE.md`.
+- [x] Record current locking, LSN visibility, and reader/writer behavior with a
       focused executable baseline.
 - [x] Open an Architectural Review for multiple-reader visibility, coordination,
       and execution ownership. See [AR-0009](../Architectural%20Reviews/AR-0009-multiple-reader-execution-and-coordination.md).
 - [ ] Update AR-0009 and create or revise an ADR if MVP+10 changes accepted
       ownership, a public contract, or the on-disk compatibility boundary.
-- [ ] Keep secondary indexes subordinate to the MVCC/storage plan rather than
+- [x] Keep secondary indexes subordinate to the MVCC/storage plan rather than
       teaching `tosumu-core` SQL semantics.
 
 ## Completion Rules

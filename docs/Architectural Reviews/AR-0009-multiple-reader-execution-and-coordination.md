@@ -102,12 +102,14 @@ contract before the visibility and locking evidence exists.
 
 ## Required Follow-Up
 
-- [ ] Create `docs/Plans/mvp-10-multiple-readers.md` from the plan template.
-- [ ] Record the current file-lock, pager-lock, transaction, and WAL ownership
+- [x] Create `docs/Plans/mvp-10-multiple-readers.md` from the plan template.
+- [x] Record the current file-lock, pager-lock, transaction, and WAL ownership
       graph.
-- [ ] Add an executable baseline for simultaneous readers, writer contention,
-      LSN visibility, and checkpoint interaction.
-- [ ] Record `Send`/`Sync`, cancellation, timeout, shutdown, and long-lived
+- [ ] Complete the executable baseline for simultaneous readers, writer
+      contention, LSN visibility, and checkpoint interaction. Handle admission
+      and visibility evidence now exists; reader-pinned checkpoint behavior
+      cannot be exercised until a reader registry or equivalent contract exists.
+- [x] Record `Send`/`Sync`, cancellation, timeout, shutdown, and long-lived
       reader behavior.
 - [ ] Decide whether the first implementation changes only private mechanism or
       accepts a durable public or format contract requiring an ADR.
@@ -132,3 +134,17 @@ contract before the visibility and locking evidence exists.
 - Disposition: Incubating
 - Resulting ADR or documentation change: none
 
+### Cycle 2 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: `tests/mvp10_baseline.rs` and the MVP+10 plan record that
+  multiple readers and writers can open, read-only handles are live views after
+  commit rather than LSN snapshots, transaction exclusion is handle-local, and
+  no reader registry or checkpoint pin exists.
+- Findings: current transient file-open retry is not a writer gate; current
+  `Send + Sync` composition does not supply shared transaction ownership; an
+  existing reader can observe a later main-file flush.
+- Disposition: remain Incubating while the first writer-admission and visibility
+  contract is selected.
+- Resulting ADR or documentation change: none; no public or format contract has
+  yet changed.
