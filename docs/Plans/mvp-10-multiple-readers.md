@@ -331,6 +331,12 @@ format/recovery design that can retain committed versions safely.
   from that checkpoint plus validated retained records; raw `WalWriter`
   mutation is reduced to an internal or explicit physical-fixture boundary and
   does not participate in the format-v3 database contract.
+- Quantified retained-WAL pressure: one 64 MiB value requires at least 16,636
+  overflow frames and 68,690,094 WAL bytes before leaf/header metadata. The
+  existing per-value cap cannot bound a transaction because a closure may write
+  arbitrarily many values, and rollback does not reclaim its appended WAL tail.
+  Hard retention limits are therefore gated on transaction budgeting and safe
+  tail reclamation; a pre-begin watermark alone is only pressure telemetry.
 
 ## References
 

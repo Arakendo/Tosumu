@@ -231,6 +231,49 @@ WAL header:
 This preference does not strengthen Sentinel header authentication. It relies
 only on the page-zero trust rules already documented for each protector.
 
+### Retained-growth evidence
+
+The current physical framing makes the lower bound measurable:
+
+- `Begin` and `Commit` each occupy 25 bytes;
+- one full-page `PageWrite` occupies 4,129 bytes; and
+- a 64 MiB logical value requires at least 16,636 overflow pages at the current
+  4,034-byte overflow payload size.
+
+Before accounting for the leaf, page-zero, split, or rewritten metadata frames,
+that one value therefore requires at least 68,690,094 WAL bytes (about 65.51
+MiB). A practical retained-WAL limit must admit more than that lower bound.
+
+More importantly, `MAX_VALUE_SIZE` is a per-value bound, not a transaction
+bound. The public transaction closure may write any number of accepted values
+and may rewrite a page repeatedly. Current rollback discards dirty in-memory
+frames but does not reclaim the already-appended uncommitted WAL tail. A check
+performed only before `begin` can consequently overshoot any byte ceiling by
+an unbounded transaction, while a check performed during mutation needs a safe
+abort-and-tail-reclamation contract.
+
+Tokimu's current independent adapter does not supply a safe default. It
+serializes the entire Resource Space as one JSON value and commits that value
+in one Tosumu transaction. The current corpus is bounded, but the adapter has
+no admitted maximum snapshot size from which Tosumu could derive a general
+engine limit.
+
+The preferred limit shape is therefore provisional but explicit:
+
+- cap active snapshot registrations independently and reject a new snapshot
+  with a typed resource/busy diagnostic when the cap is reached;
+- expose retained committed bytes and the oldest pin before enforcing policy;
+- do not advertise a hard retained-WAL byte cap until transactions themselves
+  have an enforceable WAL-frame or byte budget and failed/uncommitted tails can
+  be reclaimed safely; and
+- treat a configurable soft watermark as checkpoint/admission pressure, not as
+  proof that the sidecar cannot exceed that number.
+
+Selecting numeric defaults remains blocked on representative Tokimu snapshot
+sizes and an admitted transaction-abort contract. This is a discovered design
+dependency, not permission to leave WAL growth invisible or unbounded in the
+eventual snapshot API.
+
 ## Alternatives Considered
 
 ### Alternative A: Copy the whole database for each read transaction
@@ -278,8 +321,11 @@ only on the page-zero trust rules already documented for each protector.
   process-local without claiming that independent read-only handles are pinned.
 - Common publication, structural WAL validation, raw-WAL treatment, and a
   retained-growth limit are prerequisites, not cleanup after snapshot code.
-- No evidence yet selects the WAL byte-limit policy, public shared-owner API, or
-  v2 offline rewrite behavior.
+- A per-value size limit cannot enforce a retained-WAL ceiling while one
+  transaction may append an unbounded number of frames and rollback leaves its
+  physical tail behind.
+- No evidence yet selects numeric reader/transaction/WAL defaults, the public
+  shared-owner API, or v2 offline rewrite behavior.
 
 ## Disposition
 
@@ -295,8 +341,12 @@ accepted as an ADR or authorized for semantic implementation.
       add a duplicate WAL header solely to seed monotonic LSNs.
 - [x] Remove raw `WalWriter` from the future coordinated database mutation path;
       retain at most a crate-private or explicit physical fixture boundary.
-- [ ] Select and diagnose finite active-reader and retained-WAL limits using
-      representative transaction sizes, including the 64 MiB provider case.
+- [x] Quantify the current 64 MiB single-value WAL lower bound and establish
+      that the existing per-value limit does not bound a transaction.
+- [ ] Define bounded transaction admission plus safe uncommitted-tail
+      reclamation before claiming a hard retained-WAL byte ceiling.
+- [ ] Collect representative Tokimu snapshot sizes, then select and diagnose
+      numeric active-reader, transaction, and retained-WAL defaults.
 - [ ] Define format-v3 open/refusal and optional v2 offline logical rewrite
       behavior under AR-0006.
 - [ ] Build the storage contract behind a private boundary and exercise it
@@ -358,3 +408,19 @@ accepted as an ADR or authorized for semantic implementation.
   and a database-seeded internal writer boundary.
 - Resulting ADR or documentation change: none until the complete snapshot
   contract is promoted.
+
+### Cycle 4 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: current record framing makes a 64 MiB value consume at least
+  68,690,094 WAL bytes, but `MAX_VALUE_SIZE` applies per value and transaction
+  closures have no aggregate frame/byte bound. Rollback does not truncate the
+  appended uncommitted tail. Tokimu's adapter commits one whole serialized
+  Resource Space snapshot but does not yet define its maximum size.
+- Findings: a pre-begin retention check is only a soft watermark while admitted
+  transactions can overshoot without bound. A hard retained-WAL ceiling first
+  requires bounded transaction admission and safe tail reclamation.
+- Disposition: remain Incubating; separate reader registration, transaction,
+  and retained-history limits rather than hiding all three behind one WAL size.
+- Resulting ADR or documentation change: none until numeric defaults and abort
+  mechanics have executable evidence.
