@@ -309,6 +309,11 @@ format/recovery design that can retain committed versions safely.
   open-time metadata with live page reads. AR-0009 Cycle 5 therefore blocks
   snapshot implementation until publication, version residence, reader scope,
   and format impact are explicit.
+- Reopened AR-0006 with the first concrete incompatible-format pressure. A v2
+  writer would not preserve snapshot WAL history even though the checkpoint-LSN
+  field already exists, so a snapshot format must exclude old writers and
+  choose between a clean pre-stability break and an explicit offline logical
+  rewrite; automatic migration on open remains rejected.
 
 ## References
 

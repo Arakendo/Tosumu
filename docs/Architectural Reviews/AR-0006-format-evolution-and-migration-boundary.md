@@ -4,11 +4,11 @@
 | --- | --- |
 | Status | Incubating |
 | Opened | 2026-08-03 |
-| Last reviewed | 2026-08-03 |
+| Last reviewed | 2026-08-27 |
 | Scope | On-disk format / compatibility / migration tooling |
 | Trigger | The format is implemented and versioned but deliberately pre-stability, while future migration mechanisms remain speculative |
 | Related ADRs | ADR-0001, ADR-0002 |
-| Related evidence | `docs/Specifications/Tosumu Software Design Document.md` section 13, `docs/file-format.md`, format fixtures and version errors |
+| Related evidence | `docs/Specifications/Tosumu Software Design Document.md` section 13, `docs/file-format.md`, format fixtures and version errors, AR-0009 snapshot admission findings |
 
 ## Architectural Question
 
@@ -70,6 +70,15 @@ until a concrete incompatible change supplies evidence.
   not accepted.
 - Migration architecture remains deferred until a concrete format delta and
   preservation requirement exist.
+- AR-0009 now supplies the first concrete pressure: committed-LSN snapshots
+  need durable generation meaning, retained WAL history, and checkpoint rules
+  that format-v2 writers do not understand.
+- Reusing the existing `wal_checkpoint_lsn` bytes does not make the change
+  behaviorally compatible. A v2 writer can reset WAL LSNs, overwrite the main
+  file, and truncate history that a snapshot-capable engine would retain.
+- The accepted Tokimu provider fixture records physical format 2 and explicitly
+  does not stabilize that pre-release format permanently. It requires explicit
+  unsupported-version reporting, not automatic migration on open.
 
 ## Disposition
 
@@ -82,6 +91,12 @@ the first real incompatible change to decide clean break versus migration.
 - [ ] Record the first incompatible format delta and affected real datasets.
 - [ ] Decide compatibility horizon before publishing a stable format promise.
 - [ ] Open an ADR before admitting migration or long-term compatibility policy.
+- [ ] Describe the exact v2-to-snapshot-format delta, including WAL generation,
+      page-zero checkpoint meaning, old-writer exclusion, and crash ordering.
+- [ ] Decide whether the first snapshot format is a clean pre-stability break or
+      gains an explicit offline logical rewrite from readable v2 databases.
+- [ ] Update the Tokimu provider fixture deliberately if its physical-format
+      evidence moves beyond version 2; do not reinterpret its schema version.
 
 ## Reopening Triggers
 
@@ -99,3 +114,17 @@ the first real incompatible change to decide clean break versus migration.
 - Disposition: Incubating
 - Resulting ADR or documentation change: none
 
+### Cycle 2 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: AR-0009 Cycle 5 shows that format-v2 WAL LSNs reset, the
+  checkpoint field remains zero, old frames are discarded, and direct writes
+  bypass a commit generation. The accepted Tokimu fixture names physical
+  format 2 without claiming permanent stability.
+- Findings: snapshot publication is the first concrete incompatible format
+  pressure. Activating existing header bytes is insufficient because older
+  writers would violate the new retained-history protocol.
+- Disposition: remain Incubating until the exact snapshot representation is
+  specified. Preserve explicit refusal and no automatic migration on open;
+  evaluate a clean v3 break against an explicit offline logical rewrite.
+- Resulting ADR or documentation change: none.

@@ -217,6 +217,7 @@ public MVCC contract through that implementation.
       handles only if their weaker contract is explicit.
 - [ ] Decide the format and migration impact before implementing retained
       versions or assigning meaning to `OFF_WAL_CHECKPOINT_LSN`.
+      Coordinate that decision with AR-0006.
 
 ## Reopening Triggers
 
