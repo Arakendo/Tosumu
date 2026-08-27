@@ -117,8 +117,8 @@ still open an independent writer, while path aliases make identity fragile.
 - A persistent writer-only sidecar is the narrowest mechanism found that can
   reject cooperating cross-process writers without excluding readers. It does
   not establish snapshot visibility or checkpoint pinning.
-- The sync-only `fs4` candidate declares Rust 1.75 support, but adding it is
-  evidence-changing work owned jointly with AR-0010 and is not yet accepted.
+- AR-0010 admitted exact native, sync-only `fs4` use for this bounded mechanism;
+  ADR-0004 owns the sidecar and cooperative admission contract.
 
 ### Mutation-Path Inventory
 
@@ -128,8 +128,8 @@ still open an independent writer, while path aliases make identity fragile.
 | Live pager page, header, allocation, and transaction writes | Mutates main file and WAL through the owned pager | Covered by the pager's retained writer guard |
 | Protector add/remove/rekey | Opens and rewrites page zero through `Page0EditSession` | Acquire a short-lived writer guard before reading or editing page zero |
 | Keyslot listing and all read-only opens | Reads page zero/main file and may overlay committed WAL in memory | No writer gate; future reader registration is separate |
-| `wal::recover` / `wal::checkpoint` | Public functions mutate main file and/or truncate WAL | Must gain a guarded entry or an internal already-guarded variant before the guarantee is accepted |
-| `WalWriter::{create, open, open_or_create, append, truncate}` | Public physical WAL mutation without a database path contract | Unresolved bypass: scope as unsupported concurrent physical API, revise visibility deliberately, or add an explicit coordination token |
+| `wal::recover` / `wal::checkpoint` | Public functions mutate main file and/or truncate WAL | Public entry acquires the gate; pager/export callers use crate-private already-guarded variants |
+| `WalWriter::{create, open, open_or_create, append, truncate}` | Public physical WAL mutation without a database path contract | Explicitly unsupported concurrently with database handles or coordinated maintenance; no false database identity is derived from a WAL path |
 | Stable backup source | Copies a changing source and proves bounded stability | Remains an observing reader; do not serialize it behind the writer gate |
 | Backup/export destinations and export staging | Creates previously absent or privately owned artifacts | No shared writer identity until publication; staging checkpoint uses an explicitly internal path |
 
@@ -145,12 +145,10 @@ participating Tosumu mutation paths, not arbitrary file writers.
 
 ## Disposition
 
-Incubating. Use this review as the architectural owner for the MVP+10 baseline.
-Retain Alternative D as the preferred first implementation candidate, but do
-not implement it until the sidecar lifecycle, all participating mutation paths,
-typed busy mapping, and dependency closure are reviewed. Do not add a general
-executor, async runtime, background worker, or public MVCC contract before the
-visibility and locking evidence exists.
+Incubating for the broader MVP+10 reader/snapshot question. ADR-0004 accepts
+Alternative D for the first, narrower writer-admission slice. Do not add a
+general executor, async runtime, background worker, reader snapshot claim, or
+public MVCC contract through that implementation.
 
 ## Required Follow-Up
 
@@ -163,13 +161,13 @@ visibility and locking evidence exists.
       cannot be exercised until a reader registry or equivalent contract exists.
 - [x] Record `Send`/`Sync`, cancellation, timeout, shutdown, and long-lived
       reader behavior.
-- [ ] Decide whether the first implementation changes only private mechanism or
+- [x] Decide whether the first implementation changes only private mechanism or
       accepts a durable public or format contract requiring an ADR.
 - [x] Inventory every public or crate-visible path that can mutate the database
       file or WAL and state whether it participates in the writer gate.
-- [ ] Review the sync-only locking dependency and transitive platform closure
+- [x] Review the sync-only locking dependency and transitive platform closure
       under AR-0010, including Rust 1.75 and native/WASM behavior.
-- [ ] Define sidecar naming, persistence, backup/export treatment, advisory
+- [x] Define sidecar naming, persistence, backup/export treatment, advisory
       limitations, and `FILE_OPEN_BUSY` details before implementation.
 
 ## Reopening Triggers
@@ -220,3 +218,16 @@ visibility and locking evidence exists.
 - Disposition: remain Incubating with Alternative D preferred but not accepted.
 - Resulting ADR or documentation change: AR-0010 receives the dependency
   candidate; no dependency, public API, sidecar, or format change was made.
+
+### Cycle 4 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: mutation-path closure, exact sidecar lifecycle, busy details,
+  native/WASM dependency behavior, and transitive platform/build boundaries
+  are retained.
+- Findings: normal writes and coordinated maintenance can share one database-
+  identity gate; raw `WalWriter` cannot participate without inventing identity
+  and is explicitly unsupported during concurrent database use.
+- Disposition: remain Incubating for snapshots/checkpoint pinning; accept the
+  narrower writer-admission decision through ADR-0004.
+- Resulting ADR or documentation change: ADR-0004.

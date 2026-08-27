@@ -7,7 +7,7 @@
 | Last updated | 2026-08-27 |
 | Owner | Tosumu maintainers |
 | Target | MVP+10 core storage and embedded provider coordination |
-| Related ADRs | ADR-0001, ADR-0002 |
+| Related ADRs | ADR-0001, ADR-0002, ADR-0004 |
 | Related reviews | AR-0009 |
 | Related CRs | None |
 | Depends on | MVP+9 baseline, authenticated pager, WAL recovery, provider boundary |
@@ -143,13 +143,14 @@ the target guarantees.
 
 - [x] Use the baseline to choose the smallest candidate ownership boundary: a
       pager-lifetime writer guard plus short-lived guarded maintenance paths.
-- [ ] Audit the preferred persistent writer-sidecar mechanism and its sync-only
+- [x] Audit the preferred persistent writer-sidecar mechanism and its sync-only
       locking dependency under AR-0009 and AR-0010.
-- [ ] Specify fail-fast writer admission and typed contention without adding an
+- [x] Specify fail-fast writer admission and typed contention without adding an
       unbounded queue.
-- [ ] Decide whether coordination is process-local, cross-process, or explicitly
+- [x] Decide whether coordination is process-local, cross-process, or explicitly
       staged, and diagnose unsupported scope.
-- [ ] Update AR-0009 and create an ADR if the boundary becomes durable.
+- [x] Update AR-0009 and create an ADR because the sidecar and busy behavior are
+      a durable operational contract.
 - [ ] Exercise the contract through the provider and one independent caller.
 
 Exit state: one writer can be admitted or rejected deterministically, without
@@ -268,14 +269,19 @@ format/recovery design that can retain committed versions safely.
   unconditional dependency breaks `wasm32-unknown-unknown`; any admitted
   dependency must be target-specific to Unix/Windows with an explicit
   unsupported non-native writer path.
-- Next slice: resolve or explicitly scope that bypass and complete the
-  transitive dependency review before accepting or implementing writer
-  admission.
+- At that checkpoint, implementation remained gated on scoping the bypass and
+  completing the transitive dependency review.
+- Closed admission prerequisites in ADR-0004: exact sidecar lifecycle, guarded
+  database/maintenance paths, raw-WAL unsupported concurrency scope,
+  `FILE_OPEN_BUSY` details, and bounded dependency admission are now explicit.
+- Next slice: implement ADR-0004 as a separate semantic commit. The only
+  intended baseline change is rejection of the second cooperating writer.
 
 ## References
 
 - `docs/Specifications/Tosumu Software Design Document.md` §§7.4-7.8, 28.4
 - `docs/ADR/ADR-0001-storage-engine-layer-boundaries.md`
 - `docs/ADR/ADR-0002-authenticated-pager-trust-boundary.md`
+- `docs/ADR/ADR-0004-cooperative-single-writer-admission.md`
 - `docs/Architectural Reviews/AR-0009-multiple-reader-execution-and-coordination.md`
 - `docs/Plans/main-feature-roadmap.md`

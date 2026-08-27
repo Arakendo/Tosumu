@@ -154,9 +154,16 @@ matrix, and WASM exclusion or behavior. Do not enable async runtime features.
 | WASM check | An unconditional dependency fails `wasm32-unknown-unknown` through `rustix/errno`; a `cfg(any(unix, windows))` target dependency compiles while excluding the closure on WASM |
 | Build scripts | No `fs4` build script observed; transitive source/build-script review remains required before final admission |
 
-This inventory is sufficient to reject an unconditional dependency and all
-async features. It is not a complete source audit of `rustix`, `windows-sys`,
-or their generated/platform bindings, so candidate admission remains open.
+The focused review additionally confirmed that the enabled path has no
+procedural macro or native-code compilation. `rustix/build.rs` probes compiler
+and target capabilities and emits cfg selections; it does not fetch sources.
+The actual locking boundary remains `fs4`'s small raw-handle/borrowed-fd layer
+over the selected `windows-sys` or `rustix` calls. This does not constitute a
+general audit of those ecosystems, but it is proportionate to admitting this
+exact private, sync-only mechanism with lockfile checksums and target tests.
+
+The candidate is admitted only for ADR-0004 under the constraints in the table.
+AR-0010 remains Incubating for the repository's broader dependency policy.
 
 ## Reopening Triggers
 
@@ -206,3 +213,15 @@ or their generated/platform bindings, so candidate admission remains open.
   and the AR-0009 decision about the public raw-WAL bypass.
 - Resulting ADR or documentation change: any future manifest entry must be
   target-specific to Unix/Windows and sync-only.
+
+### Cycle 4 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: the enabled platform locking source and `rustix` build script
+  were inspected; raw WAL scope and sidecar semantics were settled in AR-0009.
+- Findings: exact private use has a bounded foreign/unsafe surface, preserves
+  Rust 1.75 and WASM compilation when target-gated, and adds no async, proc-
+  macro, or native compilation baggage.
+- Disposition: admit `fs4` 1.1.0 only for ADR-0004's native sync-only mechanism;
+  retain Incubating status for general provenance policy.
+- Resulting ADR or documentation change: ADR-0004.

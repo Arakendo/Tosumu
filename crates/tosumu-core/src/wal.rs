@@ -264,6 +264,14 @@ impl WalRecord {
 // ── WalWriter ────────────────────────────────────────────────────────────────
 
 /// Appends WAL records to the `.wal` sidecar file.
+/// Low-level physical WAL writer.
+///
+/// # Concurrency
+///
+/// Direct `WalWriter` mutation does not participate in database writer
+/// admission because this type receives a WAL path, not a database identity.
+/// It is unsupported to use these mutation methods while a database handle or
+/// coordinated maintenance operation may access the same database/WAL pair.
 pub struct WalWriter {
     file: File,
     /// LSN to assign to the next record written.

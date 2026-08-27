@@ -129,7 +129,7 @@ pub enum TosumuError {
     InspectPageOutOfRange { pgno: u64, page_count: u64 },
 
     /// A file needed for a database operation is temporarily locked by another
-    /// process (e.g. AV scanner, backup tool).  The caller should retry later.
+    /// process or cooperating database writer. The caller should retry later.
     #[error("file temporarily locked by another process during {operation}: {path:?}")]
     FileBusy {
         path: std::path::PathBuf,
