@@ -357,8 +357,9 @@ accepted as an ADR or authorized for semantic implementation.
       reclamation before claiming a hard retained-WAL byte ceiling.
 - [ ] Collect representative Tokimu snapshot sizes, then select and diagnose
       numeric active-reader, transaction, and retained-WAL defaults.
-- [ ] Define format-v3 open/refusal and optional v2 offline logical rewrite
-      behavior under AR-0006.
+- [x] Define format-v3 open/refusal and optional v2 offline logical rewrite
+      behavior under AR-0006: exact v3 support, explicit v2 refusal, and no
+      rewrite until non-regenerable data establishes preservation pressure.
 - [ ] Build the storage contract behind a private boundary and exercise it
       through the provider plus one independent caller before stabilizing shared
       database/session types.
@@ -450,3 +451,17 @@ accepted as an ADR or authorized for semantic implementation.
   crash fixtures remain an implementation gate.
 - Resulting ADR or documentation change: none until the format contract is
   accepted.
+
+### Cycle 6 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: AR-0006 records the exact v3 behavioral delta, current
+  direction-specific version validation, and Tokimu's regenerable format-2
+  fixture posture.
+- Findings: snapshot-capable ordinary open must accept an explicit v3 interval
+  and refuse v2 before recovery. Optional preservation is a future offline
+  logical rewrite to a separate destination, never automatic or in-place.
+- Disposition: remain Incubating; compatibility behavior is specific enough for
+  an ADR but remains coupled to unresolved transaction/retention limits.
+- Resulting ADR or documentation change: AR-0006 Cycle 3 records the preferred
+  clean-break contract.

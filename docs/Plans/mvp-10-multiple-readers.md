@@ -343,6 +343,12 @@ format/recovery design that can retain committed versions safely.
   an empty WAL seeds `T + 1`; surviving obsolete bytes cannot publish a new
   generation. Format-v3 crash fixtures remain required before implementation
   claims the behavior.
+- Preferred a clean format-v3 pre-stability break. Snapshot-capable ordinary
+  open accepts only its explicit supported interval and refuses v2 before WAL
+  recovery; the current direction-specific `NewerFormat` failure must be
+  generalized for older unsupported files. Any future v2 preservation path is
+  an offline logical rewrite to a separate verified destination, admitted only
+  when non-regenerable data supplies evidence for it.
 
 ## References
 

@@ -83,6 +83,52 @@ until a concrete incompatible change supplies evidence.
 - The accepted Tokimu provider fixture records physical format 2 and explicitly
   does not stabilize that pre-release format permanently. It requires explicit
   unsupported-version reporting, not automatic migration on open.
+- Current header validation rejects only versions greater than the engine's
+  `FORMAT_VERSION`; it does not consult `min_reader_version` or reject an older
+  incompatible floor. That is sufficient only while supported formats share
+  one interpretation. A v3-only binary cannot reuse `NewerFormat` semantics to
+  refuse v2 honestly.
+
+## Preferred First Incompatible Change
+
+Format v3 is a clean pre-stability break for snapshot-capable databases. The
+physical page-frame and keyslot layouts may remain byte-identical, but these
+behavioral fields and rules change incompatibly:
+
+- page-zero `wal_checkpoint_lsn` becomes the durable main-file generation and
+  the lower bound for post-checkpoint WAL record LSNs;
+- every logical mutation publishes through a structurally framed WAL
+  transaction; direct main-file auto-commit is no longer a valid publication
+  path;
+- commit-record LSN is the atomic visible generation, while page-write LSNs
+  remain physical record identities;
+- committed versions newer than the checkpoint may remain in the persistent
+  WAL and cannot be truncated by a writer unaware of reader pins; and
+- the database-owned WAL opener validates monotonic post-horizon LSNs and seeds
+  an empty sidecar from `wal_checkpoint_lsn + 1`.
+
+Ordinary v3 open accepts only the explicitly supported v3 interval. A v2 file
+returns `FORMAT_VERSION_UNSUPPORTED` with found, supported-minimum, and
+supported-maximum details before WAL recovery or mutation. The implementation
+must replace or generalize the direction-specific `NewerFormat` variant; it
+must not describe an older v2 file as "newer." A v2 binary already rejects v3
+as newer, excluding cooperating old writers from the new protocol.
+
+No automatic, in-place, or open-time migration is admitted. If preservation
+pressure later justifies tooling, the candidate is an explicit offline logical
+rewrite:
+
+1. open the v2 source read-only with a deliberately retained legacy reader;
+2. create a distinct new v3 destination and protector state;
+3. scan logical key/value records into bounded v3 transactions;
+4. checkpoint, reopen, and verify the destination; and
+5. leave source replacement or archival as a separate operator action.
+
+The rewrite must never reinterpret v2 WAL records as v3 retained history, must
+not overwrite the source, and must emit a receipt before it can be called a
+migration. No such tool is required for MVP+10: current Tokimu evidence is a
+regenerable pre-release fixture and has not established durable user datasets
+that need preservation.
 
 ## Disposition
 
@@ -92,13 +138,13 @@ the first real incompatible change to decide clean break versus migration.
 ## Required Follow-Up
 
 - [ ] Preserve representative format fixtures and exact version diagnostics.
-- [ ] Record the first incompatible format delta and affected real datasets.
+- [x] Record the first incompatible format delta and affected real datasets.
 - [ ] Decide compatibility horizon before publishing a stable format promise.
 - [ ] Open an ADR before admitting migration or long-term compatibility policy.
-- [ ] Describe the exact v2-to-snapshot-format delta, including WAL generation,
+- [x] Describe the exact v2-to-snapshot-format delta, including WAL generation,
       page-zero checkpoint meaning, old-writer exclusion, and crash ordering.
-- [ ] Decide whether the first snapshot format is a clean pre-stability break or
-      gains an explicit offline logical rewrite from readable v2 databases.
+- [x] Prefer a clean v3 pre-stability break; defer an explicit offline logical
+      rewrite until non-regenerable v2 data supplies preservation pressure.
 - [ ] Update the Tokimu provider fixture deliberately if its physical-format
       evidence moves beyond version 2; do not reinterpret its schema version.
 
@@ -133,3 +179,19 @@ the first real incompatible change to decide clean break versus migration.
   specified. Preserve explicit refusal and no automatic migration on open;
   evaluate a clean v3 break against an explicit offline logical rewrite.
 - Resulting ADR or documentation change: none.
+
+### Cycle 3 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: AR-0011 now defines the v3 generation, retained-WAL, epoch, and
+  crash-ordering candidate. Current validation only rejects versions above the
+  engine maximum, while Tokimu's checked-in format-2 fixture is explicitly
+  regenerable and pre-stability.
+- Findings: v3 must be an exact supported interval rather than silently opening
+  v2 with v3 semantics. No real dataset currently pays for migration machinery.
+  If that changes, a separate-destination logical rewrite is safer and more
+  inspectable than in-place physical conversion.
+- Disposition: remain Incubating; prefer a clean v3 break and explicit ordinary
+  open refusal. Defer offline rewrite implementation until preservation demand.
+- Resulting ADR or documentation change: none until AR-0011 is promoted and the
+  format change is authorized.
