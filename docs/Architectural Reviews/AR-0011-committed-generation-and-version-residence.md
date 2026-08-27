@@ -252,19 +252,26 @@ Before accounting for the leaf, page-zero, split, or rewritten metadata frames,
 that one value therefore requires at least 68,690,094 WAL bytes (about 65.51
 MiB). A practical retained-WAL limit must admit more than that lower bound.
 
+The overwrite case is materially larger. The current B+ tree allocates the new
+overflow chain before retiring the old one, so replacing an existing maximum
+value with no reusable freelist dirties both 16,636-page chains, the leaf, and
+page zero. An ignored executable evidence test measures exactly 33,274 final
+page frames and 137,388,396 encoded WAL bytes (about 131.02 MiB). This falsifies
+a 128 MiB transaction ceiling even though every individual value is valid.
+
 More importantly, `MAX_VALUE_SIZE` is a per-value bound, not a transaction
 bound. The public transaction closure may write any number of accepted values
-and may rewrite a page repeatedly. Current rollback discards dirty in-memory
-frames but does not reclaim the already-appended uncommitted WAL tail. A check
-performed only before `begin` can consequently overshoot any byte ceiling by
-an unbounded transaction, while a check performed during mutation needs a safe
-abort-and-tail-reclamation contract.
+and may rewrite a page repeatedly. Before commit staging, rollback discarded
+dirty in-memory frames but left an already-appended uncommitted WAL tail. The
+staged path now makes ordinary rollback append-free and exposes the final unique
+frame set, but no hard ceiling exists until commit admission checks that exact
+set before appending `Begin`.
 
-Tokimu's current independent adapter does not supply a safe default. It
+Tokimu's current independent adapter supplies the representative shape: it
 serializes the entire Resource Space as one JSON value and commits that value
-in one Tosumu transaction. The current corpus is bounded, but the adapter has
-no admitted maximum snapshot size from which Tosumu could derive a general
-engine limit.
+in one Tosumu transaction. Its corpus does not admit a narrower application
+maximum, so the engine's supported 64 MiB value boundary and overwrite behavior
+remain the conservative evidence for the initial private default.
 
 The preferred limit shape is therefore provisional but explicit:
 
@@ -277,10 +284,30 @@ The preferred limit shape is therefore provisional but explicit:
 - treat a configurable soft watermark as checkpoint/admission pressure, not as
   proof that the sidecar cannot exceed that number.
 
-Selecting numeric defaults remains blocked on representative Tokimu snapshot
-sizes and an admitted transaction-abort contract. This is a discovered design
-dependency, not permission to leave WAL growth invisible or unbounded in the
-eventual snapshot API.
+Numeric defaults were blocked until representative Tokimu pressure and an
+append-free ordinary-abort contract existed. Commit staging and the executed
+maximum-value overwrite now provide that first private-contract evidence; later
+independent callers may still reopen the defaults before public stabilization.
+
+With commit staging admitted and Tokimu's current one-snapshot-value adapter as
+the representative provider, the preferred initial private limits are:
+
+| Limit | Candidate default | Rationale |
+| --- | ---: | --- |
+| Final encoded WAL bytes per transaction | 160 MiB | Admits the measured 131.02 MiB maximum-value overwrite with about 22% structural headroom; exact size is checked before append. |
+| Retained committed WAL bytes | 512 MiB | Admits three measured worst-case overwrites plus framing/headroom; a fourth cannot begin publication while history is pinned. |
+| Registered process-local snapshots | 64 | Keeps registry/debug output finite while retained bytes, rather than pin count alone, remains the primary pressure control. |
+
+These are experimental engine defaults, not format constants or durability
+guarantees. The private owner may accept lower configured limits, but never
+below the bytes required by a transaction it has already admitted. At commit,
+the writer checks both `transaction_bytes <= transaction_limit` and
+`retained_committed_bytes + transaction_bytes <= retained_limit` using checked
+arithmetic before appending `Begin`. Rejection is typed and leaves the WAL
+unchanged. Snapshot registration is likewise fail-fast at its count limit.
+
+The public names and configurability remain provisional until the private
+storage contract and independent caller exercise these outcomes.
 
 ### Transaction staging and abort mechanics
 
@@ -361,14 +388,14 @@ tail even before a retained-WAL ceiling is selected.
   process-local without claiming that independent read-only handles are pinned.
 - Common publication, structural WAL validation, raw-WAL treatment, and a
   retained-growth limit are prerequisites, not cleanup after snapshot code.
-- A per-value size limit cannot enforce a retained-WAL ceiling while one
-  transaction may append an unbounded number of frames and rollback leaves its
-  physical tail behind.
+- A per-value size limit alone cannot enforce a retained-WAL ceiling because one
+  transaction may contain multiple values; exact staged-commit admission must
+  enforce the aggregate.
 - Commit-time staging of final unique frames can make ordinary rollback
   infallible and the transaction WAL size exactly preflightable; commit I/O
   ambiguity instead poisons the handle until validated reopen.
-- No evidence yet selects numeric reader/transaction/WAL defaults, the public
-  shared-owner API, or v2 offline rewrite behavior.
+- Initial private reader/transaction/WAL defaults and v2 refusal are selected;
+  public shared-owner API and configuration names still lack caller evidence.
 
 ## Disposition
 
@@ -391,10 +418,9 @@ accepted as an ADR or authorized for semantic implementation.
 - [x] Define the transaction abort mechanism: stage final unique frames, reject
       an over-budget commit before append, and poison on commit I/O ambiguity so
       reopen can validate and trim only an incomplete tail.
-- [ ] Select the numeric transaction byte/frame budget before claiming a hard
-      retained-WAL byte ceiling.
-- [ ] Collect representative Tokimu snapshot sizes, then select and diagnose
-      numeric active-reader, transaction, and retained-WAL defaults.
+- [x] Select evidence-backed initial private limits: 160 MiB encoded WAL per
+      transaction, 512 MiB retained committed WAL, and 64 registered snapshots.
+      Keep public configuration provisional until caller evidence.
 - [x] Define format-v3 open/refusal and optional v2 offline logical rewrite
       behavior under AR-0006: exact v3 support, explicit v2 refusal, and no
       rewrite until non-regenerable data establishes preservation pressure.
@@ -536,3 +562,19 @@ accepted as an ADR or authorized for semantic implementation.
   Numeric budget, retained versions, and snapshot ownership remain open.
 - Resulting ADR or documentation change: SDD fatal-session wording now includes
   commit-path ambiguity; no physical-format change.
+
+### Cycle 9 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: exact record-size tests confirm 25-byte boundary records and
+  4,129-byte page writes. An ignored max-value overwrite fixture executes the
+  current allocate-new/retire-old path and measures 33,274 final page frames,
+  137,388,396 WAL bytes, and a successful assertion in 140 seconds.
+- Findings: 128 MiB is too small for one valid overwrite. Commit staging permits
+  exact pre-append checks, so transaction and retained-history ceilings can be
+  hard rather than advisory watermarks.
+- Disposition: remain Incubating; prefer initial private defaults of 160 MiB per
+  transaction, 512 MiB retained committed WAL, and 64 snapshots. Public naming
+  and configuration await the private contract and independent caller.
+- Resulting ADR or documentation change: no behavior change; executable sizing
+  evidence is retained as an ignored large test.

@@ -165,6 +165,48 @@ fn tokimu_large_value_recovery_evidence_matrix() {
     }
 }
 
+#[test]
+#[ignore = "large transaction-budget evidence; run explicitly with --ignored"]
+fn tokimu_max_value_overwrite_wal_pressure_evidence() {
+    use crate::format::{MAX_VALUE_SIZE, OVERFLOW_PAYLOAD_SIZE};
+    use crate::test_helpers::{CrashFile, CrashPhase};
+
+    let path = temp_path("txn_max_value_overwrite_pressure");
+    let wal = diff_wal_path(&path);
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&wal);
+
+    let mut value = vec![0x11; MAX_VALUE_SIZE];
+    let mut store = PageStore::create(&path).unwrap();
+    store.transaction(|tx| tx.put(b"payload", &value)).unwrap();
+
+    value.fill(0x22);
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    let mut crash_file = CrashFile::new(file, CrashPhase::AfterWrite);
+    let error = store
+        .transaction_with_crash_file(|tx| tx.put(b"payload", &value), &mut crash_file)
+        .unwrap_err();
+    assert!(matches!(error, TosumuError::CommittedButFlushFailed { .. }));
+
+    let overflow_frames = MAX_VALUE_SIZE.div_ceil(OVERFLOW_PAYLOAD_SIZE);
+    let expected_page_writes = overflow_frames * 2 + 2;
+    let expected_wal_bytes = 25 + expected_page_writes * 4_129 + 25;
+    assert_eq!(expected_page_writes, 33_274);
+    assert_eq!(expected_wal_bytes, 137_388_396);
+    assert_eq!(
+        usize::try_from(std::fs::metadata(&wal).unwrap().len()).unwrap(),
+        expected_wal_bytes
+    );
+
+    drop(store);
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&wal);
+}
+
 fn recover_large_value_after_commit_flush_failure(label: &str, size: usize) {
     use crate::test_helpers::{CrashFile, CrashPhase};
     use sha2::{Digest, Sha256};

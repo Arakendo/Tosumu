@@ -1,6 +1,26 @@
 use super::*;
 
 #[test]
+fn encoded_record_sizes_make_transaction_pressure_exact() {
+    let mut encoded = Vec::new();
+    WalRecord::Begin { txn_id: 1 }.encode(1, &mut encoded);
+    assert_eq!(encoded.len(), 25);
+
+    encoded.clear();
+    WalRecord::PageWrite {
+        pgno: 1,
+        page_version: 1,
+        frame: Box::new([0u8; PAGE_SIZE]),
+    }
+    .encode(2, &mut encoded);
+    assert_eq!(encoded.len(), 4_129);
+
+    encoded.clear();
+    WalRecord::Commit { txn_id: 1 }.encode(3, &mut encoded);
+    assert_eq!(encoded.len(), 25);
+}
+
+#[test]
 fn write_and_read_all_record_types() {
     let p = tmp("all_types");
     let _ = std::fs::remove_file(&p);

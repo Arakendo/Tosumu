@@ -360,6 +360,12 @@ format/recovery design that can retain committed versions safely.
   structurally poisons both reads and writes until reopen. Focused tests, all
   212 active core library tests, the nine-test MVP+10 baseline, and strict
   workspace Clippy pass.
+- Added executable transaction-pressure evidence. Exact framing is 25 bytes for
+  `Begin`/`Commit` and 4,129 bytes per page write; replacing one existing 64 MiB
+  value measures 33,274 final page frames and 137,388,396 WAL bytes (131.02
+  MiB), so 128 MiB is invalid. AR-0011 now prefers initial private limits of
+  160 MiB per transaction, 512 MiB retained committed WAL, and 64 registered
+  snapshots, all rejected before append/registration when exceeded.
 
 ## References
 
