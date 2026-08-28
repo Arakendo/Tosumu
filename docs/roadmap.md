@@ -6,6 +6,8 @@ This page is the public roadmap summary. It is intentionally shorter than the re
 
 - use the completed MVP+10 private storage and shared-owner evidence to admit a
   public shared-handle/read-transaction contract under AR-0009
+- exercise the opt-in unstable shared-reader prototype through caller-shaped
+  tests without treating its names as compatibility commitments
 - keep the CLI, inspect contract, and TUI viewer coherent
 - keep crash, crypto, and verification behavior visible through tests and tooling
 - improve the trust surface around docs, diagnostics, and website guidance

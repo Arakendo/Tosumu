@@ -1,0 +1,52 @@
+#![cfg(feature = "experimental-shared-readers")]
+
+use tosumu_core::experimental::{ReadTransaction, SharedKvDatabase};
+
+fn assert_send<T: Send>() {}
+fn assert_send_sync<T: Send + Sync>() {}
+
+#[test]
+fn external_caller_observes_stable_snapshot_while_shared_writer_advances() {
+    assert_send_sync::<SharedKvDatabase>();
+    assert_send::<ReadTransaction>();
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("experimental-shared-readers.tsm");
+    let database = SharedKvDatabase::create(&path).unwrap();
+    database.put(b"a", b"captured").unwrap();
+    database.put(b"b", b"stable").unwrap();
+
+    let reader = database.snapshot().unwrap();
+    let generation = reader.generation();
+    let writer = database.clone();
+    std::thread::spawn(move || {
+        writer.put(b"a", b"new").unwrap();
+        writer.put(b"c", b"later").unwrap();
+    })
+    .join()
+    .unwrap();
+
+    assert_eq!(database.get(b"a").unwrap(), Some(b"new".to_vec()));
+    assert_eq!(reader.get(b"a").unwrap(), Some(b"captured".to_vec()));
+    assert_eq!(
+        reader.scan(b"a", b"z").unwrap(),
+        vec![
+            (b"a".to_vec(), b"captured".to_vec()),
+            (b"b".to_vec(), b"stable".to_vec()),
+        ]
+    );
+
+    let info = database.connection_info().unwrap();
+    assert_eq!(info.active_readers, 1);
+    assert_eq!(info.oldest_reader_generation, Some(generation));
+    assert!(info.latest_generation > generation);
+    assert!(info.checkpoint_blocked);
+    assert!(info.retained_wal_bytes > 0);
+
+    drop(reader);
+    assert!(!database.connection_info().unwrap().checkpoint_blocked);
+
+    drop(database);
+    let reopened = SharedKvDatabase::open(&path).unwrap();
+    assert_eq!(reopened.get(b"a").unwrap(), Some(b"new".to_vec()));
+}

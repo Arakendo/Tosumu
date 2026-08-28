@@ -38,8 +38,10 @@ durability semantics.
   writer contention, maintenance-gate, and lifecycle evidence. It proves that
   existing read-only handles are live views, not snapshots.
 - Independent consumers: the provider boundary now proves structured
-  `FILE_OPEN_BUSY` rejection for a second cooperating writer; no independent
-  consumer yet proves concurrent snapshot semantics.
+  `FILE_OPEN_BUSY` rejection for a second cooperating writer. An opt-in
+  integration test compiled as an external crate now consumes only logical
+  experimental shared-reader types and proves concurrent snapshot semantics;
+  no separate downstream project has adopted the prototype yet.
 - Diagnostics or audits: private diagnostics report active/maximum readers,
   oldest generation, retained WAL bytes/frame versions, checkpoint/latest
   horizons, and checkpoint-blocked state. This is not yet the public SDD
@@ -47,9 +49,10 @@ durability semantics.
 - Repeated implementation friction: the first private transaction composed as
   `Sync` accidentally; SDD section 28.4 required a structural `Send`/`!Sync`
   correction before public admission.
-- Missing evidence: public names and visibility, an independent snapshot
-  consumer, session identity/age diagnostics, and any future blocking,
-  cancellation, or timeout policy.
+- Missing evidence: feedback from a separate downstream snapshot consumer,
+  final public names and visibility, encrypted-owner and richer write lifecycle,
+  session identity/age diagnostics, and any future blocking, cancellation, or
+  timeout policy.
 
 ## Ownership And Dependency Analysis
 
@@ -371,3 +374,22 @@ public MVCC contract through that implementation.
   reveal the shared-reader contract.
 - Resulting ADR or documentation change: MVP+10's private implementation plan
   is complete; the main roadmap advances to public contract admission.
+
+### Cycle 10 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: the non-default `experimental-shared-readers` feature exposes a
+  logical `SharedKvDatabase`, `ReadTransaction`, and bounded `ConnectionInfo`
+  prototype without exporting pager or B+ tree types. An integration test
+  compiled as an external crate proves shared writer progress, pinned point and
+  range visibility, generation identity, pressure diagnostics, and the target
+  owner/transaction auto traits.
+- Findings: the smallest caller-usable seam does not require `Session`, waiting,
+  cancellation, timeout, background work, or physical storage vocabulary. The
+  feature and module are explicitly unstable and off by default, so this is
+  naming/lifecycle evidence rather than supported API admission.
+- Disposition: remain Incubating pending a separate downstream caller and
+  encrypted/open/write-lifecycle coverage before deciding whether these names
+  should become an ADR-backed supported contract.
+- Resulting ADR or documentation change: retain the prototype behind its
+  experimental feature and add its exact validation command to the MVP+10 plan.

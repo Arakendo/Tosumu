@@ -16,6 +16,10 @@ shared database/session/read-transaction API is not yet supported. See the
 [Main Feature Roadmap](docs/Plans/main-feature-roadmap.md) for the canonical
 delivery checklist.
 
+An opt-in `experimental-shared-readers` Cargo feature exposes a deliberately
+unstable logical KV prototype for caller-shape testing. Its module and names are
+not compatibility commitments and are excluded from the default feature set.
+
 | MVP | Capability | State |
 |---|---|---|
 | 0 | Append-log store, CLI (put/get/scan) | ✅ done |

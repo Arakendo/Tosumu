@@ -214,6 +214,7 @@ waiting or stale-frame truncation.
 | Concern | Evidence | Command Or Artifact | Required Result |
 | --- | --- | --- | --- |
 | Current behavior | MVP+10 baseline integration tests | `cargo test -p tosumu-core --test mvp10_baseline` | Pass |
+| Experimental caller | Opt-in external-style integration test | `cargo test -p tosumu-core --features experimental-shared-readers --test experimental_shared_readers` | Pass |
 | Recovery | Existing pager/WAL recovery suites | `cargo test -p tosumu-core wal` | Pass |
 | Provider boundary | External consumer suite | `cargo test -p tosumu-core --test provider_boundary` | Pass |
 | Static quality | Workspace formatting and Clippy | Standard workspace commands | Pass |
@@ -477,6 +478,12 @@ format/recovery design that can retain committed versions safely.
   compatibility summary, security freshness limitation, main roadmap audit,
   and documentation index. The private mechanism is complete; public names,
   independent-caller evidence, and API admission remain under AR-0009.
+- Added an opt-in `experimental-shared-readers` feature with no default effect.
+  Its logical `SharedKvDatabase`, `ReadTransaction`, and `ConnectionInfo`
+  prototype hides pager/B+ tree types and is explicitly outside compatibility
+  promises. An integration test compiled as an external crate exercises shared
+  writer progress, stable point/range reads, generation identity, diagnostics,
+  and the required `Send`/`!Sync` transaction shape.
 
 ## References
 

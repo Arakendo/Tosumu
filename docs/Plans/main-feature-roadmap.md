@@ -253,7 +253,8 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
       compatibility architecture in ADR-0005.
 - [ ] Read transactions pinned to a stable LSN snapshot.
       Private point/range reads and ownership are executable; this remains open
-      until a public contract and independent caller are admitted.
+      while an opt-in unstable external-style caller gathers naming/lifecycle
+      evidence before the supported public contract is admitted.
 - [ ] Single-writer/multiple-reader coordination without readers observing
       partial commits.
 - [ ] Version-observing reads and conditional-write helpers (`put_if_absent`

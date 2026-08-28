@@ -7,6 +7,8 @@ pub mod backup;
 pub mod btree;
 pub mod crypto;
 pub mod error;
+#[cfg(feature = "experimental-shared-readers")]
+pub mod experimental;
 pub mod export;
 pub mod format;
 pub mod inspect;

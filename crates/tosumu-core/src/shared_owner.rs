@@ -37,6 +37,12 @@ impl SharedBTreeOwner {
         })
     }
 
+    pub(crate) fn open(path: &Path) -> Result<Self> {
+        Ok(Self {
+            state: Arc::new(Mutex::new(BTree::open(path)?)),
+        })
+    }
+
     pub(crate) fn put(&self, key: &[u8], value: &[u8]) -> Result<()> {
         self.lock()?.put(key, value)
     }
