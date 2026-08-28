@@ -84,9 +84,11 @@ read-only Pager open
 - A private `SharedBTreeOwner` now provides the executable target ownership
   shape: snapshot capture and commits serialize through one mutex, while a
   non-cloneable read transaction retains its generation pin and locks only for
-  each logical point or range read. Its private diagnostics report active and
-  maximum pins, oldest generation, retained WAL bytes and frame versions, both
-  generation horizons, and whether readers block checkpointing.
+  each logical point or range read. The owner is `Send + Sync`; the transaction
+  is structurally `Send` but not `Sync` as required by the SDD. Its private
+  diagnostics report active and maximum pins, oldest generation, retained WAL
+  bytes and frame versions, both generation horizons, and whether readers block
+  checkpointing.
 
 These are observations of the 2026-08-27 implementation. The writer gate is an
 accepted cooperative admission guarantee; the reader observations are not
@@ -196,8 +198,12 @@ Exit state: snapshot visibility and lifetime are executable private contracts.
       the admitted full checkpoint.
 - [x] Report frames retained, oldest reader LSN, and the blocking owner without
       leaking host or consumer meaning.
-- [ ] Add crash, cancellation, timeout, shutdown, and cross-handle contention
-      evidence appropriate to the admitted mechanisms.
+- [x] Add crash, cancellation, timeout, shutdown, and cross-handle contention
+      evidence appropriate to the admitted mechanisms. Existing pager crash
+      tests cover committed-WAL recovery ordering; a last-reader lifecycle
+      fixture retains the writer gate and recovers retained WAL on reopen. No
+      blocking operation is admitted, so cancellation and timeout remain
+      explicitly unsupported.
 - [ ] Reconcile the SDD, AR-0009, public docs, and compatibility claims.
 
 Exit state: writer, reader, and checkpoint lifecycles compose without hidden

@@ -814,3 +814,18 @@ and the remaining implementation evidence stay provisional as listed below.
 - Disposition: ADR-0005 remains accepted without revision.
 - Resulting ADR or documentation change: private Slice 2 ownership and pressure
   evidence is complete; AR-0009 continues to govern public API admission.
+
+### Cycle 25 -- 2026-08-27
+
+- Status entering review: Accepted
+- New evidence: a read transaction retained after all explicit shared-owner
+  handles drop continues to resolve its captured generation and keeps the
+  database writer gate admitted. Dropping that last reader releases the pager;
+  writable reopen then recovers the newer committed value from retained WAL.
+- Findings: pin ownership, writer-gate lifetime, and recovery share the same
+  last-owner boundary. The transaction is structurally `Send` but not `Sync`,
+  matching the SDD rather than exposing the mutex's stronger accidental auto
+  trait.
+- Disposition: ADR-0005 remains accepted without revision.
+- Resulting ADR or documentation change: private teardown and reopen evidence
+  closes the admitted Slice 3 lifecycle case without adding a public API.

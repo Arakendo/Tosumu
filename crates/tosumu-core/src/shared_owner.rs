@@ -1,3 +1,5 @@
+use std::cell::Cell;
+use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -22,6 +24,10 @@ pub(crate) struct ReadTransaction {
     // last shared owner can release its pager and writer guard.
     pin: SnapshotPin,
     state: Arc<Mutex<BTree>>,
+    // The SDD requires read transactions to be movable but not shareable.
+    // Their logical snapshot is exclusive per use even though the database
+    // owner itself is shared.
+    _not_sync: PhantomData<Cell<()>>,
 }
 
 impl SharedBTreeOwner {
@@ -44,6 +50,7 @@ impl SharedBTreeOwner {
         Ok(ReadTransaction {
             pin,
             state: Arc::clone(&self.state),
+            _not_sync: PhantomData,
         })
     }
 
@@ -78,12 +85,13 @@ impl ReadTransaction {
 mod tests {
     use super::*;
 
+    fn assert_send<T: Send>() {}
     fn assert_send_sync<T: Send + Sync>() {}
 
     #[test]
     fn pins_repeatable_reads_while_a_shared_writer_commits() {
         assert_send_sync::<SharedBTreeOwner>();
-        assert_send_sync::<ReadTransaction>();
+        assert_send::<ReadTransaction>();
 
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("shared-owner.tsm");
@@ -140,5 +148,30 @@ mod tests {
         );
         assert_eq!(checkpointed.retained_wal_bytes, 0);
         assert_eq!(checkpointed.retained_frame_versions, 0);
+    }
+
+    #[test]
+    fn last_read_transaction_keeps_owner_and_writer_gate_alive_until_drop() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("reader-owned-lifetime.tsm");
+        let owner = SharedBTreeOwner::create(&path).unwrap();
+        owner.put(b"key", b"captured").unwrap();
+
+        let reader = owner.read_transaction().unwrap();
+        owner.put(b"key", b"committed-later").unwrap();
+        drop(owner);
+
+        assert!(matches!(
+            BTree::open(&path),
+            Err(TosumuError::FileBusy { .. })
+        ));
+        assert_eq!(reader.get(b"key").unwrap(), Some(b"captured".to_vec()));
+
+        drop(reader);
+        let reopened = BTree::open(&path).unwrap();
+        assert_eq!(
+            reopened.get(b"key").unwrap(),
+            Some(b"committed-later".to_vec())
+        );
     }
 }

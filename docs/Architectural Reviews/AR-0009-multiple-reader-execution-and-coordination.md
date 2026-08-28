@@ -333,3 +333,19 @@ public MVCC contract through that implementation.
 - Resulting ADR or documentation change: MVP+10 Slice 2 is complete as private
   mechanism; the initial checkpoint diagnostic items move into executable
   Slice 3 evidence.
+
+### Cycle 8 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: the private owner is structurally `Send + Sync`, while its read
+  transaction is `Send` but not `Sync` in accordance with SDD section 28.4. A
+  lifecycle fixture drops every owner handle while a reader remains, proves the
+  reader still owns the pager and cross-process writer gate, then drops the
+  reader and reopens successfully with the newer retained commit recovered.
+- Findings: reader ownership now composes with last-handle shutdown, writer
+  exclusion, and retained-WAL recovery. Because no blocking API is admitted,
+  timeout and cancellation semantics remain explicitly absent rather than
+  implied by the private mutex.
+- Disposition: remain Incubating for the public shared-owner and reader API.
+- Resulting ADR or documentation change: private lifecycle traits and teardown
+  evidence now agree with the normative SDD.
