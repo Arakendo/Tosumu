@@ -40,7 +40,7 @@ use crate::crypto::{
 };
 use crate::error::{Result, TosumuError};
 use crate::format::*;
-use crate::snapshot_registry::{SnapshotPin, SnapshotRegistry};
+use crate::snapshot_registry::SnapshotRegistry;
 use crate::wal::{
     transaction_encoded_len, wal_path, CommittedWalIndex, WalReader, WalRecord, WalWriter,
 };
@@ -48,6 +48,8 @@ use crate::writer_gate::WriterGuard;
 
 #[path = "pager/page0.rs"]
 mod page0;
+#[path = "pager/snapshot.rs"]
+mod snapshot;
 #[path = "pager/unlock.rs"]
 mod unlock;
 
@@ -1063,36 +1065,6 @@ impl Pager {
             .map_or(0, WalWriter::appended_record_count)
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn pin_latest_snapshot(&self) -> Result<SnapshotPin> {
-        self.snapshot_registry
-            .register(self.committed_index.latest_commit_lsn())
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn with_snapshot_page<F, T>(&self, pin: &SnapshotPin, pgno: u64, f: F) -> Result<T>
-    where
-        F: FnOnce(&[u8; PAGE_PLAINTEXT_SIZE]) -> Result<T>,
-    {
-        self.ensure_healthy()?;
-        if !pin.belongs_to(&self.snapshot_registry) {
-            return Err(TosumuError::InvalidArgument(
-                "snapshot belongs to a different database owner",
-            ));
-        }
-        let page0 = self.page0_at_generation(pin.generation())?;
-        let snapshot_page_count = read_u64(&page0, OFF_PAGE_COUNT);
-        if pgno == 0 || pgno >= snapshot_page_count {
-            return Err(TosumuError::InvalidArgument(
-                "page number is outside the snapshot",
-            ));
-        }
-        let frame = self.frame_at_generation(pgno, pin.generation())?;
-        let (plaintext, _) = decrypt_page(&self.page_key, pgno, &frame)?;
-        validate_plaintext_header(&plaintext, pgno)?;
-        f(&plaintext)
-    }
-
     // ── Transaction API ───────────────────────────────────────────────────────
 
     /// Begin a write transaction. Must not be called while one is already open.
@@ -1503,42 +1475,6 @@ impl Pager {
             return Ok(**buffered);
         }
         self.frame_at_generation(pgno, self.committed_index.latest_commit_lsn())
-    }
-
-    fn frame_at_generation(&self, pgno: u64, generation: u64) -> Result<[u8; PAGE_SIZE]> {
-        self.validate_generation(generation)?;
-        if let Some(version) = self.committed_index.page_at(pgno, generation) {
-            return Ok(*version.frame.as_ref());
-        }
-        self.read_frame(pgno)
-    }
-
-    fn page0_at_generation(&self, generation: u64) -> Result<[u8; PAGE_SIZE]> {
-        self.validate_generation(generation)?;
-        let page0 = if let Some(version) = self.committed_index.page_at(0, generation) {
-            *version.frame.as_ref()
-        } else {
-            let mut file = self.file.try_clone()?;
-            read_page0(&mut file)?
-        };
-        validate_header(&page0)?;
-        if let Some(ref hmk) = self.header_mac_key {
-            let count = keyslot_count(&page0);
-            let stored_mac = read_header_mac_field(&page0)?;
-            verify_header_mac(hmk, &page0, count, &stored_mac)?;
-        }
-        Ok(page0)
-    }
-
-    fn validate_generation(&self, generation: u64) -> Result<()> {
-        if generation < self.committed_index.checkpoint_lsn()
-            || generation > self.committed_index.latest_commit_lsn()
-        {
-            return Err(TosumuError::InvalidArgument(
-                "snapshot generation is outside the retained interval",
-            ));
-        }
-        Ok(())
     }
 
     fn ensure_writable(&self) -> Result<()> {

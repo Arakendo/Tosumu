@@ -336,3 +336,25 @@ Architectural Review or ADR is updated first.
   including the long differential crash-recovery property and maximum-size
   external-provider case. Rust reported only the known incremental-cache
   hard-link fallback warning.
+
+### 2026-08-27 -- Pager Snapshot Selection
+
+- MVP+10 generation selection first reached semantic checkpoint `480193c`,
+  preserving a precise conservation baseline before structural movement.
+- `pager/snapshot.rs` now owns process-local pin capture, owner-identity
+  validation, page-zero selection at the captured generation, snapshot page
+  bounds, retained-frame selection, and authenticated page delivery. It is a
+  private child implementation over immutable pager state and exposes only the
+  crate-private pin/read seam plus one parent-visible frame selector.
+- The extraction moved 79 physical lines of one independently testable
+  responsibility. `pager.rs` moved from 2,328 to 2,264 physical lines; the
+  modest reduction is accepted because ownership, not a threshold target,
+  defines the seam.
+- Transaction publication remains in the pager root. It mutates the file, WAL,
+  transaction metadata, header fields, health state, committed index, and
+  registry-dependent checkpoint decision together; moving it behind a child
+  `impl Pager` would relocate broad mutable coupling rather than reduce it.
+- Focused post-extraction validation preserved all 14 pager tests, including
+  retained-WAL lifetime, distinct pinned generations, page-zero bounds, foreign
+  owner rejection, and both phase-two failure fixtures. No format bytes,
+  errors, visibility, or public API changed.
