@@ -358,3 +358,24 @@ Architectural Review or ADR is updated first.
   retained-WAL lifetime, distinct pinned generations, page-zero bounds, foreign
   owner rejection, and both phase-two failure fixtures. No format bytes,
   errors, visibility, or public API changed.
+
+### 2026-08-27 -- B+ Tree Read-Source Cohesion Review
+
+- The next substantive `btree.rs` change triggered ADR-0003's deferred
+  1,001-2,000-line cohesion inspection. Snapshot lookup would otherwise have
+  duplicated point traversal and overflow decoding inside the root unit.
+- `btree/read.rs` now owns the immutable logical-read pipeline: current and
+  pinned read sources, root-to-leaf descent, point decoding, and bounded
+  overflow-chain assembly. Mutation, split, freelist, invariant, and physical
+  scan behavior remain in the B+ tree root.
+- The dependency is one-way: the child consumes pager read contracts and
+  parent-private page decoders; it cannot mutate pages, allocate, commit, or
+  interpret provider/consumer meaning. Write traversal delegates to the same
+  current-view descent, preventing a second separator-selection algorithm.
+- `btree.rs` moved from 1,888 to 1,833 physical lines and the cohesive read
+  child is 204 lines. The total implementation grew for the admitted snapshot
+  behavior, while the root's responsibility count and algorithm duplication
+  decreased.
+- The focused logical fixture covers old-root traversal, an overwritten and
+  freed overflow chain, 500 later commits, exclusion of a later key, and the
+  first zero-reader checkpoint after pin drop.

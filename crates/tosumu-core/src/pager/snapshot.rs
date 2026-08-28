@@ -1,29 +1,23 @@
 use crate::crypto::{decrypt_page, verify_header_mac};
 use crate::error::{Result, TosumuError};
-use crate::format::{read_u64, OFF_PAGE_COUNT, PAGE_PLAINTEXT_SIZE, PAGE_SIZE};
+use crate::format::{read_u64, OFF_PAGE_COUNT, OFF_ROOT_PAGE, PAGE_PLAINTEXT_SIZE, PAGE_SIZE};
 use crate::snapshot_registry::SnapshotPin;
 
 use super::page0::{keyslot_count, read_header_mac_field, read_page0, validate_header};
 use super::{validate_plaintext_header, Pager};
 
 impl Pager {
-    #[allow(dead_code)]
     pub(crate) fn pin_latest_snapshot(&self) -> Result<SnapshotPin> {
         self.snapshot_registry
             .register(self.committed_index.latest_commit_lsn())
     }
 
-    #[allow(dead_code)]
     pub(crate) fn with_snapshot_page<F, T>(&self, pin: &SnapshotPin, pgno: u64, f: F) -> Result<T>
     where
         F: FnOnce(&[u8; PAGE_PLAINTEXT_SIZE]) -> Result<T>,
     {
         self.ensure_healthy()?;
-        if !pin.belongs_to(&self.snapshot_registry) {
-            return Err(TosumuError::InvalidArgument(
-                "snapshot belongs to a different database owner",
-            ));
-        }
+        self.validate_snapshot_owner(pin)?;
         let page0 = self.page0_at_generation(pin.generation())?;
         let snapshot_page_count = read_u64(&page0, OFF_PAGE_COUNT);
         if pgno == 0 || pgno >= snapshot_page_count {
@@ -35,6 +29,16 @@ impl Pager {
         let (plaintext, _) = decrypt_page(&self.page_key, pgno, &frame)?;
         validate_plaintext_header(&plaintext, pgno)?;
         f(&plaintext)
+    }
+
+    pub(crate) fn snapshot_metadata(&self, pin: &SnapshotPin) -> Result<(u64, u64)> {
+        self.ensure_healthy()?;
+        self.validate_snapshot_owner(pin)?;
+        let page0 = self.page0_at_generation(pin.generation())?;
+        Ok((
+            read_u64(&page0, OFF_ROOT_PAGE),
+            read_u64(&page0, OFF_PAGE_COUNT),
+        ))
     }
 
     pub(super) fn frame_at_generation(
@@ -72,6 +76,15 @@ impl Pager {
         {
             return Err(TosumuError::InvalidArgument(
                 "snapshot generation is outside the retained interval",
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_snapshot_owner(&self, pin: &SnapshotPin) -> Result<()> {
+        if !pin.belongs_to(&self.snapshot_registry) {
+            return Err(TosumuError::InvalidArgument(
+                "snapshot belongs to a different database owner",
             ));
         }
         Ok(())

@@ -438,6 +438,12 @@ format/recovery design that can retain committed versions safely.
   Two pins now prove checkpoint, intermediate, and latest page views remain
   distinct across successive commits, including rejection of a page allocated
   after both snapshots.
+- Added the first logical caller of the pinned pager view. Current and pinned
+  B+ tree point lookups share one read-source-parameterized traversal and one
+  overflow-chain decoder. A focused fixture proves an older lookup survives a
+  later overflow replacement, reclamation writes, 500 subsequent commits, and
+  a root split while excluding a key inserted after capture. The private pin is
+  still not a public read-transaction or shared-session contract.
 
 ## References
 

@@ -38,6 +38,9 @@ use crate::error::{Result, TosumuError};
 use crate::format::*;
 use crate::pager::Pager;
 
+#[path = "btree/read.rs"]
+mod read;
+
 // Page header field offsets — canonical definitions are PAGE_OFF_* in format.rs.
 // Local aliases kept for readability within btree.rs.
 const HDR_PAGE_TYPE: usize = PAGE_OFF_TYPE;
@@ -130,17 +133,7 @@ impl BTree {
 
     /// Look up `key`. Returns `Some(value)` if found and live, `None` otherwise.
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        let leaf_pgno = self.find_leaf(key)?;
-        let value = self
-            .pager
-            .with_page(leaf_pgno, |page| leaf_get(page, leaf_pgno, key))?;
-        match value {
-            Some(LeafValue::Inline(value)) => Ok(Some(value)),
-            Some(LeafValue::Overflow { head, length }) => {
-                Ok(Some(self.read_overflow_chain(head, length)?))
-            }
-            None => Ok(None),
-        }
+        read::get(&self.pager, key)
     }
 
     /// Insert or update `key` → `value`.
@@ -425,58 +418,7 @@ impl BTree {
     }
 
     fn read_overflow_chain(&self, head: u64, length: u64) -> Result<Vec<u8>> {
-        let length = usize::try_from(length).map_err(|_| TosumuError::OverflowChainCorrupt {
-            pgno: head,
-            length,
-            reason: "overflow logical length does not fit usize",
-        })?;
-        if length > MAX_VALUE_SIZE {
-            return Err(TosumuError::OverflowChainCorrupt {
-                pgno: head,
-                length: length as u64,
-                reason: "overflow logical length exceeds maximum",
-            });
-        }
-
-        let expected_pages = length.div_ceil(OVERFLOW_PAYLOAD_SIZE);
-        let mut value = Vec::with_capacity(length);
-        let mut current = head;
-        let mut seen = std::collections::HashSet::new();
-        for _ in 0..expected_pages {
-            if current == 0 || !seen.insert(current) {
-                return Err(TosumuError::OverflowChainCorrupt {
-                    pgno: current,
-                    length: length as u64,
-                    reason: "overflow chain is missing or cyclic",
-                });
-            }
-            let (next, payload) = self.pager.with_page(current, |page| {
-                if page[HDR_PAGE_TYPE] != PAGE_TYPE_OVERFLOW {
-                    return Err(TosumuError::OverflowChainCorrupt {
-                        pgno: current,
-                        length: length as u64,
-                        reason: "overflow chain references a non-overflow page",
-                    });
-                }
-                let remaining = length - value.len();
-                let count = remaining.min(OVERFLOW_PAYLOAD_SIZE);
-                Ok((
-                    read_u64(page, HDR_LEFTMOST),
-                    page[PAGE_HEADER_SIZE..PAGE_HEADER_SIZE + count].to_vec(),
-                ))
-            })?;
-            value.extend_from_slice(&payload);
-            current = next;
-        }
-
-        if value.len() != length || current != 0 {
-            return Err(TosumuError::OverflowChainCorrupt {
-                pgno: current,
-                length: length as u64,
-                reason: "overflow chain length or termination mismatch",
-            });
-        }
-        Ok(value)
+        read::read_overflow_chain(&self.pager, head, length)
     }
 
     fn free_overflow_chain(&mut self, head: u64, length: u64) -> Result<()> {
@@ -580,40 +522,7 @@ impl BTree {
 
     /// Traverse internal pages to reach the leaf that contains (or should contain) `key`.
     fn find_leaf(&self, key: &[u8]) -> Result<u64> {
-        const MAX_DEPTH: usize = 64;
-        let mut pgno = self.pager.root_page();
-        let mut depth = 0usize;
-        loop {
-            depth += 1;
-            if depth > MAX_DEPTH {
-                return Err(TosumuError::Corrupt {
-                    pgno,
-                    reason: "traversal depth exceeds maximum (cycle suspected)",
-                });
-            }
-            let page_count = self.pager.page_count();
-            if pgno == 0 || pgno >= page_count {
-                return Err(TosumuError::Corrupt {
-                    pgno,
-                    reason: "traversal reached out-of-range page number",
-                });
-            }
-            let page_type = self.pager.with_page(pgno, |page| Ok(page[HDR_PAGE_TYPE]))?;
-            match page_type {
-                PAGE_TYPE_LEAF => return Ok(pgno),
-                PAGE_TYPE_INTERNAL => {
-                    pgno = self
-                        .pager
-                        .with_page(pgno, |page| internal_find_child(page, pgno, key))?;
-                }
-                _ => {
-                    return Err(TosumuError::Corrupt {
-                        pgno,
-                        reason: "unexpected page type during traversal",
-                    })
-                }
-            }
-        }
+        read::find_leaf(&self.pager, key)
     }
 
     // ── Private — recursive insert ───────────────────────────────────────────
@@ -1433,6 +1342,42 @@ mod tests {
         t.put(b"k", b"v1").unwrap();
         t.put(b"k", b"v2").unwrap();
         assert_eq!(t.get(b"k").unwrap(), Some(b"v2".to_vec()));
+
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn pinned_lookup_survives_overflow_replacement_and_root_split() {
+        let p = tmp("snapshot_lookup");
+        let _ = std::fs::remove_file(&p);
+
+        let mut tree = BTree::create(&p).unwrap();
+        let original = vec![0x5a; OVERFLOW_PAYLOAD_SIZE * 2 + 17];
+        tree.put(b"anchor", &original).unwrap();
+        let pin = tree.pin_snapshot().unwrap();
+        let (snapshot_root, _) = tree.pager.snapshot_metadata(&pin).unwrap();
+
+        tree.put(b"anchor", b"replacement").unwrap();
+        for index in 0u32..500 {
+            let key = format!("key-{index:05}");
+            let value = format!("value-{index:05}");
+            tree.put(key.as_bytes(), value.as_bytes()).unwrap();
+        }
+
+        assert_ne!(tree.root_page(), snapshot_root);
+        assert_eq!(tree.get(b"anchor").unwrap(), Some(b"replacement".to_vec()));
+        assert_eq!(
+            tree.get_at_snapshot(&pin, b"anchor").unwrap(),
+            Some(original)
+        );
+        assert_eq!(tree.get_at_snapshot(&pin, b"key-00499").unwrap(), None);
+
+        drop(pin);
+        tree.put(b"checkpoint", b"after-reader").unwrap();
+        assert_eq!(
+            tree.get(b"checkpoint").unwrap(),
+            Some(b"after-reader".to_vec())
+        );
 
         let _ = std::fs::remove_file(&p);
     }

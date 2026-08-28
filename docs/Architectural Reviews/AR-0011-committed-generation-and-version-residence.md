@@ -762,3 +762,21 @@ and the remaining implementation evidence stay provisional as listed below.
 - Disposition: ADR-0005 remains accepted without revision.
 - Resulting ADR or documentation change: the private page-level no-newer-than
   visibility item is complete; shared logical-reader ownership remains next.
+
+### Cycle 22 -- 2026-08-27
+
+- Status entering review: Accepted
+- New evidence: B+ tree point lookup is the first logical consumer of the
+  pinned pager view. One private read-source contract supplies root, page count,
+  and authenticated page access to a shared traversal and overflow decoder for
+  both current and pinned reads. A focused fixture captures an overflow-backed
+  value, replaces and frees its chain, performs 500 later commits that split
+  the original root, and still resolves the old value and old root while
+  excluding a later key. The writer sees the replacement throughout.
+- Findings: stable snapshot meaning now composes across internal traversal,
+  leaf lookup, overflow residence, page reuse writes, and root change without
+  cloning the B+ tree algorithm. Range scans and a shared owner/session caller
+  remain subsequent work.
+- Disposition: ADR-0005 remains accepted without revision.
+- Resulting ADR or documentation change: private logical point visibility is
+  executable; no public read-transaction API is added.
