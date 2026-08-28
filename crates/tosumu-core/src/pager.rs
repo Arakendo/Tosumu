@@ -49,9 +49,12 @@ use crate::writer_gate::WriterGuard;
 #[path = "pager/page0.rs"]
 mod page0;
 #[path = "pager/snapshot.rs"]
+#[allow(dead_code)]
 mod snapshot;
 #[path = "pager/unlock.rs"]
 mod unlock;
+
+pub(crate) use snapshot::SnapshotDiagnostics;
 
 use page0::*;
 use unlock::*;

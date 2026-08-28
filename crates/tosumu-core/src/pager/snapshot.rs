@@ -6,6 +6,18 @@ use crate::snapshot_registry::SnapshotPin;
 use super::page0::{keyslot_count, read_header_mac_field, read_page0, validate_header};
 use super::{validate_plaintext_header, Pager};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SnapshotDiagnostics {
+    pub(crate) active: u64,
+    pub(crate) maximum: u64,
+    pub(crate) oldest_generation: Option<u64>,
+    pub(crate) checkpoint_generation: u64,
+    pub(crate) latest_generation: u64,
+    pub(crate) retained_wal_bytes: u64,
+    pub(crate) retained_frame_versions: u64,
+    pub(crate) checkpoint_blocked: bool,
+}
+
 impl Pager {
     pub(crate) fn pin_latest_snapshot(&self) -> Result<SnapshotPin> {
         self.snapshot_registry
@@ -39,6 +51,22 @@ impl Pager {
             read_u64(&page0, OFF_ROOT_PAGE),
             read_u64(&page0, OFF_PAGE_COUNT),
         ))
+    }
+
+    pub(crate) fn snapshot_diagnostics(&self) -> Result<SnapshotDiagnostics> {
+        self.ensure_healthy()?;
+        let registry = self.snapshot_registry.info()?;
+        let retained_wal_bytes = self.wal.as_ref().map_or(Ok(0), |wal| wal.encoded_len())?;
+        Ok(SnapshotDiagnostics {
+            active: registry.active,
+            maximum: registry.maximum,
+            oldest_generation: registry.oldest_generation,
+            checkpoint_generation: self.committed_index.checkpoint_lsn(),
+            latest_generation: self.committed_index.latest_commit_lsn(),
+            retained_wal_bytes,
+            retained_frame_versions: self.committed_index.retained_version_count(),
+            checkpoint_blocked: registry.active != 0,
+        })
     }
 
     pub(super) fn frame_at_generation(

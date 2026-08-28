@@ -5,7 +5,7 @@ use crate::format::{
     read_u64, MAX_VALUE_SIZE, OVERFLOW_PAYLOAD_SIZE, PAGE_HEADER_SIZE, PAGE_PLAINTEXT_SIZE,
     PAGE_TYPE_INTERNAL, PAGE_TYPE_LEAF, PAGE_TYPE_OVERFLOW,
 };
-use crate::pager::Pager;
+use crate::pager::{Pager, SnapshotDiagnostics};
 use crate::snapshot_registry::SnapshotPin;
 
 use super::{
@@ -101,6 +101,11 @@ impl BTree {
     ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         let source = SnapshotReadSource::new(&self.pager, pin)?;
         scan_from(&source, start, end)
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn snapshot_diagnostics(&self) -> Result<SnapshotDiagnostics> {
+        self.pager.snapshot_diagnostics()
     }
 }
 

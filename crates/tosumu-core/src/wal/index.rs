@@ -90,6 +90,13 @@ impl CommittedWalIndex {
         self.latest_commit_lsn
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn retained_version_count(&self) -> u64 {
+        self.pages.values().fold(0u64, |count, versions| {
+            count.saturating_add(u64::try_from(versions.len()).unwrap_or(u64::MAX))
+        })
+    }
+
     pub(crate) fn page_at(&self, pgno: u64, snapshot_lsn: u64) -> Option<&CommittedPageVersion> {
         self.pages
             .get(&pgno)?

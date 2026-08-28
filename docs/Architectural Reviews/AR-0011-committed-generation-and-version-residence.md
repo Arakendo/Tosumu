@@ -797,3 +797,20 @@ and the remaining implementation evidence stay provisional as listed below.
 - Disposition: ADR-0005 remains accepted without revision.
 - Resulting ADR or documentation change: private logical range visibility is
   executable; no public iterator, session, or read-transaction API is added.
+
+### Cycle 24 -- 2026-08-27
+
+- Status entering review: Accepted
+- New evidence: a private shared B+ tree owner now serializes generation
+  capture with commit publication. Its non-cloneable read transaction retains
+  the process-local pin across separately locked point and range operations. A
+  threaded fixture proves current reads advance while the pinned transaction
+  remains stable, reports its retained-WAL pressure, and confirms that dropping
+  the reader performs no hidden checkpoint before the next zero-reader commit.
+- Findings: ADR-0005's owner-scoped pin lifetime, all-or-nothing checkpoint
+  suppression, and passive release behavior compose at the logical ownership
+  boundary. Diagnostic counts and byte totals are private evidence, not yet a
+  stable inspection schema or public API.
+- Disposition: ADR-0005 remains accepted without revision.
+- Resulting ADR or documentation change: private Slice 2 ownership and pressure
+  evidence is complete; AR-0009 continues to govern public API admission.

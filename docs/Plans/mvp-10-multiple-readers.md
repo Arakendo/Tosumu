@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | In progress; Slice 2 private storage implementation |
+| Status | In progress; Slice 2 private shared-owner implementation complete |
 | Opened | 2026-08-27 |
 | Last updated | 2026-08-27 |
 | Owner | Tosumu maintainers |
@@ -15,11 +15,11 @@
 ## Status
 
 The pre-MVP+10 executable baseline and ADR-0004 writer admission are complete.
-ADR-0005's format-v3 generation, finite registry, and reader-pinned WAL
-residence are now active behind the pager owner. The repository does not yet
-implement a shared public `Database`, sessions, or generation-selecting read
-transactions. AR-0009 remains incubating for that broader API and execution
-contract.
+ADR-0005's format-v3 generation, finite registry, reader-pinned WAL residence,
+and generation-selecting B+ tree reads are active behind a private shared
+owner. The repository does not yet expose a shared public `Database`, sessions,
+or read transactions. AR-0009 remains incubating for that public API and its
+broader execution contract.
 
 ## Purpose
 
@@ -77,10 +77,16 @@ read-only Pager open
 - Protector edits and public recovery/checkpoint operations participate in the
   same gate. Direct raw `WalWriter` mutation remains outside the coordination
   contract as documented by ADR-0004.
-- There is no committed-LSN snapshot API, reader registry, checkpoint pin,
-  cancellation token, busy timeout, coordinated shutdown operation, or
-  long-lived-reader diagnostic. Dropping an independent handle is the only
-  current lifecycle mechanism.
+- Independent public handles do not join the private reader registry or expose
+  a committed-generation snapshot, checkpoint pin, cancellation token, busy
+  timeout, coordinated shutdown operation, or long-lived-reader diagnostic.
+  Dropping an independent handle remains their only lifecycle mechanism.
+- A private `SharedBTreeOwner` now provides the executable target ownership
+  shape: snapshot capture and commits serialize through one mutex, while a
+  non-cloneable read transaction retains its generation pin and locks only for
+  each logical point or range read. Its private diagnostics report active and
+  maximum pins, oldest generation, retained WAL bytes and frame versions, both
+  generation horizons, and whether readers block checkpointing.
 
 These are observations of the 2026-08-27 implementation. The writer gate is an
 accepted cooperative admission guarantee; the reader observations are not
@@ -176,17 +182,19 @@ claiming snapshot isolation.
 - [x] Retain versions needed by the oldest active reader.
 - [x] Prove at the private authenticated-page boundary that a pinned read does
       not observe commits newer than its snapshot. Logical B+ tree ownership
-      remains subsequent shared-owner work.
-- [ ] Bound and diagnose long-lived-reader WAL pressure.
+      remains private until the shared-owner API is admitted.
+- [x] Bound and diagnose long-lived-reader WAL pressure.
 - [x] Stop for a format decision if retained versions require new WAL or page
       representation.
 
-Exit state: snapshot visibility and lifetime are executable contracts.
+Exit state: snapshot visibility and lifetime are executable private contracts.
 
 ### Slice 3: Checkpoint Coordination And Diagnostics
 
-- [ ] Define passive and blocking checkpoint behavior around active readers.
-- [ ] Report frames retained, oldest reader LSN, and the blocking owner without
+- [x] Define passive and blocking checkpoint behavior around active readers.
+      Reader release performs no hidden work; the next zero-reader commit runs
+      the admitted full checkpoint.
+- [x] Report frames retained, oldest reader LSN, and the blocking owner without
       leaking host or consumer meaning.
 - [ ] Add crash, cancellation, timeout, shutdown, and cross-handle contention
       evidence appropriate to the admitted mechanisms.

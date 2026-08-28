@@ -191,10 +191,10 @@ public MVCC contract through that implementation.
 - [x] Create `docs/Plans/mvp-10-multiple-readers.md` from the plan template.
 - [x] Record the current file-lock, pager-lock, transaction, and WAL ownership
       graph.
-- [ ] Complete the executable baseline for simultaneous readers, writer
+- [x] Complete the executable baseline for simultaneous readers, writer
       contention, LSN visibility, and checkpoint interaction. Handle admission
-      and visibility evidence now exists; reader-pinned checkpoint behavior
-      cannot be exercised until a reader registry or equivalent contract exists.
+      and visibility evidence now includes a private shared owner whose pinned
+      logical reads survive concurrent commits and visibly defer checkpointing.
 - [x] Record `Send`/`Sync`, cancellation, timeout, shutdown, and long-lived
       reader behavior.
 - [x] Decide whether the first implementation changes only private mechanism or
@@ -314,3 +314,22 @@ public MVCC contract through that implementation.
 - Resulting ADR or documentation change: required storage-decision follow-ups
   are complete through ADR-0005; retained residence is private executable
   behavior.
+
+### Cycle 7 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: a private `Arc<Mutex<BTree>>` owner serializes snapshot capture
+  with commits, then lets a non-cloneable read transaction retain its pin while
+  locking only for each point or range operation. A writer thread commits newer
+  values while the reader repeatedly observes its captured generation.
+  Diagnostics expose the finite pin bound, oldest generation, retained WAL
+  bytes and frame versions, checkpoint/latest horizons, and checkpoint-blocked
+  state. Reader drop is passive; the next zero-reader commit reclaims the WAL.
+- Findings: the shared-owner scope accepted by ADR-0005 now has an executable
+  ownership and lifecycle proof. The experiment does not settle public names,
+  session policy, cancellation, timeouts, shutdown, or independent-handle
+  snapshot semantics.
+- Disposition: remain Incubating for the public shared-owner and reader API.
+- Resulting ADR or documentation change: MVP+10 Slice 2 is complete as private
+  mechanism; the initial checkpoint diagnostic items move into executable
+  Slice 3 evidence.
