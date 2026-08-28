@@ -147,7 +147,7 @@ preservation pressure.
       page-zero checkpoint meaning, old-writer exclusion, and crash ordering.
 - [x] Prefer a clean v3 pre-stability break; defer an explicit offline logical
       rewrite until non-regenerable v2 data supplies preservation pressure.
-- [ ] Update the Tokimu provider fixture deliberately if its physical-format
+- [x] Update the Tokimu provider fixture deliberately if its physical-format
       evidence moves beyond version 2; do not reinterpret its schema version.
 
 ## Reopening Triggers
@@ -211,3 +211,18 @@ preservation pressure.
 - Disposition: Accepted via ADR-0005; migration remains outside the decision.
 - Resulting ADR or documentation change: SDD format-open rules and the Tokimu
   provider baseline now use the interval contract.
+
+### Cycle 5 -- 2026-08-27
+
+- Status entering review: Accepted via ADR-0005
+- New evidence: format 3 is now the exact ordinary-open interval and durably
+  records commit generations in page zero. Format 2 refusal is executable
+  before recovery or mutation. The regenerable Tokimu manifest and reviewed
+  browser fixtures were deliberately rebuilt through the public format-3 CLI;
+  their consumer schema versions remain unchanged.
+- Findings: the accepted clean break is active without automatic migration or
+  reinterpretation of v2 WAL history. Current fixtures moved because they are
+  reproducible pre-release evidence, not because v2 was silently upgraded.
+- Disposition: ADR-0005 remains binding; no migration path is admitted.
+- Resulting ADR or documentation change: SDD and fixture metadata now identify
+  current physical format 3.

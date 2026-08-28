@@ -706,3 +706,21 @@ and the remaining implementation evidence stay provisional as listed below.
 - Disposition: ADR-0005 remains accepted without revision.
 - Resulting ADR or documentation change: MVP+10 Slice 2 publication-path item
   is complete; format-2 residence and visible behavior remain unchanged.
+
+### Cycle 19 -- 2026-08-27
+
+- Status entering review: Accepted
+- New evidence: the admitted ordinary-open interval is now exactly physical
+  format 3. Every commit includes an authenticated page-zero frame whose
+  `wal_checkpoint_lsn` equals the transaction's actual `Commit` LSN. In the
+  current zero-reader mode, data plus page zero sync before WAL truncation, and
+  the live writer retains `commit_lsn + 1`; reopen seeds from page zero.
+  Focused tests prove successive generations advance across reopen and crash
+  recovery preserves the committed value and horizon.
+- Findings: the sole durable epoch authority and zero-reader crash ordering are
+  executable. Format 2 is refused in both pager and byte-inspection paths
+  before recovery or mutation. Reader-pinned retained residence remains the
+  next behavior change.
+- Disposition: ADR-0005 remains accepted without revision.
+- Resulting ADR or documentation change: current fixtures move deliberately to
+  format 3; MVP+10's monotonic-generation item is complete.

@@ -902,7 +902,7 @@ mod tests {
         drop(store);
 
         let report = inspect_verification(&path).unwrap();
-        assert_eq!(report.header.format_version, 2);
+        assert_eq!(report.header.format_version, FORMAT_VERSION);
         assert!(report.recovery.wal_exists);
         assert_eq!(report.pages.pages_ok, report.pages.pages_checked);
         assert!(report.btree.checked);
@@ -1063,7 +1063,8 @@ mod tests {
 
         PageStore::create(&path).unwrap();
         let mut page0 = std::fs::read(&path).unwrap();
-        page0[OFF_FORMAT_VERSION..OFF_FORMAT_VERSION + 2].copy_from_slice(&3u16.to_le_bytes());
+        page0[OFF_FORMAT_VERSION..OFF_FORMAT_VERSION + 2]
+            .copy_from_slice(&(FORMAT_VERSION + 1).to_le_bytes());
         std::fs::write(&path, &page0).unwrap();
 
         let error = match super::inspect_verification(&path) {
@@ -1073,10 +1074,10 @@ mod tests {
         assert!(matches!(
             error,
             TosumuError::UnsupportedFormat {
-                found: 3,
+                found,
                 supported_min: MIN_SUPPORTED_FORMAT_VERSION,
                 supported_max: FORMAT_VERSION
-            }
+            } if found == FORMAT_VERSION + 1
         ));
 
         let _ = std::fs::remove_file(&path);

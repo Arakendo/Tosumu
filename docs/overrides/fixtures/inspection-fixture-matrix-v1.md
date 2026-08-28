@@ -14,7 +14,7 @@ record inspection, tree traversal, WAL inspection, or protector operations.
 | `inspection-newer-format-v1.bin` | `FORMAT_VERSION_UNSUPPORTED` rejection | The header declares a newer unsupported format version. |
 
 Run `pwsh -NoProfile -File scripts/build-inspection-fixtures.ps1` from the
-repository root to generate the missing derived fixtures. The script refuses
-to overwrite reviewed files. The populated fixture is created through the
-public Tosumu CLI; the invalid fixtures are derived only to exercise bounded
-header validation.
+repository root to generate missing fixtures. The script refuses to overwrite
+reviewed files unless `-RefreshReviewed` is explicit. Compatible fixtures are
+created through the public Tosumu CLI; invalid fixtures are derived only to
+exercise bounded header validation.

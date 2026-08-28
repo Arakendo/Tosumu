@@ -100,8 +100,8 @@ fn inspect_uploaded_bytes_json(bytes: &[u8]) -> Result<String, String> {
 mod tests {
     use super::*;
     use tosumu_core::format::{
-        MAGIC, OFF_FLAGS, OFF_FORMAT_VERSION, OFF_KEYSLOT_COUNT, OFF_PAGE_COUNT, OFF_PAGE_SIZE,
-        OFF_ROOT_PAGE, PAGE_SIZE,
+        FORMAT_VERSION, MAGIC, OFF_FLAGS, OFF_FORMAT_VERSION, OFF_KEYSLOT_COUNT, OFF_PAGE_COUNT,
+        OFF_PAGE_SIZE, OFF_ROOT_PAGE, PAGE_SIZE,
     };
     use tosumu_inspection_boundary::{
         inspect_bytes_json, InspectionBytesRequest, INSPECTION_BOUNDARY_SCHEMA_V1,
@@ -110,7 +110,8 @@ mod tests {
     fn fixture_bytes() -> Vec<u8> {
         let mut bytes = vec![0_u8; PAGE_SIZE];
         bytes[..MAGIC.len()].copy_from_slice(MAGIC);
-        bytes[OFF_FORMAT_VERSION..OFF_FORMAT_VERSION + 2].copy_from_slice(&2_u16.to_le_bytes());
+        bytes[OFF_FORMAT_VERSION..OFF_FORMAT_VERSION + 2]
+            .copy_from_slice(&FORMAT_VERSION.to_le_bytes());
         bytes[OFF_PAGE_SIZE..OFF_PAGE_SIZE + 2].copy_from_slice(&(PAGE_SIZE as u16).to_le_bytes());
         bytes[OFF_FLAGS..OFF_FLAGS + 2].copy_from_slice(&0_u16.to_le_bytes());
         bytes[OFF_PAGE_COUNT..OFF_PAGE_COUNT + 8].copy_from_slice(&3_u64.to_le_bytes());

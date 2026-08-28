@@ -164,7 +164,7 @@ claiming snapshot isolation.
 
 - [x] Trace current LSN assignment, page-zero checkpoint state, main-file
       publication, WAL truncation, direct writes, and read-only overlay behavior.
-- [ ] Define a monotonic committed generation across checkpoint and reopen.
+- [x] Define a monotonic committed generation across checkpoint and reopen.
 - [x] Route explicit transactions and ordinary writes through one atomic
       publication path.
 - [ ] Decide main-file/WAL version residence, page selection, crash ordering,
@@ -415,6 +415,12 @@ format/recovery design that can retain committed versions safely.
   write consumes WAL LSNs before format-2's immediate checkpoint truncates the
   sidecar. Pager mutation primitives used by the tree are now crate-private, so
   external callers cannot bypass publication through raw page mutation.
+- Activated physical format 3's durable generation in zero-reader full
+  checkpoint mode. Every committed transaction predicts and records its actual
+  `Commit` LSN in the WAL page-zero frame, authenticates that header, syncs WAL,
+  checkpoints data plus page zero, and truncates while retaining `commit_lsn +
+  1` as the next database-owned LSN. Successive commits advance across reopen;
+  ordinary open now refuses format 2 before recovery or mutation.
 
 ## References
 

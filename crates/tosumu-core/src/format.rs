@@ -12,11 +12,11 @@ pub const MAGIC: &[u8; 8] = b"TOSUMUv0";
 pub const MAGIC_LEN: usize = 16;
 
 /// Current format version written by this engine.
-pub const FORMAT_VERSION: u16 = 2;
+pub const FORMAT_VERSION: u16 = 3;
 /// Oldest physical format version admitted by ordinary database open.
-pub const MIN_SUPPORTED_FORMAT_VERSION: u16 = 2;
+pub const MIN_SUPPORTED_FORMAT_VERSION: u16 = 3;
 /// Oldest engine that can open files we write.
-pub const MIN_READER_VERSION: u16 = 2;
+pub const MIN_READER_VERSION: u16 = 3;
 
 // ── Page frame layout (§5.3) ──────────────────────────────────────────────────
 

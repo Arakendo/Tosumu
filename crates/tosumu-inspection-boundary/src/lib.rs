@@ -261,8 +261,8 @@ fn bounded_message(message: &str) -> String {
 mod tests {
     use super::*;
     use tosumu_core::format::{
-        MAGIC, OFF_FLAGS, OFF_FORMAT_VERSION, OFF_KEYSLOT_COUNT, OFF_PAGE_COUNT, OFF_PAGE_SIZE,
-        OFF_ROOT_PAGE, PAGE_SIZE,
+        FORMAT_VERSION, MAGIC, OFF_FLAGS, OFF_FORMAT_VERSION, OFF_KEYSLOT_COUNT, OFF_PAGE_COUNT,
+        OFF_PAGE_SIZE, OFF_ROOT_PAGE, PAGE_SIZE,
     };
     use tosumu_core::inspection_session::{
         inspect_observation_from_bytes, DEFAULT_INSPECTION_BYTE_INPUT_LIMIT,
@@ -271,7 +271,8 @@ mod tests {
     fn fixture_bytes() -> Vec<u8> {
         let mut bytes = vec![0_u8; PAGE_SIZE];
         bytes[..MAGIC.len()].copy_from_slice(MAGIC);
-        bytes[OFF_FORMAT_VERSION..OFF_FORMAT_VERSION + 2].copy_from_slice(&2_u16.to_le_bytes());
+        bytes[OFF_FORMAT_VERSION..OFF_FORMAT_VERSION + 2]
+            .copy_from_slice(&FORMAT_VERSION.to_le_bytes());
         bytes[OFF_PAGE_SIZE..OFF_PAGE_SIZE + 2].copy_from_slice(&(PAGE_SIZE as u16).to_le_bytes());
         bytes[OFF_FLAGS..OFF_FLAGS + 2].copy_from_slice(&0_u16.to_le_bytes());
         bytes[OFF_PAGE_COUNT..OFF_PAGE_COUNT + 8].copy_from_slice(&3_u64.to_le_bytes());

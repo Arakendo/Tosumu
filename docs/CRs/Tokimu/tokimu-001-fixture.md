@@ -7,7 +7,7 @@ uses only the public `tosumu_core::{KvStore, backup, export, inspect}` APIs.
 
 - Fixture schema: `fixture-schema-v1`
 - Tosumu crate version: `0.0.0`
-- Physical format: `2`
+- Physical format: `3`
 - Hash algorithm: SHA-256 of each value, represented as lowercase hexadecimal
 - Key ordering for comparisons: ascending bytewise key order, matching `scan()`
 - Large payload: 1 MiB overflow-backed value

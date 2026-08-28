@@ -2002,6 +2002,9 @@ Two distinct `u16`s live in the header, but the current engine uses them conserv
 The engine has `MIN_SUPPORTED_FORMAT_VERSION` and `FORMAT_VERSION` constants.
 Open rules today:
 
+The current ordinary-open interval is exactly format 3. Format 2 is refused
+before recovery or mutation; Tosumu performs no automatic or in-place upgrade.
+
 | File's `format_version` | Engine behavior |
 |---|---|
 | Inside `MIN_SUPPORTED_FORMAT_VERSION..=FORMAT_VERSION` | Open normally. |
@@ -3096,7 +3099,11 @@ These are worth naming but should not be built before the primary bets above are
 
 WAL + LSN naturally supports "what did this key look like at LSN N?" The cost is retaining WAL longer and supporting point-in-time reads.
 
-**Minimum viable version:** `tosumu get key --at-lsn 1000`. Existing authenticated `PageWrite` frames may be reusable for Stage 6 snapshots, but physical format 2 does not yet define a monotonic committed LSN across WAL truncation, retained-history compatibility, or old-writer exclusion. AR-0006 and AR-0009 must decide the format and migration impact before implementation. The UI work is not merely an `--at-lsn` flag until those storage semantics exist.
+**Minimum viable version:** `tosumu get key --at-lsn 1000`. Physical format 3
+now defines the durable commit LSN and carries that generation in authenticated
+page zero across zero-reader full checkpoints. Retained history, reader pins,
+and a public point-in-time API remain incomplete, so the UI work is not merely
+an `--at-lsn` flag yet.
 
 **Stretch version:** `tosumu diff key --from 900 --to 1000` — show what changed between two LSNs. Useful for debugging "what happened between this deploy and the customer's complaint."
 

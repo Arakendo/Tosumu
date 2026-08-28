@@ -5,7 +5,7 @@
 //! guarantees.
 
 use tosumu_core::pager::Pager;
-use tosumu_core::wal::{checkpoint, wal_path, WalReader, WalWriter};
+use tosumu_core::wal::{checkpoint, wal_path, WalReader};
 use tosumu_core::{KvStore, TosumuError};
 
 fn assert_send_sync<T: Send + Sync>() {}
@@ -125,25 +125,31 @@ fn protector_edit_and_checkpoint_share_writer_gate() {
 }
 
 #[test]
-fn successful_commit_retains_no_monotonic_committed_lsn() {
+fn successful_commits_advance_durable_checkpoint_lsn_across_reopen() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("commit-lsn.tsm");
     let mut writer = KvStore::create(&path).unwrap();
     writer
         .transaction(|transaction| transaction.put(b"key", b"value"))
         .unwrap();
+    let first_checkpoint = tosumu_core::inspect::read_header_info(&path)
+        .unwrap()
+        .wal_checkpoint_lsn;
+    assert!(first_checkpoint > 0);
+    assert!(WalReader::read_all(&wal_path(&path)).unwrap().is_empty());
     drop(writer);
 
-    let header = tosumu_core::inspect::read_header_info(&path).unwrap();
-    assert_eq!(header.wal_checkpoint_lsn, 0);
+    let mut reopened = KvStore::open(&path).unwrap();
+    reopened.put(b"key", b"new-value").unwrap();
+    let second_checkpoint = tosumu_core::inspect::read_header_info(&path)
+        .unwrap()
+        .wal_checkpoint_lsn;
+    assert!(second_checkpoint > first_checkpoint);
     assert!(WalReader::read_all(&wal_path(&path)).unwrap().is_empty());
-
-    let wal = WalWriter::open(&wal_path(&path)).unwrap();
-    assert_eq!(wal.next_lsn(), 1);
 }
 
 #[test]
-fn format_2_ordinary_put_checkpoints_its_staged_generation_immediately() {
+fn format_3_zero_reader_put_checkpoints_its_staged_generation_immediately() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("direct-put.tsm");
     let mut writer = KvStore::create(&path).unwrap();

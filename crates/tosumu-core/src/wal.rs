@@ -384,10 +384,14 @@ impl WalWriter {
 
     /// Truncate the WAL to zero bytes (used after a full checkpoint).
     pub fn truncate(&mut self) -> Result<()> {
+        self.truncate_seeded(1)
+    }
+
+    pub(crate) fn truncate_seeded(&mut self, minimum_next_lsn: u64) -> Result<()> {
         self.file.seek(SeekFrom::Start(0))?;
         self.file.set_len(0)?;
         self.file.sync_data()?;
-        self.next_lsn = 1;
+        self.next_lsn = minimum_next_lsn;
         Ok(())
     }
 }

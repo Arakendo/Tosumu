@@ -1134,13 +1134,17 @@ impl Pager {
             "commit_txn called with no active transaction"
         );
 
-        let page_write_count = self
-            .dirty_pages
-            .len()
-            .checked_add(usize::from(self.pending_header_flush));
-        let actual_wal_bytes = page_write_count
-            .and_then(transaction_encoded_len)
-            .unwrap_or(u64::MAX);
+        let page_write_count = match self.dirty_pages.len().checked_add(1) {
+            Some(count) => count,
+            None => {
+                self.rollback_txn();
+                return Err(TosumuError::TransactionWalTooLarge {
+                    actual: u64::MAX,
+                    maximum: maximum_wal_bytes,
+                });
+            }
+        };
+        let actual_wal_bytes = transaction_encoded_len(page_write_count).unwrap_or(u64::MAX);
         if actual_wal_bytes > maximum_wal_bytes {
             self.rollback_txn();
             return Err(TosumuError::TransactionWalTooLarge {
@@ -1170,20 +1174,26 @@ impl Pager {
             });
         }
 
-        // Phase 1: make the transaction durable in the WAL.
-        // Build page 0 bytes once so they can be reused in both the WAL record and
-        // the .tsm flush (avoids reading page 0 twice and eliminates a second fsync).
-        let page0_frame = if self.pending_header_flush {
-            match self.build_updated_page0() {
-                Ok(page0) => Some(Box::new(page0)),
-                Err(error) => {
-                    self.health = PagerHealth::Poisoned;
-                    self.txn_active = false;
-                    return Err(error);
-                }
+        let commit_lsn = match self.predicted_commit_lsn(page_write_count) {
+            Ok(lsn) => lsn,
+            Err(error) => {
+                self.health = PagerHealth::Poisoned;
+                self.txn_active = false;
+                self.pending_header_flush = false;
+                return Err(error);
             }
-        } else {
-            None
+        };
+
+        // Phase 1: make the transaction durable in the WAL. Every committed
+        // generation carries page zero with its own commit LSN so recovery and
+        // immediate zero-reader checkpointing preserve one durable epoch.
+        let page0_frame = match self.build_updated_page0(Some(commit_lsn)) {
+            Ok(page0) => Box::new(page0),
+            Err(error) => {
+                self.health = PagerHealth::Poisoned;
+                self.txn_active = false;
+                return Err(error);
+            }
         };
 
         // Drain and sort final unique page frames before writing the first WAL
@@ -1207,14 +1217,18 @@ impl Pager {
                     frame: frame.clone(),
                 })?;
             }
-            if let Some(frame) = &page0_frame {
-                self.wal_mut()?.append(&WalRecord::PageWrite {
-                    pgno: 0,
-                    page_version: 0,
-                    frame: frame.clone(),
-                })?;
+            self.wal_mut()?.append(&WalRecord::PageWrite {
+                pgno: 0,
+                page_version: 0,
+                frame: page0_frame.clone(),
+            })?;
+            let appended_commit_lsn = self.wal_mut()?.append(&WalRecord::Commit { txn_id })?;
+            if appended_commit_lsn != commit_lsn {
+                return Err(TosumuError::CorruptRecord {
+                    offset: self.wal_mut()?.encoded_len()?,
+                    reason: "staged WAL commit LSN prediction mismatch",
+                });
             }
-            self.wal_mut()?.append(&WalRecord::Commit { txn_id })?;
             self.wal_mut()?.sync()
         })();
         if let Err(error) = wal_result {
@@ -1233,7 +1247,7 @@ impl Pager {
         // fsync at the end.  WAL recovery covers crashes, so this flush is opportunistic.
         // A failure here means the data is safe in the WAL but the handle's caches no
         // longer reflect .tsm — caller must reopen.
-        let flush_result = Self::flush_committed_pages(flush_file, &pages, page0_frame.as_ref());
+        let flush_result = Self::flush_committed_pages(flush_file, &pages, Some(&page0_frame));
         if let Err(e) = flush_result {
             self.health = PagerHealth::Poisoned;
             let io_err = match e {
@@ -1243,9 +1257,15 @@ impl Pager {
             return Err(TosumuError::CommittedButFlushFailed { source: io_err });
         }
 
-        // Format 2 checkpoints every committed generation immediately. Leaving
-        // it in the WAL could replay stale frames after later physical updates.
-        if let Err(error) = self.wal_mut()?.truncate() {
+        // With no registered snapshots yet, format 3 uses its admitted
+        // zero-reader full checkpoint mode and retains the monotonic epoch.
+        let next_lsn = commit_lsn
+            .checked_add(1)
+            .ok_or(TosumuError::CorruptRecord {
+                offset: self.wal_mut()?.encoded_len()?,
+                reason: "WAL commit LSN overflow",
+            })?;
+        if let Err(error) = self.wal_mut()?.truncate_seeded(next_lsn) {
             self.health = PagerHealth::Poisoned;
             return Err(error);
         }
@@ -1322,7 +1342,7 @@ impl Pager {
             self.pending_header_flush = true;
             return Ok(());
         }
-        let page0 = self.build_updated_page0()?;
+        let page0 = self.build_updated_page0(None)?;
         self.file.seek(SeekFrom::Start(0))?;
         self.file.write_all(&page0)?;
         self.file.sync_data()?;
@@ -1330,18 +1350,45 @@ impl Pager {
     }
 
     /// Build the updated page-0 bytes (header fields + MAC) without writing to disk.
-    fn build_updated_page0(&mut self) -> Result<[u8; PAGE_SIZE]> {
+    fn build_updated_page0(&mut self, wal_checkpoint_lsn: Option<u64>) -> Result<[u8; PAGE_SIZE]> {
         let mut page0 = [0u8; PAGE_SIZE];
         self.file.seek(SeekFrom::Start(0))?;
         self.file.read_exact(&mut page0)?;
         write_u64(&mut page0, OFF_PAGE_COUNT, self.page_count);
         write_u64(&mut page0, OFF_FREELIST_HEAD, self.freelist_head);
         write_u64(&mut page0, OFF_ROOT_PAGE, self.root_page);
+        if let Some(lsn) = wal_checkpoint_lsn {
+            write_u64(&mut page0, OFF_WAL_CHECKPOINT_LSN, lsn);
+        }
         if let Some(ref hmk) = self.header_mac_key {
             let mac = compute_header_mac(hmk, &page0, MAX_KEYSLOTS);
             page0[OFF_HEADER_MAC..OFF_HEADER_MAC + 32].copy_from_slice(&mac);
         }
         Ok(page0)
+    }
+
+    fn predicted_commit_lsn(&mut self, page_write_count: usize) -> Result<u64> {
+        let page_write_count =
+            u64::try_from(page_write_count).map_err(|_| TosumuError::TransactionWalTooLarge {
+                actual: u64::MAX,
+                maximum: DEFAULT_MAX_TRANSACTION_WAL_BYTES,
+            })?;
+        let commit_lsn = self
+            .wal_mut()?
+            .next_lsn()
+            .checked_add(page_write_count)
+            .and_then(|lsn| lsn.checked_add(1))
+            .ok_or(TosumuError::CorruptRecord {
+                offset: 0,
+                reason: "WAL commit LSN overflow",
+            })?;
+        commit_lsn
+            .checked_add(1)
+            .map(|_| commit_lsn)
+            .ok_or(TosumuError::CorruptRecord {
+                offset: 0,
+                reason: "WAL commit LSN overflow",
+            })
     }
 
     // ── private ──────────────────────────────────────────────────────────────
@@ -1591,7 +1638,7 @@ fn finish_open(
 
     let wp = wal_path(path);
     if wp.exists() {
-        // Format 2 replays committed frames once and truncates the WAL before
+        // Format 3 replays committed frames once and truncates the WAL before
         // admitting the writable handle.
         crate::wal::checkpoint_guarded(path, &wp, &writer_guard)?;
         // Re-read page0 after recovery/checkpoint so page_count/root_page are current.
@@ -1621,7 +1668,7 @@ fn finish_open(
         }
         let freelist_head = read_u64(&refreshed, OFF_FREELIST_HEAD);
         let root_page = read_u64(&refreshed, OFF_ROOT_PAGE);
-        let wal = WalWriter::open_or_create_seeded(&wp, wal_seed_from_page0(page0)?)?;
+        let wal = WalWriter::open_or_create_seeded(&wp, wal_seed_from_page0(&refreshed)?)?;
         return Ok(Pager {
             file,
             _writer_guard: Some(writer_guard),

@@ -3,7 +3,7 @@
   "fixture_version": 1,
   "fixture_schema": "fixture-schema-v1",
   "tosumu_crate_version": "0.0.0",
-  "physical_format_version": 2,
+  "physical_format_version": 3,
   "hash": {
     "algorithm": "sha256",
     "encoding": "hex-lowercase"
