@@ -2,23 +2,24 @@
 
 | Field | Value |
 | --- | --- |
-| Status | In progress; Slice 1 complete |
+| Status | In progress; Slice 2 private storage implementation |
 | Opened | 2026-08-27 |
 | Last updated | 2026-08-27 |
 | Owner | Tosumu maintainers |
 | Target | MVP+10 core storage and embedded provider coordination |
-| Related ADRs | ADR-0001, ADR-0002, ADR-0004 |
+| Related ADRs | ADR-0001, ADR-0002, ADR-0004, ADR-0005 |
 | Related reviews | AR-0009, AR-0011 |
 | Related CRs | None |
 | Depends on | MVP+9 baseline, authenticated pager, WAL recovery, provider boundary |
 
 ## Status
 
-The pre-MVP+10 executable baseline is recorded, and ADR-0004's cooperative
-single-writer admission is implemented. The repository does not yet implement
-a shared `Database`, sessions, committed-LSN snapshots, reader pinning, or
-reader-aware checkpoint coordination. AR-0009 remains incubating, so this plan
-does not yet authorize a public MVCC or format contract.
+The pre-MVP+10 executable baseline and ADR-0004 writer admission are complete.
+ADR-0005's format-v3 generation, finite registry, and reader-pinned WAL
+residence are now active behind the pager owner. The repository does not yet
+implement a shared public `Database`, sessions, or generation-selecting read
+transactions. AR-0009 remains incubating for that broader API and execution
+contract.
 
 ## Purpose
 
@@ -167,15 +168,15 @@ claiming snapshot isolation.
 - [x] Define a monotonic committed generation across checkpoint and reopen.
 - [x] Route explicit transactions and ordinary writes through one atomic
       publication path.
-- [ ] Decide main-file/WAL version residence, page selection, crash ordering,
+- [x] Decide main-file/WAL version residence, page selection, crash ordering,
       and format/migration impact.
-- [ ] Decide whether snapshots are scoped to one shared database owner or join
+- [x] Decide whether snapshots are scoped to one shared database owner or join
       a cross-process reader protocol.
-- [ ] Define the committed-LSN source of truth and reader capture point.
-- [ ] Retain versions needed by the oldest active reader.
+- [x] Define the committed-LSN source of truth and reader capture point.
+- [x] Retain versions needed by the oldest active reader.
 - [ ] Prove that a reader does not observe commits newer than its snapshot.
 - [ ] Bound and diagnose long-lived-reader WAL pressure.
-- [ ] Stop for a format decision if retained versions require new WAL or page
+- [x] Stop for a format decision if retained versions require new WAL or page
       representation.
 
 Exit state: snapshot visibility and lifetime are executable contracts.
@@ -421,6 +422,13 @@ format/recovery design that can retain committed versions safely.
   checkpoints data plus page zero, and truncates while retaining `commit_lsn +
   1` as the next database-owned LSN. Successive commits advance across reopen;
   ordinary open now refuses format 2 before recovery or mutation.
+- Made the pager the first production owner of the bounded snapshot registry.
+  Any active generation pin suppresses main-file checkpoint and WAL truncation;
+  the writer publishes the latest durable frames into a prepared in-memory
+  view after WAL sync. The first later zero-reader commit checkpoints the
+  complete retained latest-page set and truncates the WAL. A focused test
+  proves retained main/WAL state, latest-view reads, read-only WAL overlay, and
+  the later full checkpoint without claiming generation-selecting reads yet.
 
 ## References
 

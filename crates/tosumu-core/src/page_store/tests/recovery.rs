@@ -138,7 +138,9 @@ fn staged_commit_logs_only_the_final_frame_for_a_rewritten_page() {
             _ => None,
         })
         .collect();
-    assert_eq!(writes, vec![1]);
+    // Repeated logical writes collapse to one final data frame. Format 3 also
+    // publishes exactly one page-zero frame carrying the commit generation.
+    assert_eq!(writes, vec![1, 0]);
 
     drop(store);
     let reopened = PageStore::open(&path).unwrap();

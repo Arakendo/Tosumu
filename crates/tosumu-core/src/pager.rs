@@ -6,8 +6,8 @@
 // closure-based API (§28.9): the caller never holds a reference to
 // page bytes beyond the closure call.
 //
-// For MVP+1 there is no in-memory cache (every read hits the file).
-// Cache is a Stage 2 concern.
+// The pager has no general-purpose eviction cache. It does retain the latest
+// committed frames newer than the main-file checkpoint while snapshots pin WAL.
 //
 // ── Validation layering ──────────────────────────────────────────────────────
 //
@@ -30,6 +30,7 @@ use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::crypto::{
     compute_header_mac, compute_kcv, decrypt_page, derive_passphrase_kek, derive_recovery_kek,
@@ -39,6 +40,9 @@ use crate::crypto::{
 };
 use crate::error::{Result, TosumuError};
 use crate::format::*;
+#[cfg(test)]
+use crate::snapshot_registry::SnapshotPin;
+use crate::snapshot_registry::SnapshotRegistry;
 use crate::wal::{
     transaction_encoded_len, wal_path, CommittedWalIndex, WalReader, WalRecord, WalWriter,
 };
@@ -91,6 +95,13 @@ pub struct Pager {
     /// Dirty page frames buffered during the current transaction.
     /// Keyed by pgno so lookups are O(1); latest write wins.
     dirty_pages: HashMap<u64, Box<[u8; PAGE_SIZE]>>,
+    /// Latest committed data frames newer than the main-file checkpoint.
+    /// These remain the writer's visible view while snapshot pins retain WAL.
+    committed_pages: HashMap<u64, Box<[u8; PAGE_SIZE]>>,
+    /// Latest committed generation visible through this pager owner.
+    latest_commit_lsn: u64,
+    /// Process-local pins that prevent phase-two checkpoint and WAL truncation.
+    snapshot_registry: Arc<SnapshotRegistry>,
     /// Set when `flush_header()` is deferred during a transaction.
     /// Cleared (and the real write performed) at commit or rollback.
     pending_header_flush: bool,
@@ -178,6 +189,9 @@ impl Pager {
             txn_id: 0,
             next_txn_id: 1,
             dirty_pages: HashMap::new(),
+            committed_pages: HashMap::new(),
+            latest_commit_lsn: 0,
+            snapshot_registry: Arc::new(SnapshotRegistry::default()),
             pending_header_flush: false,
             txn_saved_page_count: 0,
             txn_saved_root_page: 0,
@@ -292,6 +306,9 @@ impl Pager {
             txn_id: 0,
             next_txn_id: 1,
             dirty_pages: HashMap::new(),
+            committed_pages: HashMap::new(),
+            latest_commit_lsn: 0,
+            snapshot_registry: Arc::new(SnapshotRegistry::default()),
             pending_header_flush: false,
             txn_saved_page_count: 0,
             txn_saved_root_page: 0,
@@ -884,11 +901,7 @@ impl Pager {
     pub fn read_page(&self, pgno: u64) -> Result<([u8; PAGE_PLAINTEXT_SIZE], u64)> {
         self.ensure_healthy()?;
         self.validate_data_pgno(pgno)?;
-        let frame = if let Some(buffered) = self.dirty_pages.get(&pgno) {
-            **buffered
-        } else {
-            self.read_frame(pgno)?
-        };
+        let frame = self.visible_frame(pgno)?;
         decrypt_page(&self.page_key, pgno, &frame)
     }
 
@@ -902,12 +915,7 @@ impl Pager {
     {
         self.ensure_healthy()?;
         self.validate_data_pgno(pgno)?;
-        // Read-your-own-writes: check dirty buffer first when inside a transaction.
-        let frame = if let Some(buffered) = self.dirty_pages.get(&pgno) {
-            **buffered
-        } else {
-            self.read_frame(pgno)?
-        };
+        let frame = self.visible_frame(pgno)?;
         let (plaintext, _version) = decrypt_page(&self.page_key, pgno, &frame)?;
         validate_plaintext_header(&plaintext, pgno)?;
         f(&plaintext)
@@ -926,12 +934,7 @@ impl Pager {
         self.ensure_writable()?;
         self.validate_data_pgno(pgno)?;
 
-        // For reads: check dirty buffer first (read-your-own-writes).
-        let frame = if let Some(buffered) = self.dirty_pages.get(&pgno) {
-            **buffered
-        } else {
-            self.read_frame(pgno)?
-        };
+        let frame = self.visible_frame(pgno)?;
 
         let (mut plaintext, version) = decrypt_page(&self.page_key, pgno, &frame)?;
         validate_plaintext_header(&plaintext, pgno)?;
@@ -1066,6 +1069,11 @@ impl Pager {
             .map_or(0, WalWriter::appended_record_count)
     }
 
+    #[cfg(test)]
+    fn pin_latest_snapshot(&self) -> Result<SnapshotPin> {
+        self.snapshot_registry.register(self.latest_commit_lsn)
+    }
+
     // ── Transaction API ───────────────────────────────────────────────────────
 
     /// Begin a write transaction. Must not be called while one is already open.
@@ -1082,15 +1090,15 @@ impl Pager {
         Ok(())
     }
 
-    /// Commit the current transaction: write Commit record, fsync WAL, flush dirty pages to .tsm.
+    /// Commit the current transaction and publish its durable generation.
     ///
     /// Two-phase semantics:
     /// - **Phase 1** (WAL write + fsync): if this fails the transaction is un-committed;
     ///   roll back as normal.
-    /// - **Phase 2** (.tsm flush): by this point the transaction is durable in the WAL.
-    ///   A failure here returns [`TosumuError::CommittedButFlushFailed`].  The handle is
-    ///   marked idle so subsequent calls do not panic, but the caller must reopen — WAL
-    ///   recovery will replay the committed transaction automatically.
+    /// - **Phase 2** (zero-reader .tsm checkpoint): by this point the transaction is
+    ///   durable in the WAL. Active snapshot pins suppress this phase. A flush failure
+    ///   returns [`TosumuError::CommittedButFlushFailed`]; the caller must reopen so WAL
+    ///   recovery can replay the committed transaction.
     fn flush_committed_pages<T: PagerPhaseTwoFile>(
         flush_file: &mut T,
         pages: &[(u64, Box<[u8; PAGE_SIZE]>)],
@@ -1183,6 +1191,13 @@ impl Pager {
                 return Err(error);
             }
         };
+        let snapshots_active = match self.snapshot_registry.info() {
+            Ok(info) => info.active != 0,
+            Err(error) => {
+                self.rollback_txn();
+                return Err(error);
+            }
+        };
 
         // Phase 1: make the transaction durable in the WAL. Every committed
         // generation carries page zero with its own commit LSN so recovery and
@@ -1201,6 +1216,24 @@ impl Pager {
         // preflight without counting repeated mutations of the same page.
         let mut pages: Vec<(u64, Box<[u8; PAGE_SIZE]>)> = self.dirty_pages.drain().collect();
         pages.sort_unstable_by_key(|(pgno, _)| *pgno);
+
+        // Prepare the complete latest view before publication. Once WAL sync
+        // succeeds, installing this map is infallible and readers on the owner
+        // continue to see committed state even when checkpoint is pinned.
+        let mut next_committed_pages = self.committed_pages.clone();
+        for (pgno, frame) in &pages {
+            next_committed_pages.insert(*pgno, frame.clone());
+        }
+        let checkpoint_pages = if snapshots_active {
+            Vec::new()
+        } else {
+            let mut pages: Vec<_> = next_committed_pages
+                .iter()
+                .map(|(pgno, frame)| (*pgno, frame.clone()))
+                .collect();
+            pages.sort_unstable_by_key(|(pgno, _)| *pgno);
+            pages
+        };
 
         let txn_id = self.txn_id;
         let wal_result = (|| -> Result<()> {
@@ -1239,15 +1272,24 @@ impl Pager {
         }
 
         // Transaction is now committed. Clear txn_active before the .tsm flush
-        // so a failure has one explicit terminal handle state.
+        // so a failure has one explicit terminal handle state. Publish the
+        // latest committed frames to the owner before any optional checkpoint.
         self.txn_active = false;
         self.pending_header_flush = false;
+        self.committed_pages = next_committed_pages;
+        self.latest_commit_lsn = commit_lsn;
 
-        // Phase 2: write all pages (data + optional page 0) to .tsm with a single
-        // fsync at the end.  WAL recovery covers crashes, so this flush is opportunistic.
-        // A failure here means the data is safe in the WAL but the handle's caches no
-        // longer reflect .tsm — caller must reopen.
-        let flush_result = Self::flush_committed_pages(flush_file, &pages, Some(&page0_frame));
+        // A process-local pin keeps every committed WAL generation resident.
+        // Snapshot selection is introduced separately; this slice establishes
+        // the checkpoint/truncation lifetime rule and the writer's latest view.
+        if snapshots_active {
+            return Ok(());
+        }
+
+        // Phase 2 is a full checkpoint of the latest frame for every page
+        // retained since the main-file horizon, not merely this transaction.
+        let flush_result =
+            Self::flush_committed_pages(flush_file, &checkpoint_pages, Some(&page0_frame));
         if let Err(e) = flush_result {
             self.health = PagerHealth::Poisoned;
             let io_err = match e {
@@ -1269,6 +1311,7 @@ impl Pager {
             self.health = PagerHealth::Poisoned;
             return Err(error);
         }
+        self.committed_pages.clear();
         Ok(())
     }
 
@@ -1424,6 +1467,16 @@ impl Pager {
         f.seek(SeekFrom::Start(offset))?;
         f.read_exact(&mut frame)?;
         Ok(frame)
+    }
+
+    fn visible_frame(&self, pgno: u64) -> Result<[u8; PAGE_SIZE]> {
+        if let Some(buffered) = self.dirty_pages.get(&pgno) {
+            return Ok(**buffered);
+        }
+        if let Some(committed) = self.committed_pages.get(&pgno) {
+            return Ok(**committed);
+        }
+        self.read_frame(pgno)
     }
 
     fn ensure_writable(&self) -> Result<()> {
@@ -1684,6 +1737,9 @@ fn finish_open(
             txn_id: 0,
             next_txn_id: 1,
             dirty_pages: HashMap::new(),
+            committed_pages: HashMap::new(),
+            latest_commit_lsn: read_u64(&refreshed, OFF_WAL_CHECKPOINT_LSN),
+            snapshot_registry: Arc::new(SnapshotRegistry::default()),
             pending_header_flush: false,
             txn_saved_page_count: 0,
             txn_saved_root_page: 0,
@@ -1706,6 +1762,9 @@ fn finish_open(
         txn_id: 0,
         next_txn_id: 1,
         dirty_pages: HashMap::new(),
+        committed_pages: HashMap::new(),
+        latest_commit_lsn: read_u64(page0, OFF_WAL_CHECKPOINT_LSN),
+        snapshot_registry: Arc::new(SnapshotRegistry::default()),
         pending_header_flush: false,
         txn_saved_page_count: 0,
         txn_saved_root_page: 0,
@@ -1750,6 +1809,9 @@ fn finish_open_readonly(
         txn_id: 0,
         next_txn_id: 1,
         dirty_pages: HashMap::new(),
+        committed_pages: HashMap::new(),
+        latest_commit_lsn: read_u64(page0, OFF_WAL_CHECKPOINT_LSN),
+        snapshot_registry: Arc::new(SnapshotRegistry::default()),
         pending_header_flush: false,
         txn_saved_page_count: 0,
         txn_saved_root_page: 0,
@@ -1774,7 +1836,7 @@ fn wal_seed_from_page0(page0: &[u8; PAGE_SIZE]) -> Result<u64> {
 
 fn overlay_committed_wal(wal_path: &Path, pager: &mut Pager) -> Result<()> {
     let records = WalReader::read_all_strict(wal_path)?;
-    let index = CommittedWalIndex::from_records(&records, 0)?;
+    let index = CommittedWalIndex::from_records(&records, pager.latest_commit_lsn)?;
     let latest = index.latest_commit_lsn();
     index.for_each_page_at(latest, |pgno, version| {
         if pgno == 0 {
@@ -1789,10 +1851,12 @@ fn overlay_committed_wal(wal_path: &Path, pager: &mut Pager) -> Result<()> {
             pager.freelist_head = read_u64(page0, OFF_FREELIST_HEAD);
             pager.root_page = read_u64(page0, OFF_ROOT_PAGE);
         } else {
-            pager.dirty_pages.insert(pgno, version.frame.clone());
+            pager.committed_pages.insert(pgno, version.frame.clone());
         }
         Ok(())
-    })
+    })?;
+    pager.latest_commit_lsn = latest;
+    Ok(())
 }
 
 // ── Pager unit tests ─────────────────────────────────────────────────────────
@@ -1895,6 +1959,70 @@ mod tests {
 
         pager.begin_txn().unwrap();
         pager.rollback_txn();
+    }
+
+    #[test]
+    fn snapshot_pin_retains_wal_until_next_zero_reader_checkpoint() {
+        let (mut pager, dir) = setup_one_page();
+        let path = dir.path().join("test.tsm");
+        let wal = wal_path(&path);
+        let pin = pager.pin_latest_snapshot().unwrap();
+        assert_eq!(pin.generation(), 0);
+
+        pager.begin_txn().unwrap();
+        pager
+            .with_page_mut(1, |page| {
+                page[PAGE_OFF_FLAGS] = 1;
+                Ok(())
+            })
+            .unwrap();
+        pager.commit_txn().unwrap();
+
+        assert!(std::fs::metadata(&wal).unwrap().len() > 0);
+        assert_eq!(
+            pager.with_page(1, |page| Ok(page[PAGE_OFF_FLAGS])).unwrap(),
+            1
+        );
+        let main_frame = pager.read_frame(1).unwrap();
+        let (main_page, _) = decrypt_page(&pager.page_key, 1, &main_frame).unwrap();
+        assert_eq!(main_page[PAGE_OFF_FLAGS], 0);
+        let retained_reader = Pager::open_readonly(&path).unwrap();
+        assert_eq!(retained_reader.latest_commit_lsn, pager.latest_commit_lsn);
+        assert_eq!(
+            retained_reader
+                .with_page(1, |page| Ok(page[PAGE_OFF_FLAGS]))
+                .unwrap(),
+            1
+        );
+        drop(retained_reader);
+
+        drop(pin);
+        pager.begin_txn().unwrap();
+        pager
+            .with_page_mut(1, |page| {
+                page[PAGE_OFF_FLAGS] = 2;
+                Ok(())
+            })
+            .unwrap();
+        pager.commit_txn().unwrap();
+
+        assert_eq!(std::fs::metadata(&wal).unwrap().len(), 0);
+        assert!(pager.committed_pages.is_empty());
+        let checkpoint_lsn = pager.latest_commit_lsn;
+        assert!(checkpoint_lsn > 0);
+        let main_frame = pager.read_frame(1).unwrap();
+        let (main_page, _) = decrypt_page(&pager.page_key, 1, &main_frame).unwrap();
+        assert_eq!(main_page[PAGE_OFF_FLAGS], 2);
+
+        drop(pager);
+        let reopened = Pager::open(&path).unwrap();
+        assert_eq!(reopened.latest_commit_lsn, checkpoint_lsn);
+        assert_eq!(
+            reopened
+                .with_page(1, |page| Ok(page[PAGE_OFF_FLAGS]))
+                .unwrap(),
+            2
+        );
     }
 
     // ── validate_plaintext_header (via with_page after raw frame surgery) ─────

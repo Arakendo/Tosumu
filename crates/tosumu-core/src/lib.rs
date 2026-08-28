@@ -17,8 +17,8 @@ pub mod pager;
 pub mod provider;
 pub mod wal;
 
-// Staged behind the private ADR-0005 owner boundary until that owner becomes
-// the registry's first production caller.
+// Pager-owned registration is active; generation-selecting reader and bounded
+// diagnostic surfaces remain staged behind the private ADR-0005 boundary.
 #[allow(dead_code)]
 mod snapshot_registry;
 mod writer_gate;

@@ -724,3 +724,22 @@ and the remaining implementation evidence stay provisional as listed below.
 - Disposition: ADR-0005 remains accepted without revision.
 - Resulting ADR or documentation change: current fixtures move deliberately to
   format 3; MVP+10's monotonic-generation item is complete.
+
+### Cycle 20 -- 2026-08-27
+
+- Status entering review: Accepted
+- New evidence: the pager now owns the bounded process-local registry. Any
+  active pin suppresses phase-two main-file writes and WAL truncation after a
+  durable commit; a prebuilt latest-frame map becomes the writer's visible
+  committed view. After the pin drops, the next zero-reader commit checkpoints
+  every retained latest page plus page zero before truncation. A focused test
+  proves the main file remains at the old horizon while WAL is retained, both
+  the writer and an independent live-view handle observe the commit, and the
+  later full checkpoint survives reopen.
+- Findings: ADR-0005's initial all-or-nothing residence rule is executable
+  inside the pager owner without a public session vocabulary. This does not yet
+  prove that an older reader selects only frames at or below its generation;
+  generation-selecting read ownership remains the next Slice 2 gate.
+- Disposition: ADR-0005 remains accepted without revision.
+- Resulting ADR or documentation change: retained residence and zero-reader
+  reclamation are active private behavior; no public snapshot API is added.

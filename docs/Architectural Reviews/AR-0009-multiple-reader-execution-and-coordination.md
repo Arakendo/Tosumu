@@ -205,18 +205,18 @@ public MVCC contract through that implementation.
       under AR-0010, including Rust 1.75 and native/WASM behavior.
 - [x] Define sidecar naming, persistence, backup/export treatment, advisory
       limitations, and `FILE_OPEN_BUSY` details before implementation.
-- [ ] Define one monotonic committed-generation source of truth across commit,
+- [x] Define one monotonic committed-generation source of truth across commit,
       checkpoint, WAL truncation, close, recovery, and reopen.
-      AR-0011 retains the preferred candidate and remaining falsification work.
-- [ ] Decide whether all ordinary writes become implicit transactions or use
+      ADR-0005 accepts the AR-0011 contract and format 3 makes it executable.
+- [x] Decide whether all ordinary writes become implicit transactions or use
       another single publication path; no main-file mutation may bypass the
       admitted commit generation.
-- [ ] Define frame residence and selection between the checkpointed main file
+- [x] Define frame residence and selection between the checkpointed main file
       and retained WAL versions, including crash ordering and page-zero state.
-- [ ] Scope snapshot readers to a shared database owner or admit a
+- [x] Scope snapshot readers to a shared database owner or admit a
       cross-process reader-registration protocol. Preserve independent live-view
       handles only if their weaker contract is explicit.
-- [ ] Decide the format and migration impact before implementing retained
+- [x] Decide the format and migration impact before implementing retained
       versions or assigning meaning to `OFF_WAL_CHECKPOINT_LSN`.
       Coordinate that decision with AR-0006.
 
@@ -297,3 +297,20 @@ public MVCC contract through that implementation.
   version-residence, reader-scope, and format questions before Slice 2 code.
 - Resulting ADR or documentation change: none; the snapshot admission gate is
   retained here and in the MVP+10 plan.
+
+### Cycle 6 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: ADR-0005 accepted the format-v3 committed generation,
+  shared-owner reader scope, retained-version selection, finite bounds, and
+  zero-reader checkpoint ordering. The pager now owns the registry and proves
+  that an active pin retains WAL and leaves the main-file horizon unchanged
+  across writer and independent live-view reads; the next zero-reader commit
+  checkpoints the complete latest state.
+- Findings: the storage residence prerequisite is closed without inventing a
+  public session or executor. Stable generation-selecting reader behavior and
+  checkpoint diagnostics remain unresolved broader coordination work.
+- Disposition: remain Incubating for the shared owner and reader API.
+- Resulting ADR or documentation change: required storage-decision follow-ups
+  are complete through ADR-0005; retained residence is private executable
+  behavior.
