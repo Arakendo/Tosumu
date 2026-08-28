@@ -174,7 +174,9 @@ claiming snapshot isolation.
       a cross-process reader protocol.
 - [x] Define the committed-LSN source of truth and reader capture point.
 - [x] Retain versions needed by the oldest active reader.
-- [ ] Prove that a reader does not observe commits newer than its snapshot.
+- [x] Prove at the private authenticated-page boundary that a pinned read does
+      not observe commits newer than its snapshot. Logical B+ tree ownership
+      remains subsequent shared-owner work.
 - [ ] Bound and diagnose long-lived-reader WAL pressure.
 - [x] Stop for a format decision if retained versions require new WAL or page
       representation.
@@ -429,6 +431,13 @@ format/recovery design that can retain committed versions safely.
   complete retained latest-page set and truncates the WAL. A focused test
   proves retained main/WAL state, latest-view reads, read-only WAL overlay, and
   the later full checkpoint without claiming generation-selecting reads yet.
+- Replaced the latest-only retained-frame map with a prepared committed-version
+  index whose immutable frames are shared across pre-publication clones. The
+  private pinned read path selects the newest authenticated frame no newer than
+  its pin and validates page numbers against page zero at that same generation.
+  Two pins now prove checkpoint, intermediate, and latest page views remain
+  distinct across successive commits, including rejection of a page allocated
+  after both snapshots.
 
 ## References
 

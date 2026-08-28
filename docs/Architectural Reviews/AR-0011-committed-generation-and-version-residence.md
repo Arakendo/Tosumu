@@ -743,3 +743,22 @@ and the remaining implementation evidence stay provisional as listed below.
 - Disposition: ADR-0005 remains accepted without revision.
 - Resulting ADR or documentation change: retained residence and zero-reader
   reclamation are active private behavior; no public snapshot API is added.
+
+### Cycle 21 -- 2026-08-27
+
+- Status entering review: Accepted
+- New evidence: the pager's latest-only retained map is now a committed-version
+  index prepared before WAL sync. Immutable frame bodies are shared across
+  index clones, and each generation remains selectable by owning commit LSN.
+  A private pinned read validates ownership, resolves page zero at the captured
+  generation, bounds page numbers by that version's page count, and decrypts
+  only the newest data frame no newer than the pin. A focused test holds pins
+  at generation 0 and the first commit while a second commit updates the page
+  and allocates another; the pins continue to see 0 and 1 while the writer sees
+  2, and both reject the newly allocated page.
+- Findings: authenticated page selection and snapshot metadata bounds are now
+  executable, including distinct simultaneous generations. This is not yet an
+  independently callable B+ tree read transaction or a public session API.
+- Disposition: ADR-0005 remains accepted without revision.
+- Resulting ADR or documentation change: the private page-level no-newer-than
+  visibility item is complete; shared logical-reader ownership remains next.

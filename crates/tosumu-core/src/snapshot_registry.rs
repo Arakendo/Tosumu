@@ -94,6 +94,10 @@ impl SnapshotPin {
     pub(crate) fn generation(&self) -> u64 {
         self.generation
     }
+
+    pub(crate) fn belongs_to(&self, registry: &Arc<SnapshotRegistry>) -> bool {
+        Arc::ptr_eq(&self.registry, registry)
+    }
 }
 
 impl Drop for SnapshotPin {

@@ -17,8 +17,8 @@ pub mod pager;
 pub mod provider;
 pub mod wal;
 
-// Pager-owned registration is active; generation-selecting reader and bounded
-// diagnostic surfaces remain staged behind the private ADR-0005 boundary.
+// Pager-owned registration and generation selection are active; shared-session
+// and bounded diagnostic surfaces remain staged behind the ADR-0005 boundary.
 #[allow(dead_code)]
 mod snapshot_registry;
 mod writer_gate;

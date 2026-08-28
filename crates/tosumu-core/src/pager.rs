@@ -40,9 +40,7 @@ use crate::crypto::{
 };
 use crate::error::{Result, TosumuError};
 use crate::format::*;
-#[cfg(test)]
-use crate::snapshot_registry::SnapshotPin;
-use crate::snapshot_registry::SnapshotRegistry;
+use crate::snapshot_registry::{SnapshotPin, SnapshotRegistry};
 use crate::wal::{
     transaction_encoded_len, wal_path, CommittedWalIndex, WalReader, WalRecord, WalWriter,
 };
@@ -95,11 +93,9 @@ pub struct Pager {
     /// Dirty page frames buffered during the current transaction.
     /// Keyed by pgno so lookups are O(1); latest write wins.
     dirty_pages: HashMap<u64, Box<[u8; PAGE_SIZE]>>,
-    /// Latest committed data frames newer than the main-file checkpoint.
-    /// These remain the writer's visible view while snapshot pins retain WAL.
-    committed_pages: HashMap<u64, Box<[u8; PAGE_SIZE]>>,
-    /// Latest committed generation visible through this pager owner.
-    latest_commit_lsn: u64,
+    /// All committed page generations newer than the main-file checkpoint.
+    /// The writer selects the latest; pinned reads select their captured LSN.
+    committed_index: CommittedWalIndex,
     /// Process-local pins that prevent phase-two checkpoint and WAL truncation.
     snapshot_registry: Arc<SnapshotRegistry>,
     /// Set when `flush_header()` is deferred during a transaction.
@@ -189,8 +185,7 @@ impl Pager {
             txn_id: 0,
             next_txn_id: 1,
             dirty_pages: HashMap::new(),
-            committed_pages: HashMap::new(),
-            latest_commit_lsn: 0,
+            committed_index: CommittedWalIndex::empty(0),
             snapshot_registry: Arc::new(SnapshotRegistry::default()),
             pending_header_flush: false,
             txn_saved_page_count: 0,
@@ -306,8 +301,7 @@ impl Pager {
             txn_id: 0,
             next_txn_id: 1,
             dirty_pages: HashMap::new(),
-            committed_pages: HashMap::new(),
-            latest_commit_lsn: 0,
+            committed_index: CommittedWalIndex::empty(0),
             snapshot_registry: Arc::new(SnapshotRegistry::default()),
             pending_header_flush: false,
             txn_saved_page_count: 0,
@@ -1069,9 +1063,34 @@ impl Pager {
             .map_or(0, WalWriter::appended_record_count)
     }
 
-    #[cfg(test)]
-    fn pin_latest_snapshot(&self) -> Result<SnapshotPin> {
-        self.snapshot_registry.register(self.latest_commit_lsn)
+    #[allow(dead_code)]
+    pub(crate) fn pin_latest_snapshot(&self) -> Result<SnapshotPin> {
+        self.snapshot_registry
+            .register(self.committed_index.latest_commit_lsn())
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn with_snapshot_page<F, T>(&self, pin: &SnapshotPin, pgno: u64, f: F) -> Result<T>
+    where
+        F: FnOnce(&[u8; PAGE_PLAINTEXT_SIZE]) -> Result<T>,
+    {
+        self.ensure_healthy()?;
+        if !pin.belongs_to(&self.snapshot_registry) {
+            return Err(TosumuError::InvalidArgument(
+                "snapshot belongs to a different database owner",
+            ));
+        }
+        let page0 = self.page0_at_generation(pin.generation())?;
+        let snapshot_page_count = read_u64(&page0, OFF_PAGE_COUNT);
+        if pgno == 0 || pgno >= snapshot_page_count {
+            return Err(TosumuError::InvalidArgument(
+                "page number is outside the snapshot",
+            ));
+        }
+        let frame = self.frame_at_generation(pgno, pin.generation())?;
+        let (plaintext, _) = decrypt_page(&self.page_key, pgno, &frame)?;
+        validate_plaintext_header(&plaintext, pgno)?;
+        f(&plaintext)
     }
 
     // ── Transaction API ───────────────────────────────────────────────────────
@@ -1217,20 +1236,31 @@ impl Pager {
         let mut pages: Vec<(u64, Box<[u8; PAGE_SIZE]>)> = self.dirty_pages.drain().collect();
         pages.sort_unstable_by_key(|(pgno, _)| *pgno);
 
-        // Prepare the complete latest view before publication. Once WAL sync
-        // succeeds, installing this map is infallible and readers on the owner
-        // continue to see committed state even when checkpoint is pinned.
-        let mut next_committed_pages = self.committed_pages.clone();
-        for (pgno, frame) in &pages {
-            next_committed_pages.insert(*pgno, frame.clone());
+        // Prepare the complete version index before publication. Frame storage
+        // is shared across index clones, while each new generation owns its
+        // immutable frames. Once WAL sync succeeds, installing this index is an
+        // infallible state swap.
+        let mut next_committed_index = self.committed_index.clone();
+        let indexed_frames = pages
+            .iter()
+            .map(|(pgno, frame)| (*pgno, frame.as_ref()))
+            .chain(std::iter::once((0, page0_frame.as_ref())));
+        if let Err(error) = next_committed_index.append_generation(commit_lsn, indexed_frames) {
+            self.health = PagerHealth::Poisoned;
+            self.txn_active = false;
+            self.pending_header_flush = false;
+            return Err(error);
         }
         let checkpoint_pages = if snapshots_active {
             Vec::new()
         } else {
-            let mut pages: Vec<_> = next_committed_pages
-                .iter()
-                .map(|(pgno, frame)| (*pgno, frame.clone()))
-                .collect();
+            let mut pages = Vec::new();
+            next_committed_index.for_each_page_at(commit_lsn, |pgno, version| {
+                if pgno != 0 {
+                    pages.push((pgno, Box::new(*version.frame.as_ref())));
+                }
+                Ok(())
+            })?;
             pages.sort_unstable_by_key(|(pgno, _)| *pgno);
             pages
         };
@@ -1276,8 +1306,7 @@ impl Pager {
         // latest committed frames to the owner before any optional checkpoint.
         self.txn_active = false;
         self.pending_header_flush = false;
-        self.committed_pages = next_committed_pages;
-        self.latest_commit_lsn = commit_lsn;
+        self.committed_index = next_committed_index;
 
         // A process-local pin keeps every committed WAL generation resident.
         // Snapshot selection is introduced separately; this slice establishes
@@ -1311,7 +1340,7 @@ impl Pager {
             self.health = PagerHealth::Poisoned;
             return Err(error);
         }
-        self.committed_pages.clear();
+        self.committed_index = CommittedWalIndex::empty(commit_lsn);
         Ok(())
     }
 
@@ -1473,10 +1502,43 @@ impl Pager {
         if let Some(buffered) = self.dirty_pages.get(&pgno) {
             return Ok(**buffered);
         }
-        if let Some(committed) = self.committed_pages.get(&pgno) {
-            return Ok(**committed);
+        self.frame_at_generation(pgno, self.committed_index.latest_commit_lsn())
+    }
+
+    fn frame_at_generation(&self, pgno: u64, generation: u64) -> Result<[u8; PAGE_SIZE]> {
+        self.validate_generation(generation)?;
+        if let Some(version) = self.committed_index.page_at(pgno, generation) {
+            return Ok(*version.frame.as_ref());
         }
         self.read_frame(pgno)
+    }
+
+    fn page0_at_generation(&self, generation: u64) -> Result<[u8; PAGE_SIZE]> {
+        self.validate_generation(generation)?;
+        let page0 = if let Some(version) = self.committed_index.page_at(0, generation) {
+            *version.frame.as_ref()
+        } else {
+            let mut file = self.file.try_clone()?;
+            read_page0(&mut file)?
+        };
+        validate_header(&page0)?;
+        if let Some(ref hmk) = self.header_mac_key {
+            let count = keyslot_count(&page0);
+            let stored_mac = read_header_mac_field(&page0)?;
+            verify_header_mac(hmk, &page0, count, &stored_mac)?;
+        }
+        Ok(page0)
+    }
+
+    fn validate_generation(&self, generation: u64) -> Result<()> {
+        if generation < self.committed_index.checkpoint_lsn()
+            || generation > self.committed_index.latest_commit_lsn()
+        {
+            return Err(TosumuError::InvalidArgument(
+                "snapshot generation is outside the retained interval",
+            ));
+        }
+        Ok(())
     }
 
     fn ensure_writable(&self) -> Result<()> {
@@ -1737,8 +1799,7 @@ fn finish_open(
             txn_id: 0,
             next_txn_id: 1,
             dirty_pages: HashMap::new(),
-            committed_pages: HashMap::new(),
-            latest_commit_lsn: read_u64(&refreshed, OFF_WAL_CHECKPOINT_LSN),
+            committed_index: CommittedWalIndex::empty(read_u64(&refreshed, OFF_WAL_CHECKPOINT_LSN)),
             snapshot_registry: Arc::new(SnapshotRegistry::default()),
             pending_header_flush: false,
             txn_saved_page_count: 0,
@@ -1762,8 +1823,7 @@ fn finish_open(
         txn_id: 0,
         next_txn_id: 1,
         dirty_pages: HashMap::new(),
-        committed_pages: HashMap::new(),
-        latest_commit_lsn: read_u64(page0, OFF_WAL_CHECKPOINT_LSN),
+        committed_index: CommittedWalIndex::empty(read_u64(page0, OFF_WAL_CHECKPOINT_LSN)),
         snapshot_registry: Arc::new(SnapshotRegistry::default()),
         pending_header_flush: false,
         txn_saved_page_count: 0,
@@ -1809,8 +1869,7 @@ fn finish_open_readonly(
         txn_id: 0,
         next_txn_id: 1,
         dirty_pages: HashMap::new(),
-        committed_pages: HashMap::new(),
-        latest_commit_lsn: read_u64(page0, OFF_WAL_CHECKPOINT_LSN),
+        committed_index: CommittedWalIndex::empty(read_u64(page0, OFF_WAL_CHECKPOINT_LSN)),
         snapshot_registry: Arc::new(SnapshotRegistry::default()),
         pending_header_flush: false,
         txn_saved_page_count: 0,
@@ -1836,7 +1895,8 @@ fn wal_seed_from_page0(page0: &[u8; PAGE_SIZE]) -> Result<u64> {
 
 fn overlay_committed_wal(wal_path: &Path, pager: &mut Pager) -> Result<()> {
     let records = WalReader::read_all_strict(wal_path)?;
-    let index = CommittedWalIndex::from_records(&records, pager.latest_commit_lsn)?;
+    let index =
+        CommittedWalIndex::from_records(&records, pager.committed_index.latest_commit_lsn())?;
     let latest = index.latest_commit_lsn();
     index.for_each_page_at(latest, |pgno, version| {
         if pgno == 0 {
@@ -1850,12 +1910,10 @@ fn overlay_committed_wal(wal_path: &Path, pager: &mut Pager) -> Result<()> {
             pager.page_count = read_u64(page0, OFF_PAGE_COUNT);
             pager.freelist_head = read_u64(page0, OFF_FREELIST_HEAD);
             pager.root_page = read_u64(page0, OFF_ROOT_PAGE);
-        } else {
-            pager.committed_pages.insert(pgno, version.frame.clone());
         }
         Ok(())
     })?;
-    pager.latest_commit_lsn = latest;
+    pager.committed_index = index;
     Ok(())
 }
 
@@ -1987,7 +2045,10 @@ mod tests {
         let (main_page, _) = decrypt_page(&pager.page_key, 1, &main_frame).unwrap();
         assert_eq!(main_page[PAGE_OFF_FLAGS], 0);
         let retained_reader = Pager::open_readonly(&path).unwrap();
-        assert_eq!(retained_reader.latest_commit_lsn, pager.latest_commit_lsn);
+        assert_eq!(
+            retained_reader.committed_index.latest_commit_lsn(),
+            pager.committed_index.latest_commit_lsn()
+        );
         assert_eq!(
             retained_reader
                 .with_page(1, |page| Ok(page[PAGE_OFF_FLAGS]))
@@ -2007,8 +2068,11 @@ mod tests {
         pager.commit_txn().unwrap();
 
         assert_eq!(std::fs::metadata(&wal).unwrap().len(), 0);
-        assert!(pager.committed_pages.is_empty());
-        let checkpoint_lsn = pager.latest_commit_lsn;
+        assert_eq!(
+            pager.committed_index.checkpoint_lsn(),
+            pager.committed_index.latest_commit_lsn()
+        );
+        let checkpoint_lsn = pager.committed_index.latest_commit_lsn();
         assert!(checkpoint_lsn > 0);
         let main_frame = pager.read_frame(1).unwrap();
         let (main_page, _) = decrypt_page(&pager.page_key, 1, &main_frame).unwrap();
@@ -2016,13 +2080,81 @@ mod tests {
 
         drop(pager);
         let reopened = Pager::open(&path).unwrap();
-        assert_eq!(reopened.latest_commit_lsn, checkpoint_lsn);
+        assert_eq!(reopened.committed_index.latest_commit_lsn(), checkpoint_lsn);
         assert_eq!(
             reopened
                 .with_page(1, |page| Ok(page[PAGE_OFF_FLAGS]))
                 .unwrap(),
             2
         );
+    }
+
+    #[test]
+    fn pinned_page_reads_select_no_newer_than_their_commit_generation() {
+        let (mut pager, dir) = setup_one_page();
+        let oldest = pager.pin_latest_snapshot().unwrap();
+
+        pager.begin_txn().unwrap();
+        pager
+            .with_page_mut(1, |page| {
+                page[PAGE_OFF_FLAGS] = 1;
+                Ok(())
+            })
+            .unwrap();
+        pager.commit_txn().unwrap();
+        let newer = pager.pin_latest_snapshot().unwrap();
+
+        pager.begin_txn().unwrap();
+        pager
+            .with_page_mut(1, |page| {
+                page[PAGE_OFF_FLAGS] = 2;
+                Ok(())
+            })
+            .unwrap();
+        let new_page = pager.allocate(PAGE_TYPE_LEAF).unwrap();
+        pager.commit_txn().unwrap();
+
+        assert_eq!(
+            pager.with_page(1, |page| Ok(page[PAGE_OFF_FLAGS])).unwrap(),
+            2
+        );
+        assert_eq!(
+            pager
+                .with_snapshot_page(&oldest, 1, |page| Ok(page[PAGE_OFF_FLAGS]))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            pager
+                .with_snapshot_page(&newer, 1, |page| Ok(page[PAGE_OFF_FLAGS]))
+                .unwrap(),
+            1
+        );
+        assert!(oldest.generation() < newer.generation());
+        assert!(newer.generation() < pager.committed_index.latest_commit_lsn());
+        assert_eq!(new_page, 2);
+        assert!(matches!(
+            pager.with_snapshot_page(&oldest, new_page, |_| Ok(())),
+            Err(TosumuError::InvalidArgument(
+                "page number is outside the snapshot"
+            ))
+        ));
+        assert!(matches!(
+            pager.with_snapshot_page(&newer, new_page, |_| Ok(())),
+            Err(TosumuError::InvalidArgument(
+                "page number is outside the snapshot"
+            ))
+        ));
+
+        let foreign_path = dir.path().join("foreign.tsm");
+        let foreign = Pager::create(&foreign_path).unwrap();
+        let foreign_pin = foreign.pin_latest_snapshot().unwrap();
+        assert!(matches!(
+            pager.with_snapshot_page(&foreign_pin, 1, |_| Ok(())),
+            Err(TosumuError::InvalidArgument(
+                "snapshot belongs to a different database owner"
+            ))
+        ));
     }
 
     // ── validate_plaintext_header (via with_page after raw frame surgery) ─────

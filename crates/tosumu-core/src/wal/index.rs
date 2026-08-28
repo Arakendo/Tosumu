@@ -1,14 +1,15 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
-use crate::error::Result;
+use crate::error::{Result, TosumuError};
 use crate::format::PAGE_SIZE;
 
 use super::{for_each_committed_transaction, WalRecord};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct CommittedPageVersion {
     pub(crate) commit_lsn: u64,
-    pub(crate) frame: Box<[u8; PAGE_SIZE]>,
+    pub(crate) frame: Arc<[u8; PAGE_SIZE]>,
 }
 
 /// Process-local index of committed page versions newer than one checkpoint.
@@ -16,18 +17,24 @@ pub(crate) struct CommittedPageVersion {
 /// Commit LSN is the atomic generation. Multiple page writes owned by the same
 /// matching commit become visible together; incomplete transactions contribute
 /// no versions.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct CommittedWalIndex {
+    checkpoint_lsn: u64,
     latest_commit_lsn: u64,
     pages: BTreeMap<u64, Vec<CommittedPageVersion>>,
 }
 
 impl CommittedWalIndex {
-    pub(crate) fn from_records(records: &[(u64, WalRecord)], checkpoint_lsn: u64) -> Result<Self> {
-        let mut index = Self {
+    pub(crate) fn empty(checkpoint_lsn: u64) -> Self {
+        Self {
+            checkpoint_lsn,
             latest_commit_lsn: checkpoint_lsn,
             pages: BTreeMap::new(),
-        };
+        }
+    }
+
+    pub(crate) fn from_records(records: &[(u64, WalRecord)], checkpoint_lsn: u64) -> Result<Self> {
+        let mut index = Self::empty(checkpoint_lsn);
 
         for_each_committed_transaction(records, |_, commit_lsn, transaction_records| {
             if commit_lsn <= checkpoint_lsn {
@@ -41,7 +48,7 @@ impl CommittedWalIndex {
                         .or_default()
                         .push(CommittedPageVersion {
                             commit_lsn,
-                            frame: frame.clone(),
+                            frame: Arc::new(**frame),
                         });
                 }
             }
@@ -50,6 +57,33 @@ impl CommittedWalIndex {
         })?;
 
         Ok(index)
+    }
+
+    pub(crate) fn append_generation<'a, I>(&mut self, commit_lsn: u64, frames: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (u64, &'a [u8; PAGE_SIZE])>,
+    {
+        if commit_lsn <= self.latest_commit_lsn {
+            return Err(TosumuError::CorruptRecord {
+                offset: 0,
+                reason: "committed generation does not advance WAL index",
+            });
+        }
+        for (pgno, frame) in frames {
+            self.pages
+                .entry(pgno)
+                .or_default()
+                .push(CommittedPageVersion {
+                    commit_lsn,
+                    frame: Arc::new(*frame),
+                });
+        }
+        self.latest_commit_lsn = commit_lsn;
+        Ok(())
+    }
+
+    pub(crate) fn checkpoint_lsn(&self) -> u64 {
+        self.checkpoint_lsn
     }
 
     pub(crate) fn latest_commit_lsn(&self) -> u64 {
@@ -126,5 +160,23 @@ mod tests {
         let index = CommittedWalIndex::from_records(&records, 3).unwrap();
         assert_eq!(index.latest_commit_lsn(), 3);
         assert!(index.page_at(1, u64::MAX).is_none());
+    }
+
+    #[test]
+    fn prepared_generation_append_preserves_older_page_versions() {
+        let mut first = [0u8; PAGE_SIZE];
+        first[0] = 0x31;
+        let mut second = [0u8; PAGE_SIZE];
+        second[0] = 0x42;
+        let mut index = CommittedWalIndex::empty(3);
+
+        index.append_generation(6, [(1, &first)]).unwrap();
+        let mut prepared = index.clone();
+        prepared.append_generation(9, [(1, &second)]).unwrap();
+
+        assert_eq!(index.latest_commit_lsn(), 6);
+        assert_eq!(prepared.checkpoint_lsn(), 3);
+        assert_eq!(prepared.page_at(1, 6).unwrap().frame[0], 0x31);
+        assert_eq!(prepared.page_at(1, 9).unwrap().frame[0], 0x42);
     }
 }
