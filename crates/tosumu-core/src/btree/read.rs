@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::error::{Result, TosumuError};
 use crate::format::{
@@ -8,7 +8,10 @@ use crate::format::{
 use crate::pager::Pager;
 use crate::snapshot_registry::SnapshotPin;
 
-use super::{internal_find_child, leaf_get, BTree, LeafValue, HDR_LEFTMOST, HDR_PAGE_TYPE};
+use super::{
+    internal_find_child, leaf_get, leaf_read_all_refs, BTree, LeafValue, HDR_LEFTMOST,
+    HDR_PAGE_TYPE,
+};
 
 trait ReadSource {
     fn root_page(&self) -> u64;
@@ -88,6 +91,17 @@ impl BTree {
         let source = SnapshotReadSource::new(&self.pager, pin)?;
         get_from(&source, key)
     }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn scan_at_snapshot(
+        &self,
+        pin: &SnapshotPin,
+        start: &[u8],
+        end: &[u8],
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let source = SnapshotReadSource::new(&self.pager, pin)?;
+        scan_from(&source, start, end)
+    }
 }
 
 pub(super) fn get(pager: &Pager, key: &[u8]) -> Result<Option<Vec<u8>>> {
@@ -96,6 +110,10 @@ pub(super) fn get(pager: &Pager, key: &[u8]) -> Result<Option<Vec<u8>>> {
 
 pub(super) fn find_leaf(pager: &Pager, key: &[u8]) -> Result<u64> {
     find_leaf_from(&CurrentReadSource { pager }, key)
+}
+
+pub(super) fn scan(pager: &Pager, start: &[u8], end: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+    scan_from(&CurrentReadSource { pager }, start, end)
 }
 
 pub(super) fn read_overflow_chain(pager: &Pager, head: u64, length: u64) -> Result<Vec<u8>> {
@@ -112,6 +130,44 @@ fn get_from<R: ReadSource>(source: &R, key: &[u8]) -> Result<Option<Vec<u8>>> {
         }
         None => Ok(None),
     }
+}
+
+fn scan_from<R: ReadSource>(
+    source: &R,
+    start: &[u8],
+    end: &[u8],
+) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+    let first_leaf = find_leaf_from(source, start)?;
+    let mut results: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
+    let mut cursor = first_leaf;
+
+    loop {
+        let (pairs, next) = source.with_page(cursor, |page| {
+            Ok((leaf_read_all_refs(page), read_u64(page, HDR_LEFTMOST)))
+        })?;
+        let mut past_end = false;
+        for (key, value) in pairs {
+            if key.as_slice() > end {
+                past_end = true;
+                break;
+            }
+            if key.as_slice() >= start {
+                let value = match value {
+                    LeafValue::Inline(value) => value,
+                    LeafValue::Overflow { head, length } => {
+                        read_overflow_chain_from(source, head, length)?
+                    }
+                };
+                results.insert(key, value);
+            }
+        }
+        if next == 0 || past_end {
+            break;
+        }
+        cursor = next;
+    }
+
+    Ok(results.into_iter().collect())
 }
 
 fn find_leaf_from<R: ReadSource>(source: &R, key: &[u8]) -> Result<u64> {

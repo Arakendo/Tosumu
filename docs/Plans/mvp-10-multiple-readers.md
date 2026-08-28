@@ -444,6 +444,11 @@ format/recovery design that can retain committed versions safely.
   later overflow replacement, reclamation writes, 500 subsequent commits, and
   a root split while excluding a key inserted after capture. The private pin is
   still not a public read-transaction or shared-session contract.
+- Extended that single logical-read pipeline to ordered range scans. A pinned
+  multi-leaf scan now reproduces its exact 200-row captured range after one
+  later transaction deletes, overwrites, and appends across the tree, including
+  an overflow-backed value and changed leaf frames. Current scans observe the
+  later state; no separate snapshot traversal or decoder was introduced.
 
 ## References
 

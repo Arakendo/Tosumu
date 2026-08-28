@@ -379,3 +379,8 @@ Architectural Review or ADR is updated first.
 - The focused logical fixture covers old-root traversal, an overwritten and
   freed overflow chain, 500 later commits, exclusion of a later key, and the
   first zero-reader checkpoint after pin drop.
+- The subsequent range slice stayed within the same child responsibility:
+  point and range reads now share root descent, retained leaf access, and
+  overflow decoding for current and pinned sources. `btree.rs` is 1,858 lines
+  and `btree/read.rs` is 260 lines after the new semantic coverage; no second
+  traversal or snapshot-specific record decoder was added.

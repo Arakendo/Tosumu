@@ -271,39 +271,7 @@ impl BTree {
     /// >= the page-separator between the current and next page, which is > any
     /// key on the current page, so those pages cannot contain in-range keys.
     pub fn scan_by_key(&self, start: &[u8], end: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        let first_leaf = self.find_leaf(start)?;
-        let mut results: std::collections::BTreeMap<Vec<u8>, Vec<u8>> = Default::default();
-        let mut cursor = first_leaf;
-
-        loop {
-            let (pairs, next) = self.pager.with_page(cursor, |page| {
-                Ok((leaf_read_all_refs(page), read_u64(page, HDR_LEFTMOST)))
-            })?;
-            // pairs is sorted by key (BTreeMap iteration order from leaf_read_all_refs).
-            // Insert in-range entries; stop scanning at the first key beyond `end`.
-            let mut past_end = false;
-            for (k, value) in pairs {
-                if k.as_slice() > end {
-                    past_end = true;
-                    break;
-                }
-                if k.as_slice() >= start {
-                    let value = match value {
-                        LeafValue::Inline(value) => value,
-                        LeafValue::Overflow { head, length } => {
-                            self.read_overflow_chain(head, length)?
-                        }
-                    };
-                    results.insert(k, value);
-                }
-            }
-            if next == 0 || past_end {
-                break;
-            }
-            cursor = next;
-        }
-
-        Ok(results.into_iter().collect())
+        read::scan(&self.pager, start, end)
     }
 
     /// Scan all pages in physical order (for debugging / verification).
@@ -1377,6 +1345,63 @@ mod tests {
         assert_eq!(
             tree.get(b"checkpoint").unwrap(),
             Some(b"after-reader".to_vec())
+        );
+
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn pinned_range_scan_preserves_captured_leaf_chain() {
+        let p = tmp("snapshot_scan");
+        let _ = std::fs::remove_file(&p);
+
+        let mut tree = BTree::create(&p).unwrap();
+        tree.begin_txn().unwrap();
+        for index in 0u32..300 {
+            let key = format!("key-{index:05}");
+            let value = if index == 120 {
+                vec![0x78; OVERFLOW_PAYLOAD_SIZE + 31]
+            } else {
+                format!("original-{index:05}").into_bytes()
+            };
+            tree.put(key.as_bytes(), &value).unwrap();
+        }
+        tree.commit_txn().unwrap();
+
+        let expected = tree.scan_by_key(b"key-00050", b"key-00249").unwrap();
+        assert_eq!(expected.len(), 200);
+        let pin = tree.pin_snapshot().unwrap();
+
+        tree.begin_txn().unwrap();
+        for index in (50u32..150).step_by(2) {
+            let key = format!("key-{index:05}");
+            tree.delete(key.as_bytes()).unwrap();
+        }
+        for index in 75u32..175 {
+            let key = format!("key-{index:05}");
+            let value = format!("replacement-{index:05}");
+            tree.put(key.as_bytes(), value.as_bytes()).unwrap();
+        }
+        for index in 300u32..500 {
+            let key = format!("key-{index:05}");
+            let value = format!("later-{index:05}");
+            tree.put(key.as_bytes(), value.as_bytes()).unwrap();
+        }
+        tree.commit_txn().unwrap();
+
+        let current = tree.scan_by_key(b"key-00050", b"key-00249").unwrap();
+        assert_ne!(current, expected);
+        assert_eq!(
+            tree.scan_at_snapshot(&pin, b"key-00050", b"key-00249")
+                .unwrap(),
+            expected
+        );
+
+        drop(pin);
+        tree.put(b"checkpoint", b"after-scan").unwrap();
+        assert_eq!(
+            tree.get(b"checkpoint").unwrap(),
+            Some(b"after-scan".to_vec())
         );
 
         let _ = std::fs::remove_file(&p);

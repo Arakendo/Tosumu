@@ -780,3 +780,20 @@ and the remaining implementation evidence stay provisional as listed below.
 - Disposition: ADR-0005 remains accepted without revision.
 - Resulting ADR or documentation change: private logical point visibility is
   executable; no public read-transaction API is added.
+
+### Cycle 23 -- 2026-08-27
+
+- Status entering review: Accepted
+- New evidence: the read-source-parameterized B+ tree pipeline now performs
+  ordered range scans as well as point lookup. A focused multi-leaf fixture
+  captures 200 rows, including an overflow-backed value, then commits deletes,
+  overwrites, and later inserts before repeating both current and pinned scans.
+  The current scan changes while the pinned scan exactly reproduces the
+  captured ordered key/value sequence and historical leaf links.
+- Findings: logical snapshot coherence now covers repeated traversal across a
+  retained leaf chain and bounded overflow decoding without a parallel scan
+  implementation. The remaining Slice 2 boundary is ownership/lifetime and
+  pressure diagnostics rather than page or B+ tree visibility mechanics.
+- Disposition: ADR-0005 remains accepted without revision.
+- Resulting ADR or documentation change: private logical range visibility is
+  executable; no public iterator, session, or read-transaction API is added.
