@@ -91,7 +91,7 @@ AR-0011 is **Accepted** through ADR-0005. Other current reviews are
 
 | Plan | Lifecycle | Next action |
 | --- | --- | --- |
-| [Main Feature Roadmap](Plans/main-feature-roadmap.md) | Active | Implement ADR-0005 behind a private format-v3 owner and add crash fixtures |
+| [Main Feature Roadmap](Plans/main-feature-roadmap.md) | Active | Admit the public shared-reader contract from the completed private format-v3 owner evidence |
 | [Initial SQL Layer](Plans/initial-sql-layer.md) | Completed baseline; retained | Resolve separately listed deferred SQL scope only through new evidence or a follow-up plan |
 | [Tosumu Command Language](Plans/tosumu-command-language.md) | Proposed | Complete Slice 0 evidence and retain AR-0001 ownership review |
 | [Documentation Lifecycle And Design Decomposition](Plans/documentation-lifecycle-and-design-decomposition.md) | Active | Apply metadata and separate current design from future proposals incrementally |

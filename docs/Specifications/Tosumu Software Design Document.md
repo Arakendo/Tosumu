@@ -481,6 +481,19 @@ Checkpoint blocked by session 8, open for 14m32s (oldest LSN: 882).
 
 Not "the file is large because mystery."
 
+> **MVP+10 implementation status (2026-08-27).** Sections 7.4–7.8 describe the
+> target public contract, not the currently exported Rust API. Format 3 and a
+> private shared B+ tree owner now prove committed-generation capture, stable
+> point/range reads, finite process-local pins, retained-WAL pressure, and
+> last-reader teardown/reopen behavior. The initial private checkpoint policy
+> is deliberately all-or-nothing: any active reader suppresses checkpoint and
+> truncation; reader drop performs no hidden work; the next zero-reader commit
+> performs a full checkpoint. Public `Database`, `Session`, `ReadTransaction`,
+> `BusyPolicy`, `connection_info`, session identity/age, partial/passive
+> checkpoint progress, cancellation, and timeout behavior remain unimplemented
+> under AR-0009. Existing public independent read-only handles remain live views
+> and must not be described as LSN snapshots.
+
 ### 7.8 Explicit checkpoint API (Stage 3+)
 
 Checkpointing moves committed WAL frames back into the main file and advances the checkpoint LSN. Three modes:

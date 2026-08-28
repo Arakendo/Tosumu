@@ -8,10 +8,12 @@ The name is a conlang word: `to` (knowledge) + `su` (organized structure) + `mu`
 
 ## Status
 
-**MVP+9 baseline complete.** The core storage engine, encryption/key-management
-stack, interactive TUI viewer, and narrow primary-key SQL path are implemented.
-Audit/logical-scan scope remains open before MVP+10 implementation begins. See
-the [Main Feature Roadmap](docs/Plans/main-feature-roadmap.md) for the canonical
+**MVP+10 is in progress behind private APIs.** The core storage engine,
+encryption/key-management stack, interactive TUI viewer, and narrow primary-key
+SQL path are implemented. Format 3 now has committed generations, retained WAL,
+bounded reader pins, and private generation-stable B+ tree reads. A public
+shared database/session/read-transaction API is not yet supported. See the
+[Main Feature Roadmap](docs/Plans/main-feature-roadmap.md) for the canonical
 delivery checklist.
 
 | MVP | Capability | State |
@@ -26,7 +28,7 @@ delivery checklist.
 | +7 | Multiple protectors: up to 8 keyslots, recovery key, KEK rotation, `protector` CLI | ✅ done |
 | +8 | Interactive TUI viewer (`tosumu view`) | ✅ done |
 | +9 | Initial SQL layer and `tosumu sql` CLI | baseline done; audit/scan open |
-| +10 | MVCC / multiple readers | 🔲 planned |
+| +10 | MVCC / multiple readers | 🚧 private mechanism in progress |
 
 ## Warning
 
@@ -47,7 +49,9 @@ delivery checklist.
 ## What it is not
 
 - Not SQL-complete and not a general-purpose query optimizer; MVP+9 provides a narrow primary-key SQL path.
-- Not multi-process or multi-reader (planned for MVP+10).
+- No public multi-process data-sharing or snapshot-reader API; cooperating
+  writers are excluded across processes, and independent read-only handles
+  remain live views rather than pinned snapshots.
 - Not networked.
 - Not a drop-in SQLite replacement.
 - Not audited crypto.
@@ -91,7 +95,7 @@ Six `cargo fuzz` targets in `fuzz/fuzz_targets/`: page decode, B+ tree ops, WAL 
 
 ## Roadmap
 
-See [`docs/Specifications/Tosumu Software Design Document.md §12`](docs/Specifications/Tosumu%20Software%20Design%20Document.md) for the full MVP and stage breakdown. MVP+8 is complete: `tosumu view` provides a cross-platform TUI (`ratatui` + `crossterm`) for inspecting file header, pages, B+ tree structure, WAL records, and per-keyslot detail on encrypted databases. MVP+9 now adds the initial SQL layer and `tosumu sql` CLI path. The next milestone is MVP+10, MVCC and multiple readers.
+See [`docs/Specifications/Tosumu Software Design Document.md §12`](docs/Specifications/Tosumu%20Software%20Design%20Document.md) for the full MVP and stage breakdown. MVP+8 is complete: `tosumu view` provides a cross-platform TUI (`ratatui` + `crossterm`) for inspecting file header, pages, B+ tree structure, WAL records, and per-keyslot detail on encrypted databases. MVP+9 adds the initial SQL layer and `tosumu sql` CLI path. MVP+10 is now proving MVCC storage and ownership privately before admitting its public API.
 
 ## License
 

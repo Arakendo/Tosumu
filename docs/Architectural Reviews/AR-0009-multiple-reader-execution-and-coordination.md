@@ -7,7 +7,7 @@
 | Last reviewed | 2026-08-27 |
 | Scope | Core storage / transaction coordination / platform mechanism |
 | Trigger | MVP+10 requires a baseline for locking, LSN visibility, and reader/writer behavior before MVCC-style work begins |
-| Related ADRs | ADR-0001, ADR-0002, ADR-0004 |
+| Related ADRs | ADR-0001, ADR-0002, ADR-0004, ADR-0005 |
 | Related evidence | Main Feature Roadmap, SDD §§7 and 28.4, AR-0011, current pager/WAL/transaction implementation |
 
 ## Architectural Question
@@ -20,8 +20,10 @@ mechanisms remain replaceable implementation details?
 
 The normative design describes a shared database handle, one writer, multiple
 readers, committed-LSN snapshots, checkpoint blocking, and typed `Send`/`Sync`
-intent. MVP+10 now has an executable baseline and the narrower ADR-0004 writer
-gate, but it has not admitted snapshot or reader-aware checkpoint semantics.
+intent. ADR-0004 admits the writer gate, and ADR-0005 now admits committed
+generations, process-local reader pins, retained-WAL selection, finite limits,
+and reader-aware checkpoint suppression. Their private executable composition
+does not yet admit the public shared-handle/session API described by the SDD.
 
 Concurrency risks mixing several separate questions: what a reader is allowed
 to observe, how long its snapshot remains valid, how a writer is serialized,
@@ -38,13 +40,16 @@ durability semantics.
 - Independent consumers: the provider boundary now proves structured
   `FILE_OPEN_BUSY` rejection for a second cooperating writer; no independent
   consumer yet proves concurrent snapshot semantics.
-- Diagnostics or audits: the design names active-reader and checkpoint-blocking
-  observations, but implementation parity is not established.
-- Repeated implementation friction: none yet; this review precedes the first
-  deliberate multiple-reader implementation slice.
-- Missing evidence: an authoritative committed-LSN lifecycle, retained-version
-  representation, reader registration scope, checkpoint pinning, cancellation,
-  timeout, and long-lived-reader pressure.
+- Diagnostics or audits: private diagnostics report active/maximum readers,
+  oldest generation, retained WAL bytes/frame versions, checkpoint/latest
+  horizons, and checkpoint-blocked state. This is not yet the public SDD
+  `connection_info` schema.
+- Repeated implementation friction: the first private transaction composed as
+  `Sync` accidentally; SDD section 28.4 required a structural `Send`/`!Sync`
+  correction before public admission.
+- Missing evidence: public names and visibility, an independent snapshot
+  consumer, session identity/age diagnostics, and any future blocking,
+  cancellation, or timeout policy.
 
 ## Ownership And Dependency Analysis
 
@@ -349,3 +354,20 @@ public MVCC contract through that implementation.
 - Disposition: remain Incubating for the public shared-owner and reader API.
 - Resulting ADR or documentation change: private lifecycle traits and teardown
   evidence now agree with the normative SDD.
+
+### Cycle 9 -- 2026-08-27
+
+- Status entering review: Incubating
+- New evidence: the README, public roadmap, file-format summary, security
+  limitation, normative SDD implementation-status note, main roadmap audit,
+  document index, and MVP+10 plan now distinguish accepted format-3 mechanics,
+  private shared-reader evidence, and the unimplemented public API.
+- Findings: format and private lifecycle claims are coherent. Existing public
+  independent read-only handles remain live views, and committed generations
+  remain local visibility evidence rather than anti-rollback freshness proof.
+  The SDD's richer session IDs, ages, writer queue, busy policies, partial
+  checkpoints, cancellation, and timeouts are still targets, not current API.
+- Disposition: remain Incubating until public names and one independent caller
+  reveal the shared-reader contract.
+- Resulting ADR or documentation change: MVP+10's private implementation plan
+  is complete; the main roadmap advances to public contract admission.

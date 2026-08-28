@@ -26,6 +26,14 @@ The main database file contains:
 
 The WAL currently lives in a separate sidecar file.
 
+Ordinary create/open currently targets physical format 3. Format 3 gives the
+authenticated page-zero `wal_checkpoint_lsn` field durable committed-generation
+meaning and permits newer committed page versions to remain in WAL while a
+process-local reader pin is active. Format 2 is refused by ordinary open; there
+is no automatic in-place migration. Because Tosumu is pre-stability, a future
+preservation path would be an explicitly admitted offline logical rewrite to a
+separate verified destination.
+
 ## Current important properties
 
 - fixed 4096-byte page size
@@ -34,6 +42,8 @@ The WAL currently lives in a separate sidecar file.
 - authenticated page encryption for data pages
 - keyslot region authenticated by a header MAC
 - B+ tree pages, overflow pages, and free pages as distinct page types
+- persistent `.wal` and `.writer.lock` sidecars with distinct durability and
+  cooperative-admission roles; backup/export does not copy the writer lock
 
 ## What the format is trying to optimize for
 

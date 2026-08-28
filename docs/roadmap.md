@@ -4,17 +4,18 @@ This page is the public roadmap summary. It is intentionally shorter than the re
 
 ## Now
 
-- use the completed MVP+10 single-writer admission slice to design committed-LSN
-  reader visibility and version retention under AR-0009
+- use the completed MVP+10 private storage and shared-owner evidence to admit a
+  public shared-handle/read-transaction contract under AR-0009
 - keep the CLI, inspect contract, and TUI viewer coherent
 - keep crash, crypto, and verification behavior visible through tests and tooling
 - improve the trust surface around docs, diagnostics, and website guidance
 
 ## Next
 
-- admit the smallest shared-handle and fail-fast writer coordination contract
-- add committed-LSN reader snapshots only after their retention and checkpoint
-  semantics are explicit
+- expose the smallest shared-handle and committed-generation read contract only
+  after its names and lifecycle survive independent caller review
+- retain fail-fast writer admission and bounded snapshot/WAL pressure while
+  keeping cancellation, timeout, and background execution out of the initial API
 - continued work on inspection, audit, and structured diagnostics may still reshape near-term priorities while the project remains pre-stability
 
 ## Later

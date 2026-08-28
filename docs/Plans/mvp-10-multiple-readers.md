@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | In progress; Slice 2 private shared-owner implementation complete |
+| Status | Private mechanism complete; public contract admission remains |
 | Opened | 2026-08-27 |
 | Last updated | 2026-08-27 |
 | Owner | Tosumu maintainers |
@@ -204,7 +204,7 @@ Exit state: snapshot visibility and lifetime are executable private contracts.
       fixture retains the writer gate and recovers retained WAL on reopen. No
       blocking operation is admitted, so cancellation and timeout remain
       explicitly unsupported.
-- [ ] Reconcile the SDD, AR-0009, public docs, and compatibility claims.
+- [x] Reconcile the SDD, AR-0009, public docs, and compatibility claims.
 
 Exit state: writer, reader, and checkpoint lifecycles compose without hidden
 waiting or stale-frame truncation.
@@ -261,13 +261,13 @@ silent retention.
 
 ## Completion Criteria
 
-- [ ] One-writer admission and reader snapshot visibility are explicit and
+- [x] One-writer admission and reader snapshot visibility are explicit and
       executable.
-- [ ] Checkpoint safety accounts for every active reader.
-- [ ] Busy, timeout, cancellation, and unsupported behavior are typed and
+- [x] Checkpoint safety accounts for every active reader.
+- [x] Busy, timeout, cancellation, and unsupported behavior are typed and
       bounded.
-- [ ] Public, format, recovery, security, and documentation claims agree.
-- [ ] Full workspace validation and applicable crash evidence pass.
+- [x] Public, format, recovery, security, and documentation claims agree.
+- [x] Full workspace validation and applicable crash evidence pass.
 
 ## Parking Or Reopening Criteria
 
@@ -463,6 +463,20 @@ format/recovery design that can retain committed versions safely.
   later transaction deletes, overwrites, and appends across the tree, including
   an overflow-backed value and changed leaf frames. Current scans observe the
   later state; no separate snapshot traversal or decoder was introduced.
+- Added the private shared B+ tree owner and non-cloneable read transaction.
+  Snapshot capture serializes with commits; point and range reads borrow the
+  owner only per operation. Diagnostics report finite pins, oldest generation,
+  retained WAL bytes/frame versions, checkpoint/latest horizons, and blocked
+  state. Reader drop remains passive until the next zero-reader commit.
+- Corrected the experimental transaction's auto traits to the normative SDD:
+  the shared owner is `Send + Sync`, while the read transaction is `Send` but
+  structurally not `Sync`. A last-reader fixture proves it retains the pager
+  and writer gate, continues reading its generation, and releases both so
+  writable reopen can recover the newer retained commit.
+- Reconciled the SDD's target API status, public README/roadmap, file-format
+  compatibility summary, security freshness limitation, main roadmap audit,
+  and documentation index. The private mechanism is complete; public names,
+  independent-caller evidence, and API admission remain under AR-0009.
 
 ## References
 

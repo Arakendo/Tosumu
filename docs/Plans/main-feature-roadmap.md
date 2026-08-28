@@ -4,10 +4,10 @@
 | --- | --- |
 | Status | Active |
 | Opened | 2026-08-03 |
-| Last updated | 2026-08-27 (ADR-0005 snapshot-mechanism admission) |
+| Last updated | 2026-08-27 (private shared-owner and lifecycle evidence) |
 | Owner | Tosumu maintainers |
 | Authority | Tracking plan; `docs/Specifications/Tosumu Software Design Document.md` remains normative |
-| Current milestone | MVP+10 private format-v3 snapshot implementation |
+| Current milestone | MVP+10 public shared-reader contract admission |
 
 ## Purpose
 
@@ -252,6 +252,8 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
 - [x] Accepted format-v3 generation, retained-WAL, limit, checkpoint, and
       compatibility architecture in ADR-0005.
 - [ ] Read transactions pinned to a stable LSN snapshot.
+      Private point/range reads and ownership are executable; this remains open
+      until a public contract and independent caller are admitted.
 - [ ] Single-writer/multiple-reader coordination without readers observing
       partial commits.
 - [ ] Version-observing reads and conditional-write helpers (`put_if_absent`
@@ -476,11 +478,13 @@ covered.
 
 ### MVP+10 Audit
 
-All six criteria are `OPEN / NOT STARTED`: coherent concurrent snapshots;
-writer commits that do not invalidate active readers; atomic conditional writes;
-atomic and recoverable secondary-index mutation; complete and safely published
-`VACUUM`; and explicit concurrency limits. No implementation or executable
-evidence was found.
+The storage prerequisites are no longer `NOT STARTED`. Private executable
+evidence proves coherent pinned point/range reads, writer commits that preserve
+active snapshots, finite registration/retained-WAL limits, diagnostics, and
+last-reader recovery. The public shared-handle transaction contract remains
+open, so the corresponding milestone acceptance boxes above stay unchecked.
+Atomic conditional writes, secondary-index mutation, `VACUUM`, and
+representative concurrency benchmarks have not started.
 
 ### MVP+11 Audit
 

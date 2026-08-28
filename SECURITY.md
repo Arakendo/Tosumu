@@ -86,6 +86,9 @@ Issues that are **expected behavior** and not bugs:
 - Keys in process memory are readable by other code in that process.
 - Losing all protectors makes the database unrecoverable (that is the point).
 - Downgrading to an older `format_version` is not supported.
+- A committed generation or reader snapshot is local visibility evidence. It
+  does not prove freshness against a consistent rollback of the database and
+  WAL by an attacker.
 
 ## Dependencies
 
