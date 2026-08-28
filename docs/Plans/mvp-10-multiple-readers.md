@@ -165,7 +165,7 @@ claiming snapshot isolation.
 - [x] Trace current LSN assignment, page-zero checkpoint state, main-file
       publication, WAL truncation, direct writes, and read-only overlay behavior.
 - [ ] Define a monotonic committed generation across checkpoint and reopen.
-- [ ] Route explicit transactions and ordinary writes through one atomic
+- [x] Route explicit transactions and ordinary writes through one atomic
       publication path.
 - [ ] Decide main-file/WAL version residence, page selection, crash ordering,
       and format/migration impact.
@@ -410,6 +410,11 @@ format/recovery design that can retain committed versions safely.
   counts and rolls the in-memory transaction back without touching the WAL.
   Its `Busy` status distinguishes reclaimable reader/checkpoint pressure from
   an intrinsically oversized transaction.
+- Routed standalone B+ tree and provider `put`/`delete` through the same staged
+  transaction boundary as explicit closures. A focused test proves an ordinary
+  write consumes WAL LSNs before format-2's immediate checkpoint truncates the
+  sidecar. Pager mutation primitives used by the tree are now crate-private, so
+  external callers cannot bypass publication through raw page mutation.
 
 ## References
 

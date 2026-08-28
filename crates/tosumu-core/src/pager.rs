@@ -917,11 +917,9 @@ impl Pager {
     /// buffer; on return the page is re-encrypted with a new nonce and
     /// incremented page_version.
     ///
-    /// - Outside a transaction: writes directly to `.tsm` (auto-commit, for
-    ///   internal ops like `init_page` and header flushes).
-    /// - Inside a transaction (`begin_txn` called): buffers the final encrypted
-    ///   frame in memory; `commit_txn` stages the WAL and then flushes `.tsm`.
-    pub fn with_page_mut<F>(&mut self, pgno: u64, f: F) -> Result<()>
+    /// Database callers enter through `BTree`, which ensures an active staged
+    /// transaction before reaching this physical mutation primitive.
+    pub(crate) fn with_page_mut<F>(&mut self, pgno: u64, f: F) -> Result<()>
     where
         F: FnOnce(&mut [u8; PAGE_PLAINTEXT_SIZE]) -> Result<()>,
     {
@@ -957,7 +955,8 @@ impl Pager {
             // transaction is staged from this map at commit time.
             self.dirty_pages.insert(pgno, Box::new(new_frame));
         } else {
-            // Auto-commit path: write directly to .tsm.
+            // Physical initialization/test path. Ordinary logical mutation is
+            // forced through BTree's staged transaction boundary.
             self.write_frame(pgno, &new_frame)?;
         }
         Ok(())
@@ -973,7 +972,7 @@ impl Pager {
     /// header flush is deferred until `commit_txn`. Rollback restores `page_count`
     /// and discards the buffered frame — no orphaned pages are written to .tsm.
     ///
-    pub fn allocate(&mut self, page_type: u8) -> Result<u64> {
+    pub(crate) fn allocate(&mut self, page_type: u8) -> Result<u64> {
         if self.freelist_head != 0 {
             let pgno = self.freelist_head;
             let next = self.with_page(pgno, |page| {
@@ -1056,10 +1055,21 @@ impl Pager {
         self.page_count
     }
 
+    pub(crate) fn transaction_active(&self) -> bool {
+        self.txn_active
+    }
+
+    #[cfg(test)]
+    pub(crate) fn appended_wal_record_count(&self) -> u64 {
+        self.wal
+            .as_ref()
+            .map_or(0, WalWriter::appended_record_count)
+    }
+
     // ── Transaction API ───────────────────────────────────────────────────────
 
     /// Begin a write transaction. Must not be called while one is already open.
-    pub fn begin_txn(&mut self) -> Result<()> {
+    pub(crate) fn begin_txn(&mut self) -> Result<()> {
         self.ensure_writable()?;
         assert!(!self.txn_active, "nested transactions are not supported");
         self.txn_id = self.next_txn_id;
@@ -1233,8 +1243,8 @@ impl Pager {
             return Err(TosumuError::CommittedButFlushFailed { source: io_err });
         }
 
-        // The committed frames now live in .tsm, so leaving them in the WAL would
-        // let a later reopen replay stale snapshots over newer auto-commit writes.
+        // Format 2 checkpoints every committed generation immediately. Leaving
+        // it in the WAL could replay stale frames after later physical updates.
         if let Err(error) = self.wal_mut()?.truncate() {
             self.health = PagerHealth::Poisoned;
             return Err(error);
@@ -1242,7 +1252,7 @@ impl Pager {
         Ok(())
     }
 
-    pub fn commit_txn(&mut self) -> Result<()> {
+    pub(crate) fn commit_txn(&mut self) -> Result<()> {
         let mut flush_file = self.file.try_clone()?;
         self.commit_txn_with_phase_two_file(&mut flush_file)
     }
@@ -1277,7 +1287,7 @@ impl Pager {
 
     /// Roll back the current transaction: discard dirty pages and restore
     /// header fields (page_count, root_page) to the values at begin_txn.
-    pub fn rollback_txn(&mut self) {
+    pub(crate) fn rollback_txn(&mut self) {
         self.dirty_pages.clear();
         self.pending_header_flush = false;
         self.page_count = self.txn_saved_page_count;
@@ -1292,7 +1302,7 @@ impl Pager {
     }
 
     /// Persist a new B+ tree root page number.
-    pub fn set_root_page(&mut self, pgno: u64) -> Result<()> {
+    pub(crate) fn set_root_page(&mut self, pgno: u64) -> Result<()> {
         self.ensure_writable()?;
         self.root_page = pgno;
         self.flush_header()
@@ -1581,8 +1591,8 @@ fn finish_open(
 
     let wp = wal_path(path);
     if wp.exists() {
-        // If committed frames exist, replay them once and truncate the WAL so
-        // future opens cannot reapply stale snapshots over newer auto-commit writes.
+        // Format 2 replays committed frames once and truncates the WAL before
+        // admitting the writable handle.
         crate::wal::checkpoint_guarded(path, &wp, &writer_guard)?;
         // Re-read page0 after recovery/checkpoint so page_count/root_page are current.
         file.seek(SeekFrom::Start(0))?;

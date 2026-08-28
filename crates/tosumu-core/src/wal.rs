@@ -292,13 +292,20 @@ pub struct WalWriter {
     file: File,
     /// LSN to assign to the next record written.
     next_lsn: u64,
+    #[cfg(test)]
+    appended_record_count: u64,
 }
 
 impl WalWriter {
     /// Create a new WAL file. Fails if the file already exists.
     pub fn create(path: &Path) -> Result<Self> {
         let file = OpenOptions::new().write(true).create_new(true).open(path)?;
-        Ok(WalWriter { file, next_lsn: 1 })
+        Ok(WalWriter {
+            file,
+            next_lsn: 1,
+            #[cfg(test)]
+            appended_record_count: 0,
+        })
     }
 
     /// Open an existing WAL file for appending.
@@ -315,7 +322,12 @@ impl WalWriter {
         if file.metadata()?.len() > append_offset {
             file.set_len(append_offset)?;
         }
-        let mut w = WalWriter { file, next_lsn };
+        let mut w = WalWriter {
+            file,
+            next_lsn,
+            #[cfg(test)]
+            appended_record_count: 0,
+        };
         w.file.seek(SeekFrom::Start(append_offset))?;
         Ok(w)
     }
@@ -347,7 +359,16 @@ impl WalWriter {
         record.encode(lsn, &mut buf);
         self.file.write_all(&buf)?;
         self.next_lsn += 1;
+        #[cfg(test)]
+        {
+            self.appended_record_count = self.appended_record_count.saturating_add(1);
+        }
         Ok(lsn)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn appended_record_count(&self) -> u64 {
+        self.appended_record_count
     }
 
     /// Flush OS buffers to durable storage.

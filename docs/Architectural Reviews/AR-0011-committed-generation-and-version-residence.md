@@ -691,3 +691,18 @@ and the remaining implementation evidence stay provisional as listed below.
 - Disposition: ADR-0005 remains accepted without revision.
 - Resulting ADR or documentation change: the Error Design Document now records
   the retained-pressure details; retained commit residence is still subsequent.
+
+### Cycle 18 -- 2026-08-27
+
+- Status entering review: Accepted
+- New evidence: standalone B+ tree and provider `put`/`delete` now open a
+  staged pager transaction when no explicit transaction is active. A focused
+  fixture proves the write consumes WAL LSNs before format-2's immediate
+  checkpoint leaves the sidecar empty and that reopen sees the value. Pager
+  page-mutation and transaction primitives are crate-private.
+- Findings: ordinary logical writes and explicit transaction closures now share
+  one `Begin` / final unique frames / `Commit` / sync publication mechanism.
+  Database consumers can no longer bypass it through public raw page mutation.
+- Disposition: ADR-0005 remains accepted without revision.
+- Resulting ADR or documentation change: MVP+10 Slice 2 publication-path item
+  is complete; format-2 residence and visible behavior remain unchanged.

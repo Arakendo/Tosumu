@@ -143,7 +143,7 @@ fn successful_commit_retains_no_monotonic_committed_lsn() {
 }
 
 #[test]
-fn ordinary_put_publishes_without_a_wal_commit_generation() {
+fn format_2_ordinary_put_checkpoints_its_staged_generation_immediately() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("direct-put.tsm");
     let mut writer = KvStore::create(&path).unwrap();

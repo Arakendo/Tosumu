@@ -1,6 +1,27 @@
 use super::*;
 
 #[test]
+fn standalone_write_uses_staged_wal_publication_before_checkpoint() {
+    let path = temp_path("standalone_staged_publication");
+    let wal = crate::wal::wal_path(&path);
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&wal);
+
+    let mut store = PageStore::create(&path).unwrap();
+    assert_eq!(store.tree.appended_wal_record_count(), 0);
+
+    store.put(b"key", b"value").unwrap();
+
+    assert!(store.tree.appended_wal_record_count() >= 3);
+    assert_eq!(std::fs::metadata(&wal).unwrap().len(), 0);
+    assert_eq!(store.get(b"key").unwrap(), Some(b"value".to_vec()));
+
+    drop(store);
+    let reopened = PageStore::open(&path).unwrap();
+    assert_eq!(reopened.get(b"key").unwrap(), Some(b"value".to_vec()));
+}
+
+#[test]
 fn create_open_round_trip() {
     let path = temp_path("round_trip");
     let _ = std::fs::remove_file(&path);

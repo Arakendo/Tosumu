@@ -145,6 +145,10 @@ impl BTree {
 
     /// Insert or update `key` → `value`.
     pub fn put(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
+        self.write_atomically_if_needed(|tree| tree.put_inner(key, value))
+    }
+
+    fn put_inner(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
         if key.is_empty() {
             return Err(TosumuError::InvalidArgument("key must not be empty"));
         }
@@ -198,6 +202,10 @@ impl BTree {
     /// If the leaf has room, appends a tombstone (lazy delete). If the leaf is
     /// full, compacts it in place (removes the key from the live set).
     pub fn delete(&mut self, key: &[u8]) -> Result<()> {
+        self.write_atomically_if_needed(|tree| tree.delete_inner(key))
+    }
+
+    fn delete_inner(&mut self, key: &[u8]) -> Result<()> {
         let leaf_pgno = self.find_leaf(key)?;
 
         // Check the key is actually present.
@@ -237,6 +245,27 @@ impl BTree {
             self.free_overflow_chain(head, length)?;
         }
         Ok(())
+    }
+
+    fn write_atomically_if_needed<F, T>(&mut self, operation: F) -> Result<T>
+    where
+        F: FnOnce(&mut Self) -> Result<T>,
+    {
+        if self.pager.transaction_active() {
+            return operation(self);
+        }
+
+        self.pager.begin_txn()?;
+        match operation(self) {
+            Ok(value) => {
+                self.pager.commit_txn()?;
+                Ok(value)
+            }
+            Err(error) => {
+                self.pager.rollback_txn();
+                Err(error)
+            }
+        }
     }
 
     // ── Range scan ───────────────────────────────────────────────────────────
@@ -510,6 +539,11 @@ impl BTree {
     /// Roll back the current transaction (discard dirty pages).
     pub(crate) fn rollback_txn(&mut self) {
         self.pager.rollback_txn()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn appended_wal_record_count(&self) -> u64 {
+        self.pager.appended_wal_record_count()
     }
 
     /// Walk from the root to the leftmost leaf and return the height (1 = single leaf).
