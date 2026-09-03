@@ -775,8 +775,32 @@ specific pressure.
 - Plan changes: Slice 1 now separates machine-derived closure facts from human
   risk classification. Aggregate workspace/native/WASM closure generation is
   present; critical transitive review and policy admission remain open.
-- Next slice: retain non-lowerable human risk classifications for the initial
-  `tosumu-core` critical boundary and audit its transitive build/unsafe surface.
+- Next slice: audit the initial `tosumu-core` critical boundary's transitive
+  build/unsafe surface and expand classifications only with retained rationale.
+
+### 2026-09-03 -- Slice 1 Direct-Core Risk Classification
+
+- Work completed: classified all 11 direct normal `tosumu-core` dependencies in
+  a human-owned input: nine critical and two elevated. Each entry retains a
+  tier floor, concerns, update owner, and rationale; the generated artifact is
+  bound to the classification file's SHA-256 identity.
+- Validation: the generator rejects unknown or duplicate package identities,
+  unknown tiers, assignments below retained floors, and missing rationale,
+  owner, or concerns. A below-floor fixture was rejected, the byte-for-byte
+  retained check passed after regeneration, and `mkdocs build --strict`
+  completed successfully.
+- Findings: the direct `zeroize` declaration enables `default` and `alloc`, but
+  no direct Tosumu source use was observed. Its presence must not be presented
+  as evidence that Tosumu-owned secret buffers are erased. Unfiltered exposure
+  reaches 57 packages, including 10 build-script and three procedural-macro
+  targets, but workspace feature unification makes that broader than a named
+  native core artifact.
+- Plan changes: generated resolution facts and human risk judgments remain
+  separate inputs. The other 215 packages remain unclassified rather than
+  receiving inferred low-risk labels.
+- Next slice: trace the nine critical and two elevated dependencies through
+  transitive packages, build scripts, procedural macros, features, unsafe
+  boundaries, and target-specific participation.
 
 ## References
 

@@ -1,5 +1,6 @@
 param(
     [string]$OutputPath = "docs/Notes/dependency-provenance-baseline-v1.json",
+    [string]$RiskPath = "docs/Notes/dependency-risk-classification-v1.json",
     [switch]$Check
 )
 
@@ -11,6 +12,11 @@ $absoluteOutputPath = if ([IO.Path]::IsPathRooted($OutputPath)) {
     $OutputPath
 } else {
     Join-Path $repositoryRoot $OutputPath
+}
+$absoluteRiskPath = if ([IO.Path]::IsPathRooted($RiskPath)) {
+    $RiskPath
+} else {
+    Join-Path $repositoryRoot $RiskPath
 }
 
 function Get-LockPackages {
@@ -209,7 +215,7 @@ function Get-Profile {
         name = $Name
         target = if ([string]::IsNullOrEmpty($Target)) { $null } else { $Target }
         package_count = @($profilePackages).Count
-        packages = @($profilePackages | Sort-Object id)
+        packages = @($profilePackages | Sort-Object { $_.id })
     }
 }
 
@@ -273,6 +279,153 @@ $catalog = foreach ($package in $unfiltered.packages) {
     }
 }
 
+$riskDocument = Get-Content -LiteralPath $absoluteRiskPath -Raw | ConvertFrom-Json -Depth 100
+if ($riskDocument.schema -ne "tosumu-dependency-risk-classification" -or $riskDocument.schema_version -ne 1) {
+    throw "Unsupported dependency risk classification schema: $absoluteRiskPath"
+}
+
+$catalogIds = @{}
+foreach ($package in $catalog) {
+    $catalogIds[[string]$package.id] = $true
+}
+$tierRanks = @{ standard = 1; elevated = 2; critical = 3 }
+$seenRiskIds = @{}
+foreach ($classification in $riskDocument.classifications) {
+    $classificationId = [string]$classification.id
+    if (-not $catalogIds.ContainsKey($classificationId)) {
+        throw "Risk classification does not match the resolved closure: $classificationId"
+    }
+    if ($seenRiskIds.ContainsKey($classificationId)) {
+        throw "Duplicate risk classification: $classificationId"
+    }
+    $seenRiskIds[$classificationId] = $true
+
+    $tier = [string]$classification.tier
+    $tierFloor = [string]$classification.tier_floor
+    if (-not $tierRanks.ContainsKey($tier) -or -not $tierRanks.ContainsKey($tierFloor)) {
+        throw "Unknown risk tier for $classificationId"
+    }
+    if ($tierRanks[$tier] -lt $tierRanks[$tierFloor]) {
+        throw "Risk tier for $classificationId is below its retained floor"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$classification.rationale)) {
+        throw "Risk classification lacks rationale: $classificationId"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$classification.update_owner)) {
+        throw "Risk classification lacks an update owner: $classificationId"
+    }
+    if (@($classification.concerns).Count -eq 0) {
+        throw "Risk classification lacks concerns: $classificationId"
+    }
+}
+
+$corePackage = $unfiltered.packages | Where-Object { $_.name -eq "tosumu-core" }
+if (@($corePackage).Count -ne 1) {
+    throw "Expected exactly one tosumu-core workspace package"
+}
+$coreNode = $unfiltered.resolve.nodes | Where-Object { $_.id -eq $corePackage.id }
+$directCoreNormalIds = @(
+    $coreNode.deps |
+        Where-Object {
+            @($_.dep_kinds | Where-Object { (Get-DependencyKind $_.kind) -eq "normal" }).Count -gt 0
+        } |
+        ForEach-Object { $stableIds[[string]$_.pkg] } |
+        Sort-Object -Unique
+)
+foreach ($directId in $directCoreNormalIds) {
+    if (-not $seenRiskIds.ContainsKey($directId)) {
+        throw "Direct tosumu-core normal dependency lacks a risk classification: $directId"
+    }
+}
+
+$normalizedRiskClassifications = foreach ($classification in $riskDocument.classifications) {
+    [ordered]@{
+        id = [string]$classification.id
+        tier = [string]$classification.tier
+        tier_floor = [string]$classification.tier_floor
+        concerns = @($classification.concerns | ForEach-Object { [string]$_ } | Sort-Object -Unique)
+        update_owner = [string]$classification.update_owner
+        rationale = [string]$classification.rationale
+    }
+}
+
+$stableToMetadataId = @{}
+foreach ($entry in $stableIds.GetEnumerator()) {
+    $stableToMetadataId[[string]$entry.Value] = [string]$entry.Key
+}
+$classificationById = @{}
+foreach ($classification in $normalizedRiskClassifications) {
+    $classificationById[[string]$classification.id] = $classification
+}
+$unfilteredNodes = @{}
+foreach ($node in $unfiltered.resolve.nodes) {
+    $unfilteredNodes[[string]$node.id] = $node
+}
+$riskExposure = @{}
+foreach ($directId in $directCoreNormalIds) {
+    $rootClassification = $classificationById[$directId]
+    $queue = [Collections.Generic.Queue[object]]::new()
+    $queue.Enqueue([PSCustomObject]@{
+        id = $stableToMetadataId[$directId]
+        role = "normal"
+    })
+    $visited = @{}
+
+    while ($queue.Count -gt 0) {
+        $item = $queue.Dequeue()
+        $visitKey = "$($item.id)|$($item.role)"
+        if ($visited.ContainsKey($visitKey)) {
+            continue
+        }
+        $visited[$visitKey] = $true
+
+        $stableId = $stableIds[[string]$item.id]
+        if (-not $riskExposure.ContainsKey($stableId)) {
+            $riskExposure[$stableId] = [ordered]@{
+                roots = @{}
+                roles = @{}
+                inherited_floor = "standard"
+            }
+        }
+        $riskExposure[$stableId].roots[$directId] = $true
+        $riskExposure[$stableId].roles[[string]$item.role] = $true
+        if ($tierRanks[[string]$rootClassification.tier_floor] -gt $tierRanks[$riskExposure[$stableId].inherited_floor]) {
+            $riskExposure[$stableId].inherited_floor = [string]$rootClassification.tier_floor
+        }
+
+        $node = $unfilteredNodes[[string]$item.id]
+        foreach ($dependency in $node.deps) {
+            foreach ($kind in $dependency.dep_kinds) {
+                $dependencyKind = Get-DependencyKind $kind.kind
+                $nextRole = Get-NextRole $item.role $dependencyKind
+                if ($null -ne $nextRole) {
+                    $queue.Enqueue([PSCustomObject]@{
+                        id = [string]$dependency.pkg
+                        role = $nextRole
+                    })
+                }
+            }
+        }
+    }
+}
+
+$catalogById = @{}
+foreach ($package in $catalog) {
+    $catalogById[[string]$package.id] = $package
+}
+$normalizedRiskExposure = foreach ($entry in $riskExposure.GetEnumerator()) {
+    $package = $catalogById[[string]$entry.Key]
+    [ordered]@{
+        id = [string]$entry.Key
+        inherited_floor = [string]$entry.Value.inherited_floor
+        roles = @($entry.Value.roles.Keys | Sort-Object)
+        direct_roots = @($entry.Value.roots.Keys | Sort-Object)
+        has_build_script = [bool]$package.has_build_script
+        is_proc_macro = [bool]$package.is_proc_macro
+        review_state = "not_assessed"
+    }
+}
+
 $profiles = foreach ($definition in $profileDefinitions) {
     Get-Profile $definition.name $definition.target $metadataByProfile[$definition.name] $stableIds
 }
@@ -283,6 +436,7 @@ $document = [ordered]@{
     subject = [ordered]@{
         kind = "cargo-workspace-lock"
         cargo_lock_sha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        risk_classification_sha256 = (Get-FileHash -LiteralPath $absoluteRiskPath -Algorithm SHA256).Hash.ToLowerInvariant()
     }
     observation = [ordered]@{
         state = "observed_finding"
@@ -297,7 +451,17 @@ $document = [ordered]@{
     }
     workspace_members = @($unfiltered.workspace_members | ForEach-Object { $stableIds[[string]$_] } | Sort-Object)
     package_count = @($catalog).Count
-    packages = @($catalog | Sort-Object id)
+    packages = @($catalog | Sort-Object { $_.id })
+    risk_classification = [ordered]@{
+        status = [string]$riskDocument.status
+        change_rule = [string]$riskDocument.change_rule
+        classified_package_count = @($normalizedRiskClassifications).Count
+        unclassified_package_count = @($catalog).Count - @($normalizedRiskClassifications).Count
+        required_direct_core_normal_count = $directCoreNormalIds.Count
+        entries = @($normalizedRiskClassifications | Sort-Object { $_.id })
+        transitive_exposure_count = @($normalizedRiskExposure).Count
+        transitive_exposure = @($normalizedRiskExposure | Sort-Object { $_.id })
+    }
     profiles = @($profiles)
 }
 

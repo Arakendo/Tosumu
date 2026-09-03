@@ -246,3 +246,22 @@ AR-0010 remains Incubating for the repository's broader dependency policy.
 - Resulting ADR or documentation change: retain
   `docs/Notes/dependency-provenance-baseline-v1.md` and its adjacent generated
   JSON artifact as Slice 1 evidence.
+
+### Cycle 6 -- 2026-09-03
+
+- Status entering review: Incubating
+- New evidence: a separate human-owned input classifies all 11 direct normal
+  `tosumu-core` dependencies with tier floors, concerns, update ownership, and
+  rationale. The generator binds this input by SHA-256 and rejects incomplete
+  or structurally lowered classifications.
+- Findings: nine direct dependencies are provisionally critical and two are
+  elevated. The `zeroize` declaration is directly enabled but not directly used
+  by Tosumu source, so dependency presence cannot support a secret-erasure
+  claim. The unfiltered graph traces exposure to 57 packages, including 10 with
+  build-script and three with procedural-macro targets, but feature unification
+  means that is not yet a named native release closure. The 215 remaining
+  packages have deliberately not received inferred low-risk classifications.
+- Disposition: remain Incubating. Continue into transitive build, procedural-
+  macro, feature, unsafe, and target review before proposing policy acceptance.
+- Resulting ADR or documentation change: add the provisional
+  `dependency-risk-classification-v1.json` evidence input; no ADR.

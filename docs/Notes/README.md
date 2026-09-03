@@ -18,4 +18,5 @@ Promote a note when its role changes:
   evidence, limitations, drift findings, and an operator questionnaire.
 - [Dependency Provenance Baseline v1](dependency-provenance-baseline-v1.md) --
   machine-derived Slice 1 Cargo closure, source/checksum identity, selected
-  features, build-time surfaces, explicit limitations, and staleness check.
+  features, build-time surfaces, provisional direct-core risk classifications,
+  explicit limitations, and staleness check.

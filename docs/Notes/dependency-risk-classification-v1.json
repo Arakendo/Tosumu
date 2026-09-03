@@ -1,0 +1,96 @@
+{
+  "schema": "tosumu-dependency-risk-classification",
+  "schema_version": 1,
+  "status": "provisional_under_ar_0010",
+  "change_rule": "Lowering an assigned tier or tier floor requires retained rationale in a new AR-0010 review cycle.",
+  "classifications": [
+    {
+      "id": "registry+https://github.com/rust-lang/crates.io-index#argon2@0.5.3",
+      "tier": "critical",
+      "tier_floor": "critical",
+      "concerns": ["authentication", "key_derivation"],
+      "update_owner": "tosumu-core maintainers",
+      "rationale": "Directly derives password-based key-encryption keys; behavior and parameter compatibility affect database unlock semantics."
+    },
+    {
+      "id": "registry+https://github.com/rust-lang/crates.io-index#chacha20poly1305@0.10.1",
+      "tier": "critical",
+      "tier_floor": "critical",
+      "concerns": ["authentication", "encryption", "format"],
+      "update_owner": "tosumu-core maintainers",
+      "rationale": "Directly produces and verifies authenticated page and protector ciphertext governed by Tosumu format and security claims."
+    },
+    {
+      "id": "registry+https://github.com/rust-lang/crates.io-index#crc32fast@1.5.0",
+      "tier": "critical",
+      "tier_floor": "critical",
+      "concerns": ["format", "integrity", "recovery"],
+      "update_owner": "tosumu-core maintainers",
+      "rationale": "Directly computes and verifies WAL framing checksums that influence replay acceptance and corruption diagnostics."
+    },
+    {
+      "id": "registry+https://github.com/rust-lang/crates.io-index#data-encoding@2.11.0",
+      "tier": "critical",
+      "tier_floor": "critical",
+      "concerns": ["key_recovery", "parser", "public_vocabulary"],
+      "update_owner": "tosumu-core maintainers",
+      "rationale": "Directly defines accepted and emitted Base32 recovery-secret text, making codec behavior part of the recovery interoperability boundary."
+    },
+    {
+      "id": "registry+https://github.com/rust-lang/crates.io-index#fs4@1.1.0",
+      "tier": "elevated",
+      "tier_floor": "elevated",
+      "concerns": ["concurrency", "platform", "unsafe_boundary"],
+      "update_owner": "tosumu-core maintainers",
+      "rationale": "Supplies native cooperative writer admission through platform locking; failure mapping and target behavior affect single-writer correctness but no authenticated bytes."
+    },
+    {
+      "id": "registry+https://github.com/rust-lang/crates.io-index#getrandom@0.2.17",
+      "tier": "critical",
+      "tier_floor": "critical",
+      "concerns": ["randomness", "key_material", "nonce_generation"],
+      "update_owner": "tosumu-core maintainers",
+      "rationale": "Directly supplies DEKs, salts, identifiers, nonces, and recovery secrets used by authenticated-storage operations."
+    },
+    {
+      "id": "registry+https://github.com/rust-lang/crates.io-index#hkdf@0.12.4",
+      "tier": "critical",
+      "tier_floor": "critical",
+      "concerns": ["authentication", "key_derivation"],
+      "update_owner": "tosumu-core maintainers",
+      "rationale": "Directly derives encryption and authentication subkeys and recovery KEKs whose compatibility is security- and format-relevant."
+    },
+    {
+      "id": "registry+https://github.com/rust-lang/crates.io-index#hmac@0.12.1",
+      "tier": "critical",
+      "tier_floor": "critical",
+      "concerns": ["authentication", "format"],
+      "update_owner": "tosumu-core maintainers",
+      "rationale": "Directly computes and verifies header authentication tags that gate acceptance of protected database metadata."
+    },
+    {
+      "id": "registry+https://github.com/rust-lang/crates.io-index#sha2@0.10.9",
+      "tier": "critical",
+      "tier_floor": "critical",
+      "concerns": ["authentication", "key_derivation", "artifact_identity"],
+      "update_owner": "tosumu-core maintainers",
+      "rationale": "Directly underlies HKDF/HMAC and is also used for rebuild artifact identity, so behavior affects security and publication evidence."
+    },
+    {
+      "id": "registry+https://github.com/rust-lang/crates.io-index#thiserror@2.0.18",
+      "tier": "elevated",
+      "tier_floor": "elevated",
+      "concerns": ["build_time", "error_semantics", "procedural_macro"],
+      "update_owner": "tosumu-core maintainers",
+      "rationale": "Generates Tosumu-owned error implementations through a procedural-macro closure; foreign error types remain private but build-time code affects public diagnostics."
+    },
+    {
+      "id": "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.8.2",
+      "tier": "critical",
+      "tier_floor": "critical",
+      "concerns": ["secret_lifecycle", "feature_selection"],
+      "update_owner": "tosumu-core maintainers",
+      "rationale": "Participates transitively in the encryption closure and is also declared directly; no direct Tosumu use was observed, so the declaration and enabled alloc feature require explicit review rather than assumed secret erasure."
+    }
+  ]
+}

@@ -3,11 +3,11 @@
 | Field | Value |
 | --- | --- |
 | Authority | Evidence note under AR-0010; not an accepted dependency policy |
-| Subject | The exact `Cargo.lock` identity recorded in the adjacent JSON artifact |
+| Subject | Exact `Cargo.lock` and provisional risk-classification identities recorded in the generated JSON artifact |
 | Observation state | `observed_finding` |
 | Captured | 2026-09-03 |
 | Generator | `scripts/dependency-provenance.ps1` |
-| Retained artifact | `dependency-provenance-baseline-v1.json` |
+| Retained artifacts | Generated `dependency-provenance-baseline-v1.json`; human-owned `dependency-risk-classification-v1.json` |
 
 ## Purpose
 
@@ -18,9 +18,10 @@ declare build-script or procedural-macro targets. It deliberately does not
 claim that the dependency implementations have been audited or that any target
 has been qualified.
 
-The JSON subject is the SHA-256 identity of `Cargo.lock`. A baseline generated
-for a different lockfile is evidence about a different subject and must not be
-composed as if it described the current closure.
+The JSON subject contains the SHA-256 identities of `Cargo.lock` and the
+human-owned risk-classification input. A baseline generated for a different
+lockfile or classification is evidence about a different subject and must not
+be composed as if it described the current closure and review state.
 
 ## Reproduction And Staleness Check
 
@@ -88,6 +89,40 @@ still require retained human judgment. The generator therefore records
 `unsafe_review_state: not_assessed` for every package instead of inferring
 safety from metadata.
 
+### Provisional direct-dependency classification
+
+The companion human-owned JSON classifies all 11 direct normal dependencies of
+`tosumu-core`: nine as `critical` and two as `elevated`. Each entry has a tier
+floor, named concerns, update owner, and rationale. The generator rejects an
+unknown package identity, duplicate entry, unknown tier, tier below its floor,
+or missing rationale/owner/concerns. Any lowering of a tier or its floor also
+requires retained rationale in a new AR-0010 review cycle.
+
+This does not classify the remaining 215 packages. In particular, it does not
+automatically lower development packages, transitive dependencies, build
+scripts, or procedural macros just because they are indirect.
+
+The generator separately traces machine-derived exposure from those 11 roots
+without assigning human risk tiers to their dependencies. The unfiltered
+workspace graph reaches 57 packages: 48 inherit exposure from at least one
+critical root and nine only from elevated roots. Ten expose build-script
+targets and three expose procedural-macro targets. Every transitive exposure
+remains `not_assessed`.
+
+That unfiltered result is intentionally conservative and is not a native core
+release closure. Workspace feature unification can connect the browser-enabled
+`getrandom` path to `wasm-bindgen`, for example. Target- and artifact-specific
+exposure must be separated before these 57 packages are described as code that
+executes in a particular release.
+
+One concrete discrepancy is now retained: `zeroize 1.8.2` participates in the
+encryption closure and is declared directly by `tosumu-core`, enabling its
+`default` and `alloc` features, but no direct use from Tosumu source was found.
+The classification therefore treats the secret-lifecycle boundary as critical
+while leaving removal, explicit use, or feature minimization for focused
+review. Dependency presence is not evidence that Tosumu-owned secret buffers
+are erased.
+
 ## Explicit Limitations
 
 - Target-filtered `cargo metadata` is resolution evidence, not compilation or
@@ -123,6 +158,7 @@ safety from metadata.
 
 - `Cargo.toml`
 - `Cargo.lock`
+- `docs/Notes/dependency-risk-classification-v1.json`
 - `.github/workflows/ci.yml`
 - `docs/Architectural Reviews/AR-0010-dependency-trust-and-source-provenance.md`
 - `docs/Notes/assurance-claim-inventory-v1.md`
