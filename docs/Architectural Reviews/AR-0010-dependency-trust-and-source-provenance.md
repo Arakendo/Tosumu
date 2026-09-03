@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Incubating |
 | Opened | 2026-08-27 |
-| Last reviewed | 2026-08-27 |
+| Last reviewed | 2026-09-03 |
 | Scope | Core dependency closure / build provenance / release process |
 | Trigger | Tosumu relies on third-party cryptographic and storage-support crates but has no accepted policy for exact source identity beyond normal Cargo resolution |
 | Related ADRs | ADR-0001, ADR-0002 |
@@ -119,8 +119,9 @@ the current build is fully source-audited, vendored, or reproducible offline.
 
 ## Required Follow-Up
 
-- [ ] Derive runtime, build, development, and procedural-macro closures from
-      Cargo metadata.
+- [x] Derive aggregate runtime, build, development, and procedural-macro
+      closures from Cargo metadata for the unfiltered workspace and explicit
+      Linux, Windows, macOS, and WASM targets.
 - [ ] Identify dependencies that affect authentication, format parsing,
       randomness, unsafe boundaries, or public API vocabulary.
 - [ ] Record selected features, licenses, source identity, build scripts,
@@ -225,3 +226,23 @@ AR-0010 remains Incubating for the repository's broader dependency policy.
 - Disposition: admit `fs4` 1.1.0 only for ADR-0004's native sync-only mechanism;
   retain Incubating status for general provenance policy.
 - Resulting ADR or documentation change: ADR-0004.
+
+### Cycle 5 -- 2026-09-03
+
+- Status entering review: Incubating
+- New evidence: a deterministic generator now binds an adjacent JSON inventory
+  to the exact `Cargo.lock` SHA-256 identity and records 226 resolved packages
+  across unfiltered workspace, Linux, Windows, macOS, and WASM profiles. It
+  retains enabled features, registry checksums, license metadata, dependency
+  roles, and build-script/procedural-macro target flags. CI and documentation
+  workflows reject a stale retained artifact.
+- Findings: all 220 non-workspace packages have lockfile checksums; 46 packages
+  declare build-script targets and 12 declare procedural-macro targets. These
+  are resolution and candidate-review facts only. Unsafe behavior, advisory
+  status, upstream ownership, update ownership, release/fuzz-specific closure,
+  and platform qualification remain unestablished.
+- Disposition: remain Incubating. The generated closure satisfies the first
+  follow-up but does not yet justify a general risk-tiered policy or ADR.
+- Resulting ADR or documentation change: retain
+  `docs/Notes/dependency-provenance-baseline-v1.md` and its adjacent generated
+  JSON artifact as Slice 1 evidence.

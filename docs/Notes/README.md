@@ -16,3 +16,6 @@ Promote a note when its role changes:
 - [Assurance Claim Inventory v1](assurance-claim-inventory-v1.md) -- Slice 0
   baseline mapping principal current and future claims to authority, executable
   evidence, limitations, drift findings, and an operator questionnaire.
+- [Dependency Provenance Baseline v1](dependency-provenance-baseline-v1.md) --
+  machine-derived Slice 1 Cargo closure, source/checksum identity, selected
+  features, build-time surfaces, explicit limitations, and staleness check.

@@ -117,6 +117,7 @@ nav:
           - Notes/README.md
           - Architecture Governance Extraction Audit: Notes/architecture-governance-extraction-audit.md
           - Assurance Claim Inventory v1: Notes/assurance-claim-inventory-v1.md
+          - Dependency Provenance Baseline v1: Notes/dependency-provenance-baseline-v1.md
         - Conversations: Conversations/README.md
         - Archive: Archive/README.md
 

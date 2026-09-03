@@ -107,7 +107,7 @@ architecture by themselves.
 | [Public Website And Repository Records](Plans/public-website-and-repository-records.md) | Proposed | Validate indexed navigation, then curate the public reader path separately from GitHub work records |
 | [Core Source Unit Decomposition](Plans/core-source-unit-decomposition.md) | Completed | Maintain the behavior-preserving private-module boundaries and conservation evidence |
 | [Cluster Fault Tolerance And Replication](Plans/cluster-fault-tolerance-and-replication.md) | Proposed; admission required | Continue AR-0015 scope and authority evidence before native replication protocol work |
-| [High-Assurance Engineering And Evidence Export](Plans/high-assurance-engineering-and-evidence-export.md) | Proposed; assurance claims not admitted | Inventory current claims and generate the first repository-wide dependency closure under AR-0010 |
+| [High-Assurance Engineering And Evidence Export](Plans/high-assurance-engineering-and-evidence-export.md) | Slice 1 active; assurance claims not admitted | Classify and audit the initial `tosumu-core` critical dependency closure under AR-0010 |
 
 ## Change Requests
 

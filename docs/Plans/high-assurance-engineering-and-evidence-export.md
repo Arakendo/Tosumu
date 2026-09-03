@@ -392,7 +392,9 @@ repository-wide risk-tiered policy candidate.
 #### Deliverables
 
 - [ ] Generate runtime, build, development, procedural-macro, native, fuzz,
-      WASM, and release dependency closures.
+      WASM, and release dependency closures. The aggregate workspace, three
+      native target, and WASM closures are retained; separate fuzz and release
+      profiles remain open.
 - [ ] Classify authentication-, format-, unsafe-, parser-, randomness-, and
       public-vocabulary-critical dependencies.
 - [ ] Retain source identity, checksums, features, license, build scripts,
@@ -404,8 +406,8 @@ repository-wide risk-tiered policy candidate.
 
 #### Acceptance Criteria
 
-- [ ] The inventory is machine-generated and reviewable rather than manually
-      guessed.
+- [x] The initial workspace inventory is machine-generated and reviewable
+      rather than manually guessed.
 - [ ] Risk classification cannot be lowered without retained rationale.
 - [ ] Unsupported target closures and optional features are visible.
 - [ ] AR-0010 can accept, revise, or park a general provenance policy.
@@ -757,6 +759,25 @@ specific pressure.
 - Next slice: expand the inventory to every public claim and generate the first
   machine-derived dependency closure under AR-0010.
 
+### 2026-09-03 -- Slice 1 Machine-Derived Baseline
+
+- Work completed: added a deterministic Cargo metadata/lockfile generator, a
+  byte-for-byte staleness check, five target-resolution profiles, retained
+  package checksums/features/licenses/build-time target flags, a CI caller, and
+  a bounded evidence note.
+- Validation: `scripts/dependency-provenance.ps1 -Check` matched a 226-package
+  baseline. The artifact records 46 packages with build-script targets and 12
+  procedural-macro packages without claiming that every target executes in
+  every profile.
+- Findings: all 220 resolved non-workspace packages have lockfile checksums;
+  unsafe review, advisory state, upstream ownership, update ownership, release
+  closure, fuzz closure, and platform qualification remain unestablished.
+- Plan changes: Slice 1 now separates machine-derived closure facts from human
+  risk classification. Aggregate workspace/native/WASM closure generation is
+  present; critical transitive review and policy admission remain open.
+- Next slice: retain non-lowerable human risk classifications for the initial
+  `tosumu-core` critical boundary and audit its transitive build/unsafe surface.
+
 ## References
 
 - `SECURITY.md`
@@ -775,3 +796,4 @@ specific pressure.
 - `docs/Plans/cluster-fault-tolerance-and-replication.md`
 - `docs/Plans/main-feature-roadmap.md`
 - `docs/Notes/assurance-claim-inventory-v1.md`
+- `docs/Notes/dependency-provenance-baseline-v1.md`

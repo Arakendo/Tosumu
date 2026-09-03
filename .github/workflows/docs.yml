@@ -29,6 +29,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Check retained dependency provenance
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/dependency-provenance.ps1 -Check
       - uses: actions/configure-pages@v5
       - uses: actions/setup-python@v5
         with:
