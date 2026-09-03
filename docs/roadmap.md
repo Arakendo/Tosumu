@@ -4,18 +4,17 @@ This page is the public roadmap summary. It is intentionally shorter than the re
 
 ## Now
 
-- maintain the ADR-0006 `SharedKvStore` snapshot and atomic-write contract
-  through core and SQL-layer caller tests
-- define the next MVP+10 slice for version-observing reads and atomic
-  conditional writes
+- maintain the ADR-0006/0007 `SharedKvStore` snapshot, atomic-write, and
+  conditional-write contracts through core and SQL-layer caller tests
+- define the next MVP+10 slice for plain single-column secondary indexes
 - keep the CLI, inspect contract, and TUI viewer coherent
 - keep crash, crypto, and verification behavior visible through tests and tooling
 - improve the trust surface around docs, diagnostics, and website guidance
 
 ## Next
 
-- add `put_if_absent` and compare-and-set/version operations without weakening
-  the admitted snapshot and publication semantics
+- add plain single-column secondary indexes with atomic primary/index mutation
+  and recovery evidence
 - retain fail-fast writer admission and bounded snapshot/WAL pressure while
   keeping cancellation, timeout, and background execution out of the initial API
 - continued work on inspection, audit, and structured diagnostics may still reshape near-term priorities while the project remains pre-stability

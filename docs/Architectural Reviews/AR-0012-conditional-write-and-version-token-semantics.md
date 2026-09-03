@@ -97,8 +97,8 @@ Accepted through ADR-0007.
 ## Required Follow-Up
 
 - [x] Record the public token, observation, and outcome contract in ADR-0007.
-- [ ] Implement the focused shared KV slice without format changes.
-- [ ] Retain core and separate SQL-layer caller evidence.
+- [x] Implement the focused shared KV slice without format changes.
+- [x] Retain core and separate SQL-layer caller evidence.
 - [x] Require no compatibility or migration work for this API-only change.
 
 ## Reopening Triggers
@@ -120,3 +120,19 @@ must survive owner reopen or become serializable.
 - Disposition: Accepted through ADR-0007.
 - Resulting ADR or documentation change: admit the smallest conditional-write
   extension to ADR-0006's supported shared KV surface.
+
+### Cycle 2 -- 2026-09-02
+
+- Status entering review: Accepted
+- New evidence: `SharedKvStore` now exposes owner-scoped `KvVersion`, atomic
+  versioned reads, and three conditional put forms. Focused tests prove stale
+  generation and wrong-value rejection, no generation advance on misses or
+  invalid staged work, exactly one concurrent put-if-absent winner, successful
+  token chaining, and rejection by different and reopened owners. The separate
+  SQL crate exercises the API with real row encodings.
+- Findings: the owner identity can remain an in-memory capability that does not
+  retain the pager or writer gate. No new error code, dependency, or format byte
+  is required.
+- Disposition: remain Accepted through ADR-0007.
+- Resulting ADR or documentation change: mark the conditional-write slice
+  complete and advance MVP+10 planning to secondary indexes.

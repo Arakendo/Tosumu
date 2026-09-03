@@ -81,6 +81,10 @@ impl ReadSource for SnapshotReadSource<'_> {
 }
 
 impl BTree {
+    pub(crate) fn current_generation(&self) -> Result<u64> {
+        self.pager.current_generation()
+    }
+
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn pin_snapshot(&self) -> Result<SnapshotPin> {
         self.pager.pin_latest_snapshot()

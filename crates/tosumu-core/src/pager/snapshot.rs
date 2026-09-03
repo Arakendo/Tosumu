@@ -19,6 +19,11 @@ pub(crate) struct SnapshotDiagnostics {
 }
 
 impl Pager {
+    pub(crate) fn current_generation(&self) -> Result<u64> {
+        self.ensure_healthy()?;
+        Ok(self.committed_index.latest_commit_lsn())
+    }
+
     pub(crate) fn pin_latest_snapshot(&self) -> Result<SnapshotPin> {
         self.snapshot_registry
             .register(self.committed_index.latest_commit_lsn())

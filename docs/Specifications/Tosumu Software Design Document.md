@@ -497,6 +497,11 @@ Not "the file is large because mystery."
 > Write callbacks must use their borrowed transaction rather than
 > re-entering the same owner; re-entry fails explicitly. Callback panic leaves
 > staged work unpublished, poisons the owner, and requires validated reopen.
+> ADR-0007 additionally admits owner-scoped database-generation tokens,
+> atomic value/version observations, `put_if_absent`, value compare-and-set,
+> and generation-checked put. Preconditions that do not match are normal typed
+> outcomes. Tokens are conservative database-wide observations, expire across
+> owner reopen, and must not be described as durable per-key revisions.
 
 ### 7.8 Explicit checkpoint API (Stage 3+)
 

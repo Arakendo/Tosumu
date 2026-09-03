@@ -39,6 +39,11 @@ pub(crate) struct ReadTransaction {
     _not_sync: PhantomData<Cell<()>>,
 }
 
+pub(crate) struct ConditionalPutResult {
+    pub(crate) applied: bool,
+    pub(crate) generation: u64,
+}
+
 struct WriteCallbackScope {
     owner_id: usize,
 }
@@ -99,6 +104,36 @@ impl SharedBTreeOwner {
         self.lock()?.get(key)
     }
 
+    pub(crate) fn get_with_generation(&self, key: &[u8]) -> Result<(Option<Vec<u8>>, u64)> {
+        let tree = self.lock()?;
+        let value = tree.get(key)?;
+        Ok((value, tree.current_generation()?))
+    }
+
+    pub(crate) fn put_if_absent(&self, key: &[u8], value: &[u8]) -> Result<ConditionalPutResult> {
+        self.conditional_put(key, value, |current, _| current.is_none())
+    }
+
+    pub(crate) fn compare_and_set(
+        &self,
+        key: &[u8],
+        expected: &[u8],
+        value: &[u8],
+    ) -> Result<ConditionalPutResult> {
+        self.conditional_put(key, value, |current, _| current == Some(expected))
+    }
+
+    pub(crate) fn put_if_generation(
+        &self,
+        key: &[u8],
+        expected_generation: u64,
+        value: &[u8],
+    ) -> Result<ConditionalPutResult> {
+        self.conditional_put(key, value, |_, generation| {
+            generation == expected_generation
+        })
+    }
+
     pub(crate) fn read_transaction(&self) -> Result<ReadTransaction> {
         let pin = self.lock()?.pin_snapshot()?;
         Ok(ReadTransaction {
@@ -117,6 +152,37 @@ impl SharedBTreeOwner {
             return Err(TosumuError::InvalidArgument(REENTRANT_WRITE_MESSAGE));
         }
         self.state.lock().map_err(|_| TosumuError::Poisoned)
+    }
+
+    fn conditional_put<F>(
+        &self,
+        key: &[u8],
+        value: &[u8],
+        condition: F,
+    ) -> Result<ConditionalPutResult>
+    where
+        F: FnOnce(Option<&[u8]>, u64) -> bool,
+    {
+        let mut tree = self.lock()?;
+        let current = tree.get(key)?;
+        let generation = tree.current_generation()?;
+        if !condition(current.as_deref(), generation) {
+            return Ok(ConditionalPutResult {
+                applied: false,
+                generation,
+            });
+        }
+
+        tree.begin_txn()?;
+        if let Err(error) = tree.put(key, value) {
+            tree.rollback_txn();
+            return Err(error);
+        }
+        tree.commit_txn()?;
+        Ok(ConditionalPutResult {
+            applied: true,
+            generation: tree.current_generation()?,
+        })
     }
 
     fn owner_id(&self) -> usize {

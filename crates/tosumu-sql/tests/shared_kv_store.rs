@@ -29,6 +29,19 @@ fn sql_row_encoding_consumes_a_coherent_shared_snapshot() {
             Ok(())
         })
         .unwrap();
+    let observed = database.get_with_version(first.as_bytes()).unwrap();
+    assert!(!database
+        .put_if_absent(first.as_bytes(), &encoded_name("duplicate"))
+        .unwrap()
+        .applied());
+    assert!(database
+        .put_if_version(
+            first.as_bytes(),
+            &observed.version,
+            &encoded_name("alice-versioned"),
+        )
+        .unwrap()
+        .applied());
     let snapshot = database.snapshot().unwrap();
 
     database
@@ -47,7 +60,7 @@ fn sql_row_encoding_consumes_a_coherent_shared_snapshot() {
         )
         .unwrap();
     assert_eq!(captured.len(), 2);
-    assert_eq!(decoded_name(&captured[0].1), "alice");
+    assert_eq!(decoded_name(&captured[0].1), "alice-versioned");
     assert_eq!(decoded_name(&captured[1].1), "bob");
 
     assert_eq!(

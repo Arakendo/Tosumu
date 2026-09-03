@@ -147,9 +147,9 @@ checkpoint policy remain deferred.
 - [x] Decide version-token identity, cross-database rejection, and conservative
       conflicts under AR-0012 and ADR-0007.
 - [x] Treat unmet preconditions as typed outcomes rather than new errors.
-- [ ] Add atomic versioned read, put-if-absent, value compare-and-set, and
+- [x] Add atomic versioned read, put-if-absent, value compare-and-set, and
       generation-checked put operations to `SharedKvStore`.
-- [ ] Exercise the supported surface from core and the separate SQL crate.
+- [x] Exercise the supported surface from core and the separate SQL crate.
 
 Exit state: callers can avoid open-coded optimistic-concurrency races without a
 format change or a false per-key revision claim.
@@ -524,6 +524,12 @@ format/recovery design that can retain committed versions safely.
   the `tosumu-core` crate root; the experimental feature/module and SQL feature
   forwarding are removed. Default-feature core and SQL integration tests retain
   the accepted snapshot, write-lifecycle, encryption, and auto-trait evidence.
+- Added ADR-0007's owner-scoped database-generation token, atomic versioned
+  read, `put_if_absent`, value compare-and-set, and generation-checked put.
+  Failed preconditions return `NotApplied` without advancing the generation;
+  invalid or reopened-owner tokens fail before mutation. A two-thread fixture
+  proves exactly one put-if-absent winner, and the SQL caller exercises real row
+  bytes through both absence and generation conditions.
 
 ## References
 

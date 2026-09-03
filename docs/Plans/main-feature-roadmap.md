@@ -4,10 +4,10 @@
 | --- | --- |
 | Status | Active |
 | Opened | 2026-08-03 |
-| Last updated | 2026-09-02 (supported shared KV snapshot contract) |
+| Last updated | 2026-09-02 (supported conditional writes) |
 | Owner | Tosumu maintainers |
 | Authority | Tracking plan; `docs/Specifications/Tosumu Software Design Document.md` remains normative |
-| Current milestone | MVP+10 conditional writes |
+| Current milestone | MVP+10 secondary indexes |
 
 ## Purpose
 
@@ -255,7 +255,7 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
       exposed through the ADR-0006 `SharedKvStore` contract.
 - [x] Single-writer/multiple-reader coordination without readers observing
       partial commits, including one atomic multi-mutation write closure.
-- [ ] Version-observing reads and conditional-write helpers (`put_if_absent`
+- [x] Version-observing reads and conditional-write helpers (`put_if_absent`
       and compare-and-set/version operations).
 - [ ] Plain single-column secondary B+ tree indexes.
 - [ ] `VACUUM` with explicit reclamation, interruption, and publication rules.
@@ -266,7 +266,7 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
 - [x] Concurrent readers each observe a coherent snapshot.
 - [x] A writer can commit without invalidating or partially changing an active
       reader's snapshot.
-- [ ] Conditional writes reject stale preconditions atomically.
+- [x] Conditional writes reject stale preconditions atomically.
 - [ ] Secondary-index mutation is atomic with primary-row mutation and remains
       correct through recovery.
 - [ ] `VACUUM` preserves all committed logical rows and does not replace the
@@ -477,10 +477,10 @@ covered.
 
 ### MVP+10 Audit
 
-ADR-0006 and its supported core and SQL-layer callers prove coherent pinned
+ADR-0006, ADR-0007, and their supported core and SQL-layer callers prove coherent pinned
 point/range reads, writer commits that preserve active snapshots, finite
-registration/retained-WAL limits, diagnostics, and last-reader recovery.
-Atomic conditional writes, secondary-index mutation, `VACUUM`, and
+registration/retained-WAL limits, diagnostics, last-reader recovery, and atomic
+conditional writes. Secondary-index mutation, `VACUUM`, and
 representative concurrency benchmarks have not started.
 
 ### MVP+11 Audit
@@ -583,7 +583,7 @@ partial or stale milestones directly rather than forcing a pass/fail result.
 | +7 | Verified | Protector lifecycle and attack tests | Maintain key-management evidence |
 | +8 | Verified | TUI/view tests and structured inspect contracts | Maintain viewer evidence |
 | +9 | Verified baseline; deferred scope named | `initial-sql-layer.md`; audit and logical scans explicitly moved out | Post-MVP+10 SQL and future audit plans |
-| +10 | Shared snapshot contract delivered; broader implementation active | ADR-0005, ADR-0006; `mvp-10-multiple-readers.md`; shared KV and SQL caller tests | Conditional writes, indexes, vacuum, and benchmarks |
+| +10 | Shared snapshot and conditional-write contracts delivered; broader implementation active | ADR-0005 through ADR-0007; `mvp-10-multiple-readers.md`; shared KV and SQL caller tests | Indexes, vacuum, and benchmarks |
 | +11 | Not started | Future dedicated plan | Unassigned |
 | +12 | Not started | Architectural Review required | Unassigned |
 | +13 | Not started | Future dedicated plan and format decision | Unassigned |

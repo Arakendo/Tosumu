@@ -33,4 +33,7 @@ pub const NAME: &str = "tosumu";
 
 pub use error::{ErrorDetail, ErrorReport, ErrorStatus, ErrorValue, TosumuError};
 pub use provider::{KvStore, KvTransaction, MAX_KEY_SIZE, MAX_VALUE_SIZE};
-pub use shared_store::{KvConnectionInfo, KvReadTransaction, KvWriteTransaction, SharedKvStore};
+pub use shared_store::{
+    KvConditionalResult, KvConnectionInfo, KvReadTransaction, KvVersion, KvVersionedValue,
+    KvWriteTransaction, SharedKvStore,
+};
