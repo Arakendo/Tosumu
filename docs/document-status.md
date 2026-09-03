@@ -67,11 +67,13 @@ specifications and accepted ADRs.
 | [ADR-0003: Source Unit Cohesion, Size Pressure, And Decomposition](ADR/ADR-0003-source-unit-cohesion-size-pressure-and-decomposition.md) | Accepted / binding |
 | [ADR-0004: Cooperative Single-Writer Admission](ADR/ADR-0004-cooperative-single-writer-admission.md) | Accepted / binding |
 | [ADR-0005: Committed Generation And Retained-WAL Snapshots](ADR/ADR-0005-committed-generation-and-retained-wal-snapshots.md) | Accepted / binding |
+| [ADR-0006: Shared KV Store And Snapshot Transactions](ADR/ADR-0006-shared-kv-store-and-snapshot-transactions.md) | Accepted / binding |
 
 ## Architectural Reviews
 
-AR-0011 is **Accepted** through ADR-0005. Other current reviews are
-**Incubating** and do not change accepted architecture by themselves.
+AR-0009 is **Accepted** through ADR-0004, ADR-0005, and ADR-0006. AR-0011 is
+**Accepted** through ADR-0005. Other current reviews are **Incubating** and do
+not change accepted architecture by themselves.
 
 | Record | Question |
 | --- | --- |

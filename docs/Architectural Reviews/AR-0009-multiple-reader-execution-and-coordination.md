@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Incubating |
+| Status | Accepted |
 | Opened | 2026-08-27 |
 | Last reviewed | 2026-09-02 |
 | Scope | Core storage / transaction coordination / platform mechanism |
@@ -189,10 +189,11 @@ participating Tosumu mutation paths, not arbitrary file writers.
 
 ## Disposition
 
-Incubating for the broader MVP+10 reader/snapshot question. ADR-0004 accepts
-Alternative D for the first, narrower writer-admission slice. Do not add a
-general executor, async runtime, background worker, reader snapshot claim, or
-public MVCC contract through that implementation.
+Accepted through ADR-0004 for cooperative writer admission, ADR-0005 for
+committed-generation and retained-WAL snapshot mechanics, and ADR-0006 for the
+minimal supported shared KV owner/read/write/diagnostic API. General sessions,
+waiting, cancellation, async execution, background work, and partial
+checkpointing remain outside the accepted contract.
 
 ## Required Follow-Up
 
@@ -453,3 +454,18 @@ public MVCC contract through that implementation.
   outcomes must be retained when the experimental names are promoted.
 - Resulting ADR or documentation change: public-contract admission may proceed
   without adding a reentrant mutex, unwind catcher, or background recovery.
+
+### Cycle 14 -- 2026-09-02
+
+- Status entering review: Incubating
+- New evidence: Cycles 10–13 cover the logical prototype, passphrase lifecycle,
+  atomic commit/rollback, reentry and panic outcomes, and a separate SQL crate
+  consuming real row encodings. No admitted caller requires the SDD's broader
+  session and host-policy surface.
+- Findings: the supported contract should extend existing KV names rather than
+  claim generic database/session semantics. `SharedKvStore`,
+  `KvReadTransaction`, `KvWriteTransaction`, and `KvConnectionInfo` describe the
+  evidenced boundary and leave future typestate names available.
+- Disposition: Accepted through ADR-0006.
+- Resulting ADR or documentation change: ADR-0006 admits the synchronous,
+  fail-fast shared KV API and explicitly defers richer execution policy.

@@ -25,3 +25,4 @@ remain in history when superseded.
 - [ADR-0003: Source Unit Cohesion, Size Pressure, And Decomposition](ADR-0003-source-unit-cohesion-size-pressure-and-decomposition.md)
 - [ADR-0004: Cooperative Single-Writer Admission](ADR-0004-cooperative-single-writer-admission.md)
 - [ADR-0005: Committed Generation And Retained-WAL Snapshots](ADR-0005-committed-generation-and-retained-wal-snapshots.md)
+- [ADR-0006: Shared KV Store And Snapshot Transactions](ADR-0006-shared-kv-store-and-snapshot-transactions.md)
