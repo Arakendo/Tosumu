@@ -25,6 +25,18 @@ static void require_bytes(uint64_t handle, const uint8_t *expected, size_t expec
     require_success(tosumu_experimental_v1_bytes_close(handle));
 }
 
+static void require_nonempty_bytes(uint64_t handle) {
+    tosumu_experimental_v1_outcome length = tosumu_experimental_v1_bytes_length(handle);
+    require_success(length);
+    assert(length.payload > 0);
+    uint8_t *buffer = malloc((size_t)length.payload);
+    assert(buffer != NULL);
+    require_success(tosumu_experimental_v1_bytes_copy(
+        handle, buffer, (size_t)length.payload));
+    free(buffer);
+    require_success(tosumu_experimental_v1_bytes_close(handle));
+}
+
 int main(int argc, char **argv) {
     assert(argc == 3);
     assert(sizeof(tosumu_experimental_v1_outcome) == 16);
@@ -71,9 +83,30 @@ int main(int argc, char **argv) {
     tosumu_experimental_v1_outcome code =
         tosumu_experimental_v1_error_code(missing.payload);
     require_success(code);
-    assert(tosumu_experimental_v1_error_status(missing.payload).payload != 0);
+    assert(tosumu_experimental_v1_error_status(missing.payload).payload ==
+           TOSUMU_EXPERIMENTAL_V1_ERROR_EXTERNAL_FAILURE);
     require_bytes(code.payload, (const uint8_t *)"FILE_IO_FAILED", 14);
+    tosumu_experimental_v1_outcome message =
+        tosumu_experimental_v1_error_message(missing.payload);
+    require_success(message);
+    require_nonempty_bytes(message.payload);
+    assert(tosumu_experimental_v1_error_detail_count(missing.payload).payload == 1);
+    tosumu_experimental_v1_outcome detail_key =
+        tosumu_experimental_v1_error_detail_key(missing.payload, 0);
+    require_success(detail_key);
+    require_bytes(detail_key.payload, (const uint8_t *)"source", 6);
+    assert(tosumu_experimental_v1_error_detail_type(missing.payload, 0).payload ==
+           TOSUMU_EXPERIMENTAL_V1_DETAIL_STRING);
+    tosumu_experimental_v1_outcome detail_value =
+        tosumu_experimental_v1_error_detail_string(missing.payload, 0);
+    require_success(detail_value);
+    require_nonempty_bytes(detail_value.payload);
+    assert(tosumu_experimental_v1_bytes_length(missing.payload).status ==
+           TOSUMU_EXPERIMENTAL_V1_BOUNDARY_WRONG_KIND);
     require_success(tosumu_experimental_v1_error_close(missing.payload));
+
+    assert(tosumu_experimental_v1_database_open(NULL, 1).status ==
+           TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_POINTER);
 
     puts("independent C ABI harness: ok");
     return 0;
