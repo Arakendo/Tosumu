@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Active |
 | Opened | 2026-08-03 |
-| Last updated | 2026-09-03 (cluster and assurance long-term tracks opened) |
+| Last updated | 2026-09-03 (cluster, assurance, and crypto-agility tracks opened) |
 | Owner | Tosumu maintainers |
 | Authority | Tracking plan; `docs/Specifications/Tosumu Software Design Document.md` remains normative |
 | Current milestone | MVP+10 native Unix VACUUM CI confirmation |
@@ -37,6 +37,9 @@ beyond the normative specifications.
       separate recovery, freshness, standby, failover, and consensus gates.
 - [x] Open a cross-cutting high-assurance engineering and evidence-export plan
       spanning provenance, inspection, qualification, keys, and review.
+- [x] Open a cross-cutting cryptographic provider and suite-agility plan that
+      separates a format-v3-preserving seam from future authenticated suite
+      identity, migration, and deployment-profile evidence.
 - [ ] Reconcile the normative distributed-storage non-goal through
       [AR-0015](../Architectural%20Reviews/AR-0015-native-replication-scope-authority-and-failure-model.md)
       before implementing native replication.
@@ -482,6 +485,43 @@ distributed-state-machine responsibilities.
 - [ ] Fencing remains required; consensus does not silently replace the MVP+16
       authority-transfer rules.
 
+## Cross-Cutting Cryptographic Provider And Suite-Agility Track
+
+[Cryptographic Provider Seam And Suite Agility](cryptographic-provider-seam-and-suite-agility.md)
+tracks provider substitution and durable suite evolution across milestones.
+It does not change format v3 or establish a FIPS or other compliance claim.
+
+**Build**
+
+- [x] Open the gated plan and record current algorithm, key-lifecycle, format,
+      and pager coupling.
+- [ ] Complete Gate C0 Architectural Review before introducing a reusable seam.
+- [ ] Insert a private backend seam that preserves exact format-v3 bytes,
+      errors, public APIs, and authenticated-pager behavior.
+- [ ] Demonstrate provider independence before stabilizing a public SPI.
+- [ ] Admit opaque provider-owned key handles before public HSM/KMS/TPM
+      integration makes raw-key export an accidental requirement.
+- [ ] Introduce authenticated suite identity only through an accepted format
+      revision with downgrade and compatibility fixtures.
+- [ ] Implement suite conversion only as verified full rewrite and atomic
+      publication.
+- [ ] Admit a named validated deployment profile only through the assurance
+      track with provider/module/configuration evidence.
+
+**Acceptance Criteria**
+
+- [ ] Process configuration selects creation policy but never reinterprets
+      existing ciphertext.
+- [ ] Suite identity and provider implementation identity remain separate.
+- [ ] Unknown, unavailable, forbidden, and retired suites/providers fail
+      explicitly without fallback or trial decryption.
+- [ ] The pager remains the sole authenticated plaintext/ciphertext boundary.
+- [ ] Raw key export is optional rather than required by the provider SPI.
+- [ ] Backup, WAL, retained generations, inspection, replication, and evidence
+      preserve suite identity without inventing provider guarantees.
+- [ ] No generic compliance label is inferred from algorithms, dependencies,
+      feature flags, or provider presence.
+
 ## Cross-Cutting Long-Term Assurance Track
 
 The feature milestones are necessary but insufficient for a high-assurance
@@ -493,8 +533,11 @@ feature added after MVP+17.
 
 - [x] Open the assurance-level and evidence-export plan without changing the
       repository's current pre-audit security posture.
-- [ ] Inventory current integrity, durability, recovery, freshness, authority,
-      provenance, platform, and unsupported claims.
+- [x] Publish the bounded v1 inventory of principal integrity, durability,
+      recovery, freshness, authority, provenance, platform, and unsupported
+      claims without presenting it as complete coverage.
+- [ ] Expand the inventory across every public claim and close remaining
+      unassessed assurance-critical dependency/source boundaries.
 - [ ] Advance AR-0010 into a risk-tiered dependency/source provenance policy
       backed by generated closure inventories.
 - [ ] Produce pinned, SBOM-described, checksummed, and provenance-attested
@@ -786,7 +829,8 @@ partial or stale milestones directly rather than forcing a pass/fail result.
 | +15 | Planned; architecture not admitted | Cluster fault-tolerance and replication plan | Replication AR, then MVP+15 slices |
 | +16 | Planned; depends on +15 | Cluster fault-tolerance and replication plan | Fencing and automatic-transfer slices |
 | +17 | Conditional long-term target | Consumer near-zero-RPO evidence required | Consensus admission and quorum slices |
-| Assurance | Proposed cross-cutting track | High-assurance engineering and evidence-export plan | Claim inventory and AR-0010 closure baseline |
+| Assurance | Proposed cross-cutting track; bounded inventory and generated closure baseline retained | High-assurance engineering and evidence-export plan | AR-0010 policy closure and named release profiles |
+| Crypto agility | Proposed; architecture not admitted | Cryptographic provider seam and suite-agility plan | Gate C0 review and exact format-v3 conservation baseline |
 
 ## Next Planning Gate
 
@@ -813,8 +857,14 @@ Before implementation moves beyond the completed MVP+9 baseline:
       implementation.
 - [ ] Define the initial K3s failure-domain, RPO/RTO, storage-provider, and
       fencing hypotheses before stabilizing deployment claims.
-- [ ] Inventory current public assurance claims and generate the first complete
-      dependency-closure baseline under AR-0010.
+- [ ] Complete the public assurance-claim inventory and remaining critical
+      dependency/source review under AR-0010; do not confuse the retained
+      generated closure baseline with completed assessment.
+- [x] Create the cryptographic provider and suite-agility plan without changing
+      format v3 or making a provider/compliance claim.
+- [ ] Open Gate C0 Architectural Review and capture exact crypto operation,
+      key-lifetime, byte-fixture, and error-conservation baselines before the
+      private provider seam is implemented.
 
 ## Completion Rules
 

@@ -102,6 +102,7 @@ nav:
           - Core Source Unit Decomposition: Plans/core-source-unit-decomposition.md
           - Cluster Fault Tolerance And Replication: Plans/cluster-fault-tolerance-and-replication.md
           - High-Assurance Engineering And Evidence Export: Plans/high-assurance-engineering-and-evidence-export.md
+          - Cryptographic Provider Seam And Suite Agility: Plans/cryptographic-provider-seam-and-suite-agility.md
           - Template: Plans/TEMPLATE.md
       - Change Requests:
           - CRs/README.md

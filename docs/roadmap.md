@@ -13,8 +13,11 @@ This page is the public roadmap summary. It is intentionally shorter than the re
 - advance [AR-0015](Architectural%20Reviews/AR-0015-native-replication-scope-authority-and-failure-model.md):
   define concrete failure domains, RPO/RTO hypotheses, authority epochs, and
   fencing requirements before native replication work
-- begin the cross-cutting assurance inventory and AR-0010 dependency-closure
-  baseline without changing the current pre-audit security posture
+- continue the cross-cutting assurance inventory and AR-0010 source/build
+  review from the retained dependency-closure baseline without changing the
+  current pre-audit security posture
+- retain the new crypto-agility plan and prepare its architecture/conservation
+  review without changing format v3 or exposing a provider SPI
 - keep the CLI, inspect contract, and TUI viewer coherent
 - keep crash, crypto, and verification behavior visible through tests and tooling
 - improve the trust surface around docs, diagnostics, and website guidance
@@ -32,12 +35,18 @@ This page is the public roadmap summary. It is intentionally shorter than the re
   provenance without merging those claims
 - retain fail-fast writer admission and bounded snapshot/WAL pressure while the
   hosted authority and cancellation contracts are reviewed
+- insert a private crypto backend seam only after its ADR is admitted, preserving
+  exact current bytes and errors before any public provider contract
 
 ## Later
 
 - logical SQL scans built on the admitted reader-visibility contract
 - composite and covering secondary indexes after measured caller pressure
 - mobile-facing wrappers and protector integrations
+- provider-owned opaque key lifecycle for future HSM, KMS, TPM, mobile-keystore,
+  or controlled cryptographic implementations
+- authenticated cryptographic-suite identity through a deliberate format
+  revision, followed by verified full-rewrite suite migration
 - entropy bookkeeping and richer audit reporting
 - an admitted single-leader replication representation, verified snapshot
   bootstrap, and asynchronous warm standby with manual fenced promotion
@@ -58,6 +67,8 @@ This page is the public roadmap summary. It is intentionally shorter than the re
 - production-hardening promises before the design and implementation earn them
 - blanket high-assurance, regulatory, certification, or defense-suitability
   claims detached from a named reviewed deployment profile
+- a `fips` feature flag or generic compliance claim inferred from algorithm or
+  provider selection
 
 ## For the full roadmap
 

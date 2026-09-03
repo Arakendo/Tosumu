@@ -10,7 +10,7 @@
 | Related ADRs | ADR-0001, ADR-0004, ADR-0005, ADR-0006, ADR-0007 |
 | Related reviews | AR-0003, AR-0004, AR-0005, AR-0006, AR-0007, AR-0008, AR-0015 |
 | Related CRs | None yet |
-| Depends on | Format-3 recovery and snapshots, stable backup/export, a reviewed service authority, explicit freshness evidence, a supported K3s storage topology, and the cross-cutting assurance/evidence track |
+| Depends on | Format-3 recovery and snapshots, stable backup/export, a reviewed service authority, explicit freshness evidence, a supported K3s storage topology, the cross-cutting assurance/evidence track, and reconciliation with the crypto-agility plan before replication depends on suite identity or provider portability |
 
 ## Status
 
@@ -85,6 +85,9 @@ pod restart
   exists.
 - `SECURITY.md` still excludes consistent multi-page rollback protection,
   remote attestation, network key escrow, and KMS integration.
+- The crypto-agility plan separates durable cryptographic-suite identity from
+  runtime provider identity. Replication must preserve the former and must not
+  infer portability, validation, or compliance from the latter.
 - K3s local-path persistent volumes remain node-local. A multi-node fault-
   tolerance claim therefore requires a reviewed CSI/block-storage provider or
   Tosumu-owned replica copies in separate failure domains.
@@ -270,12 +273,14 @@ The review must decide at least:
 5. how database identity, replica identity, authority epoch, and restored-copy
    identity differ;
 6. whether replicas share encryption material or maintain independently
-   protected logical copies;
+   protected logical copies, and how provider-owned non-exportable keys affect
+   bootstrap, reseed, recovery, and promotion;
 7. which component durably records acknowledgement and promotion evidence;
 8. which consistency model applies to reads from leaders and replicas;
 9. how retention pressure, lagging replicas, and forced reseeding are bounded;
-10. whether a stable format revision is required and what migration policy
-    protects existing databases; and
+10. whether a stable format revision is required, how authenticated crypto-
+    suite identity is preserved, and what migration policy protects existing
+    databases; and
 11. which consensus or coordination dependency, if any, is admitted after
     source, build-script, license, MSRV, and platform review.
 
@@ -689,7 +694,8 @@ qualification, key-lifecycle, and independent-review gates.
 Every supported cluster profile must make these observations available through
 bounded machine-readable evidence when their owning subsystems exist:
 
-- database, replica, build, and deployment-profile identity;
+- database, replica, build, deployment-profile, durable crypto-suite, and
+  runtime crypto-provider identity as distinct fields;
 - committed generation, replication position, and authority epoch as separate
   domains;
 - performed integrity and structural-verification dimensions;
@@ -763,6 +769,10 @@ classify it more precisely.
   promotion are distinct operations.
 - Mixed-version cohorts require an explicit compatibility interval. Rolling
   upgrade is unsupported until the matrix is executable.
+- Physical replicas preserve the source database's durable crypto-suite
+  identity. Provider implementation identity is deployment evidence, not file
+  meaning; a replica must refuse an unavailable or forbidden suite rather than
+  reinterpret ciphertext with its local creation default.
 - Downgrade must refuse rather than let an older writer erase replication or
   authority history it does not understand.
 
@@ -910,3 +920,4 @@ needs stronger guarantees than Tosumu has earned.
 - `docs/Architectural Reviews/AR-0015-native-replication-scope-authority-and-failure-model.md`
 - `docs/Plans/main-feature-roadmap.md`
 - `docs/Plans/high-assurance-engineering-and-evidence-export.md`
+- `docs/Plans/cryptographic-provider-seam-and-suite-agility.md`

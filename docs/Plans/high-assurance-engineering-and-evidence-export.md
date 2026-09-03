@@ -10,7 +10,7 @@
 | Related ADRs | ADR-0001, ADR-0002, ADR-0003 |
 | Related reviews | AR-0002, AR-0005, AR-0007, AR-0008, AR-0010, AR-0015 |
 | Related CRs | None yet |
-| Depends on | Current inspect/error contracts, retained recovery evidence, explicit threat model, and independently reviewable build/dependency inputs |
+| Depends on | Current inspect/error contracts, retained recovery evidence, explicit threat model, independently reviewable build/dependency inputs, and provider/suite identity from the crypto-agility track when implemented |
 
 ## Status
 
@@ -66,6 +66,10 @@ word "defense."
   recovery, freshness, authority, backup, durability, and build provenance.
 - AR-0010 records that Cargo lockfile resolution is useful but not a complete
   source-audit, offline-build, update, or release-provenance policy.
+- The crypto-agility plan distinguishes durable suite identity, runtime
+  provider identity, and deployment-profile evidence. Assurance composition
+  must preserve those meanings rather than turn provider selection into a
+  compliance conclusion.
 - AR-0007 and AR-0008 identify proportional evidence and externally observed
   terminal outcomes as unresolved cross-cutting disciplines.
 - `SECURITY.md` is explicit that the cryptographic composition is unaudited and
@@ -321,6 +325,7 @@ shape is:
 EvidenceBundle
   envelope: schema, collection identity, collector/build identity
   database: identity, format, committed generation
+  crypto: durable suite, runtime provider/module/configuration observations
   integrity: performed dimensions, results, findings, incomplete reasons
   recovery: checkpoint, WAL, startup-recovery observation
   freshness: anchor state, witness observations, gaps
@@ -890,6 +895,7 @@ specific pressure.
 - `docs/Architectural Reviews/AR-0010-dependency-trust-and-source-provenance.md`
 - `docs/Architectural Reviews/AR-0015-native-replication-scope-authority-and-failure-model.md`
 - `docs/Plans/cluster-fault-tolerance-and-replication.md`
+- `docs/Plans/cryptographic-provider-seam-and-suite-agility.md`
 - `docs/Plans/main-feature-roadmap.md`
 - `docs/Notes/assurance-claim-inventory-v1.md`
 - `docs/Notes/dependency-provenance-baseline-v1.md`
