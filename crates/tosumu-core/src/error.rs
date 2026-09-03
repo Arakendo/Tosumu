@@ -142,6 +142,22 @@ pub enum TosumuError {
         operation: &'static str,
     },
 
+    /// The target does not provide the atomic replacement and directory
+    /// durability contract required by offline VACUUM. No source mutation has
+    /// occurred.
+    #[error("offline VACUUM publication is unsupported on {platform}")]
+    VacuumPlatformUnsupported { platform: &'static str },
+
+    /// Atomic replacement succeeded, but syncing its containing directory
+    /// failed. The rebuilt database is authoritative and must not be rolled
+    /// back automatically.
+    #[error("VACUUM replaced {path:?}, but publication durability is uncertain: {source}")]
+    VacuumDurabilityUncertain {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
     /// The process-local snapshot registry is full. The caller may retry after
     /// another snapshot owned by the same database handle is dropped.
     #[error("snapshot limit reached: {active} active, maximum {maximum}")]
@@ -403,6 +419,30 @@ impl TosumuError {
                     },
                 ],
             },
+            TosumuError::VacuumPlatformUnsupported { platform } => ErrorReport {
+                code: codes::VACUUM_PLATFORM_UNSUPPORTED,
+                status: ErrorStatus::Unsupported,
+                message: self.to_string(),
+                details: vec![ErrorDetail {
+                    key: "platform",
+                    value: ErrorValue::Str((*platform).to_string()),
+                }],
+            },
+            TosumuError::VacuumDurabilityUncertain { path, source } => ErrorReport {
+                code: codes::VACUUM_DURABILITY_UNCERTAIN,
+                status: ErrorStatus::ExternalFailure,
+                message: self.to_string(),
+                details: vec![
+                    ErrorDetail {
+                        key: "path",
+                        value: ErrorValue::Str(path.display().to_string()),
+                    },
+                    ErrorDetail {
+                        key: "source",
+                        value: ErrorValue::Str(source.to_string()),
+                    },
+                ],
+            },
             TosumuError::SnapshotLimitReached { active, maximum } => ErrorReport {
                 code: codes::SNAPSHOT_LIMIT_REACHED,
                 status: ErrorStatus::Busy,
@@ -561,6 +601,11 @@ mod tests {
             TosumuError::FileBusy {
                 path: "test.tsm".into(),
                 operation: "test",
+            },
+            TosumuError::VacuumPlatformUnsupported { platform: "test" },
+            TosumuError::VacuumDurabilityUncertain {
+                path: "test.tsm".into(),
+                source: std::io::Error::other("test"),
             },
             TosumuError::SnapshotLimitReached {
                 active: 2,

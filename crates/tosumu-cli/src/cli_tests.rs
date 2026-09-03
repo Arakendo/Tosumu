@@ -9,6 +9,28 @@ use clap::{error::ErrorKind, CommandFactory};
 use tosumu_core::error::TosumuError;
 
 #[test]
+fn cli_parses_vacuum_with_explicit_keyfile_and_no_prompt() {
+    let cli = Cli::try_parse_from([
+        "tosumu",
+        "vacuum",
+        "db.tsm",
+        "--keyfile",
+        "db.key",
+        "--no-prompt",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Vacuum { path, unlock } => {
+            assert_eq!(path, PathBuf::from("db.tsm"));
+            assert_eq!(unlock.keyfile, Some(PathBuf::from("db.key")));
+            assert!(unlock.no_prompt);
+        }
+        _ => panic!("unexpected command variant"),
+    }
+}
+
+#[test]
 fn recovery_words_rechunk_into_eight_groups_of_four() {
     let secret = "ABCDEFGH-IJKLMNOP-QRSTUVWX-YZ234567";
     let words = recovery_words(secret);

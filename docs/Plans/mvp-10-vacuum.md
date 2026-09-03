@@ -15,7 +15,7 @@ recovery, generation, or encrypted-protector guarantees.
       the required old-or-new and durable-publication contract.
 - [x] Implement the Unix publication helper and its pre/post-publication failure
       classification.
-- [ ] Refuse Windows and other unsupported targets before checkpointing,
+- [x] Refuse Windows and other unsupported targets before checkpointing,
       creating staging artifacts, or mutating the source.
 - [ ] Prove same-directory replacement, source-old-or-new interruption states,
       and parent-directory durability behavior.
@@ -24,7 +24,7 @@ recovery, generation, or encrypted-protector guarantees.
 
 - [x] Add a private guarded source-open/checkpoint path that consumes or borrows
       an already acquired `WriterGuard`.
-- [ ] Retain the source sidecar gate across source close, staging verification,
+- [x] Retain the source sidecar gate across source close, staging verification,
       atomic replacement, and directory synchronization.
 - [ ] Prove a competing writer receives `FileBusy` throughout the operation.
 
@@ -42,8 +42,8 @@ recovery, generation, or encrypted-protector guarantees.
 
 - [x] Compare source and staging logical counts/digests without exposing values.
 - [x] Require complete structured verification and no staging WAL.
-- [ ] Atomically replace the source; never replace the writer sidecar.
-- [ ] Return a typed report with byte/page/count observations and durability
+- [x] Atomically replace the source; never replace the writer sidecar.
+- [x] Return a typed report with byte/page/count observations and durability
       confirmation.
 
 ### 5. Failure Matrix And Closure

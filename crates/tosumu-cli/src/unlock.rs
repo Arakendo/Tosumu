@@ -146,6 +146,30 @@ pub(crate) fn open_store_writable(path: &Path) -> Result<PageStore, CliError> {
     .map(|(store, _)| store)
 }
 
+pub(crate) fn vacuum_with_unlock(
+    path: &Path,
+    unlock: Option<UnlockSecret>,
+    no_prompt: bool,
+) -> Result<tosumu_core::vacuum::VacuumReport, CliError> {
+    open_with_resolved_unlock(
+        |resolved_unlock| match resolved_unlock {
+            None => tosumu_core::vacuum::vacuum(path),
+            Some(UnlockSecret::Passphrase(passphrase)) => {
+                tosumu_core::vacuum::vacuum_with_passphrase(path, passphrase)
+            }
+            Some(UnlockSecret::RecoveryKey(recovery_key)) => {
+                tosumu_core::vacuum::vacuum_with_recovery_key(path, recovery_key)
+            }
+            Some(UnlockSecret::Keyfile(keyfile)) => {
+                tosumu_core::vacuum::vacuum_with_keyfile(path, keyfile)
+            }
+        },
+        unlock,
+        no_prompt,
+    )
+    .map(|(report, _)| report)
+}
+
 pub(crate) fn open_pager(path: &Path) -> Result<(Pager, Option<UnlockSecret>), CliError> {
     open_with_unlock_fallback(
         |unlock| open_pager_readonly(path, unlock),

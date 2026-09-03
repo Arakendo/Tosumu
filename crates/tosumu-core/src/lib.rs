@@ -15,6 +15,7 @@ pub mod log_store;
 pub mod page_store;
 pub mod pager;
 pub mod provider;
+pub mod vacuum;
 pub mod wal;
 
 // ADR-0006 exposes logical shared ownership while the pager, B+ tree,
@@ -23,9 +24,8 @@ mod shared_owner;
 mod shared_store;
 #[allow(dead_code)]
 mod snapshot_registry;
-#[allow(dead_code)]
+#[cfg_attr(not(unix), allow(dead_code))]
 mod vacuum_publication;
-#[allow(dead_code)]
 mod vacuum_rebuild;
 mod writer_gate;
 

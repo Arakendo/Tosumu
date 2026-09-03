@@ -28,18 +28,18 @@ use tql_cli::render_tql_error_report_json;
 
 #[derive(Args, Clone, Default)]
 #[command(group(
-    ArgGroup::new("inspect_unlock")
+    ArgGroup::new("unlock")
         .args(["stdin_passphrase", "stdin_recovery_key", "keyfile"])
         .multiple(false)
 ))]
-struct InspectUnlockArgs {
-    /// Do not fall back to interactive prompts if unlock is required.
+struct UnlockArgs {
+    /// Do not fall back to interactive prompts if an unlock is required.
     #[arg(long)]
     no_prompt: bool,
-    /// Read a passphrase from stdin for this inspect command.
+    /// Read a passphrase from stdin.
     #[arg(long)]
     stdin_passphrase: bool,
-    /// Read a recovery key from stdin for this inspect command.
+    /// Read a recovery key from stdin.
     #[arg(long)]
     stdin_recovery_key: bool,
     /// Use a raw 32-byte keyfile for this inspect command.
@@ -209,6 +209,13 @@ enum Command {
         /// Destination path for the backup copy.
         dest: PathBuf,
     },
+    /// Rebuild a database into a compact verified sibling and replace it offline.
+    Vacuum {
+        /// Database path to compact.
+        path: PathBuf,
+        #[command(flatten)]
+        unlock: UnlockArgs,
+    },
     /// Manage key protectors (add, remove, list).
     Protector {
         #[command(subcommand)]
@@ -265,7 +272,7 @@ enum InspectAction {
         #[command(flatten)]
         json: InspectJsonArgs,
         #[command(flatten)]
-        unlock: InspectUnlockArgs,
+        unlock: UnlockArgs,
     },
     /// Inspect lightweight summaries for every data page.
     Pages {
@@ -273,7 +280,7 @@ enum InspectAction {
         #[command(flatten)]
         json: InspectJsonArgs,
         #[command(flatten)]
-        unlock: InspectUnlockArgs,
+        unlock: UnlockArgs,
     },
     /// Inspect a single decoded page.
     Page {
@@ -284,7 +291,7 @@ enum InspectAction {
         #[command(flatten)]
         json: InspectJsonArgs,
         #[command(flatten)]
-        unlock: InspectUnlockArgs,
+        unlock: UnlockArgs,
     },
     /// Inspect the WAL sidecar if present.
     Wal {
@@ -298,7 +305,7 @@ enum InspectAction {
         #[command(flatten)]
         json: InspectJsonArgs,
         #[command(flatten)]
-        unlock: InspectUnlockArgs,
+        unlock: UnlockArgs,
     },
     /// Inspect configured protectors / keyslots.
     Protectors {
@@ -370,6 +377,7 @@ impl Cli {
             Command::Verify { .. } => "verify",
             Command::View { .. } => "view",
             Command::Backup { .. } => "backup",
+            Command::Vacuum { .. } => "vacuum",
             Command::Sql { .. } => "sql",
             Command::Tql { .. } => "tql",
             Command::Protector { action } => match action {

@@ -1577,7 +1577,12 @@ Multi-reader concurrency without blocking writes.
   a later storage optimization (ADR-0008).
 - `VACUUM` command — offline verified sibling rebuild with retained writer
   admission and atomic source replacement; it preserves encryption protectors
-  and committed-generation continuity (ADR-0009).
+  and committed-generation continuity (ADR-0009). The initial implementation
+  is available on Unix, whose rename and directory-sync contracts meet the ADR;
+  Windows returns `VACUUM_PLATFORM_UNSUPPORTED` before source mutation pending
+  an equally strong documented publication primitive. Core entry points support
+  sentinel, passphrase, recovery-key, and keyfile unlock paths, and the CLI is
+  `tosumu vacuum <path>` with the shared unlock flags.
 - Benchmarks vs SQLite on small representative workloads (§11.11).
 
 **Proves:** real concurrency works. Read-heavy workloads don't block writers, and callers no longer have to open-code basic optimistic-concurrency races.

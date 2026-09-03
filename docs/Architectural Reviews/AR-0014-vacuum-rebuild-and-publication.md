@@ -63,8 +63,19 @@ would retain fragmentation; rewriting them must use fresh page nonces.
   record in its own bounded transaction, then drops and reopens staging through
   the source unlock path. It requires an empty staging WAL, matching logical
   count and length-framed SHA-256 digest, and a clean structured page/B-tree
-  verification report. Tests cover reclaimed sentinel data, encrypted data,
-  refusal to overwrite staging, and writer exclusion throughout rebuild work.
+  verification report. Tests cover reclaimed sentinel data and every supported
+  unlock path (passphrase, recovery key, and keyfile), plus refusal to overwrite
+  staging and writer exclusion throughout rebuild work.
+- Orchestration implementation evidence: public core entry points cover
+  sentinel, passphrase, recovery-key, and keyfile unlock paths, with a real CLI
+  caller at `tosumu vacuum`. Capability checking is the first operation.
+  Supported execution retains the source writer guard through source close,
+  staging-sidecar removal, atomic replacement, and directory synchronization.
+  The typed report returns record/page/byte observations and durable
+  confirmation; post-replacement sync failure maps to
+  `VACUUM_DURABILITY_UNCERTAIN` without rollback. The Windows test proves
+  `VACUUM_PLATFORM_UNSUPPORTED` leaves source, WAL, and lock bytes unchanged
+  and creates no staging artifact.
 - Platform publication evidence: POSIX `rename()` requires atomic replacement
   of an existing non-directory entry, and POSIX explicitly prescribes syncing
   the containing directory when the new name must be durably confirmed.

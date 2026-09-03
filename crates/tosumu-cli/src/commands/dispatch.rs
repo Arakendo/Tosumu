@@ -8,11 +8,11 @@ use super::inspect::{
 use super::protector::{run_protector_action, run_rekey_kek};
 use super::sql::run_sql;
 use super::store::{run_delete, run_get, run_init, run_put, run_scan, run_stat};
-use super::text::{cmd_backup, cmd_dump, cmd_hex, cmd_verify, VerifyCommandOutcome};
+use super::text::{cmd_backup, cmd_dump, cmd_hex, cmd_vacuum, cmd_verify, VerifyCommandOutcome};
 use crate::error_boundary::CliError;
 use crate::tql_cli::{run_tql, TqlRunOutcome};
 use crate::unlock::UnlockSecret;
-use crate::{Cli, Command, InspectAction, InspectUnlockArgs};
+use crate::{Cli, Command, InspectAction, UnlockArgs};
 
 pub(crate) enum RunOutcome {
     Success,
@@ -62,6 +62,10 @@ pub(crate) fn run(cli: Cli) -> Result<RunOutcome, CliError> {
         Command::View { path, watch } => crate::view::run(&path, watch)?,
         Command::Inspect { action } => return run_inspect_action(action),
         Command::Backup { src, dest } => cmd_backup(&src, &dest)?,
+        Command::Vacuum { path, unlock } => {
+            let (unlock, no_prompt) = resolve_unlock(unlock)?;
+            cmd_vacuum(&path, unlock, no_prompt)?;
+        }
         Command::Sql {
             path,
             query,
@@ -90,7 +94,7 @@ fn run_inspect_action(action: InspectAction) -> Result<RunOutcome, CliError> {
             }
         }
         InspectAction::Verify { path, json, unlock } => {
-            let (unlock, no_prompt) = resolve_inspect_unlock(unlock)?;
+            let (unlock, no_prompt) = resolve_unlock(unlock)?;
             if json.json {
                 println!("{}", cmd_inspect_verify_json(&path, unlock, no_prompt)?);
             } else {
@@ -102,7 +106,7 @@ fn run_inspect_action(action: InspectAction) -> Result<RunOutcome, CliError> {
             json: _,
             unlock,
         } => {
-            let (unlock, no_prompt) = resolve_inspect_unlock(unlock)?;
+            let (unlock, no_prompt) = resolve_unlock(unlock)?;
             let pages_json = cmd_inspect_pages_json(&path, unlock, no_prompt)?;
             println!("{pages_json}");
         }
@@ -112,7 +116,7 @@ fn run_inspect_action(action: InspectAction) -> Result<RunOutcome, CliError> {
             json,
             unlock,
         } => {
-            let (unlock, no_prompt) = resolve_inspect_unlock(unlock)?;
+            let (unlock, no_prompt) = resolve_unlock(unlock)?;
             if json.json {
                 println!("{}", cmd_inspect_page_json(&path, page, unlock, no_prompt)?);
             } else {
@@ -128,7 +132,7 @@ fn run_inspect_action(action: InspectAction) -> Result<RunOutcome, CliError> {
             json: _,
             unlock,
         } => {
-            let (unlock, no_prompt) = resolve_inspect_unlock(unlock)?;
+            let (unlock, no_prompt) = resolve_unlock(unlock)?;
             let tree_json = cmd_inspect_tree_json(&path, unlock, no_prompt)?;
             println!("{tree_json}");
         }
@@ -161,9 +165,7 @@ fn read_secret_from_stdin(
     Ok(secret)
 }
 
-fn resolve_inspect_unlock(
-    unlock: InspectUnlockArgs,
-) -> Result<(Option<UnlockSecret>, bool), CliError> {
+fn resolve_unlock(unlock: UnlockArgs) -> Result<(Option<UnlockSecret>, bool), CliError> {
     let no_prompt = unlock.no_prompt;
 
     if unlock.stdin_passphrase {

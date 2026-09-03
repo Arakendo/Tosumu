@@ -18,10 +18,12 @@ transactions, atomic write closures, and bounded connection diagnostics. See the
 delivery checklist.
 
 The initial shared API is deliberately synchronous and fail-fast. It does not
-yet add generic sessions, waiting or cancellation policy, cross-process pinned
-readers, secondary indexes, or `VACUUM`. It does provide owner-scoped
-database-generation tokens and atomic conditional writes without claiming
-durable per-key revisions.
+yet add generic sessions, waiting or cancellation policy, or cross-process
+pinned readers. It does provide owner-scoped database-generation tokens, atomic
+conditional writes, and SQL-owned single-column secondary indexes without
+claiming durable per-key revisions. Offline `VACUUM` is implemented on Unix;
+Windows refuses before mutation until an atomic, durably confirmable replacement
+primitive is admitted.
 
 | MVP | Capability | State |
 |---|---|---|
@@ -102,7 +104,7 @@ Six `cargo fuzz` targets in `fuzz/fuzz_targets/`: page decode, B+ tree ops, WAL 
 
 ## Roadmap
 
-See [`docs/Specifications/Tosumu Software Design Document.md §12`](docs/Specifications/Tosumu%20Software%20Design%20Document.md) for the full MVP and stage breakdown. MVP+8 is complete: `tosumu view` provides a cross-platform TUI (`ratatui` + `crossterm`) for inspecting file header, pages, B+ tree structure, WAL records, and per-keyslot detail on encrypted databases. MVP+9 adds the initial SQL layer and `tosumu sql` CLI path. MVP+10 now exposes the admitted shared KV snapshot and conditional-write contracts while secondary indexes, `VACUUM`, and representative concurrency benchmarks remain open.
+See [`docs/Specifications/Tosumu Software Design Document.md §12`](docs/Specifications/Tosumu%20Software%20Design%20Document.md) for the full MVP and stage breakdown. MVP+8 is complete: `tosumu view` provides a cross-platform TUI (`ratatui` + `crossterm`) for inspecting file header, pages, B+ tree structure, WAL records, and per-keyslot detail on encrypted databases. MVP+9 adds the initial SQL layer and `tosumu sql` CLI path. MVP+10 now exposes shared KV snapshots, conditional writes, SQL-owned secondary indexes, and the initial Unix offline `VACUUM`; failure-matrix closure and representative concurrency benchmarks remain open.
 
 ## License
 

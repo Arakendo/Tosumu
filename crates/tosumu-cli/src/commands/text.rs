@@ -249,6 +249,25 @@ pub(crate) fn cmd_backup(src: &Path, dest: &Path) -> Result<(), CliError> {
     Ok(())
 }
 
+pub(crate) fn cmd_vacuum(
+    source: &Path,
+    unlock: Option<crate::unlock::UnlockSecret>,
+    no_prompt: bool,
+) -> Result<(), CliError> {
+    let report = crate::unlock::vacuum_with_unlock(source, unlock, no_prompt)?;
+    println!(
+        "vacuumed {}: {} records, {} → {} pages, {} → {} bytes, durable={}",
+        report.source.display(),
+        report.logical_records,
+        report.pages_before,
+        report.pages_after,
+        report.bytes_before,
+        report.bytes_after,
+        report.publication_durably_confirmed
+    );
+    Ok(())
+}
+
 fn fmt_bytes(bytes: &[u8]) -> String {
     match std::str::from_utf8(bytes) {
         Ok(text) => format!("{text:?}"),

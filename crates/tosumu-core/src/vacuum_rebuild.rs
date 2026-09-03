@@ -90,48 +90,63 @@ pub(crate) fn rebuild_and_verify_staging(
     let source_digest = logical_digest(&source_records);
     let context = source.rebuild_context()?;
 
-    let mut staging = PageStore::create_rebuild_staging(staging_path, &context)?;
-    for (key, value) in &source_records {
-        staging.put(key, value)?;
-    }
-    let staging_pages = staging.stat()?.page_count;
-    drop(staging);
+    let mut owns_staging = false;
+    let result = (|| {
+        let mut staging = PageStore::create_rebuild_staging(staging_path, &context)?;
+        owns_staging = true;
+        for (key, value) in &source_records {
+            staging.put(key, value)?;
+        }
+        let staging_pages = staging.stat()?.page_count;
+        drop(staging);
 
-    let staging_wal = wal_path(staging_path);
-    if staging_wal.exists() && std::fs::metadata(&staging_wal)?.len() != 0 {
-        return Err(TosumuError::Io(std::io::Error::other(
-            "VACUUM staging WAL is not empty after rebuild",
-        )));
-    }
+        let staging_wal = wal_path(staging_path);
+        if staging_wal.exists() && std::fs::metadata(&staging_wal)?.len() != 0 {
+            return Err(TosumuError::Io(std::io::Error::other(
+                "VACUUM staging WAL is not empty after rebuild",
+            )));
+        }
 
-    let reopened = unlock.open_readonly(staging_path)?;
-    let staged_records = reopened.scan()?;
-    drop(reopened);
-    if staged_records.len() != source_records.len()
-        || logical_digest(&staged_records) != source_digest
-    {
-        return Err(TosumuError::Corrupt {
-            pgno: 0,
-            reason: "VACUUM staging logical verification failed",
-        });
-    }
+        let reopened = unlock.open_readonly(staging_path)?;
+        let staged_records = reopened.scan()?;
+        drop(reopened);
+        if staged_records.len() != source_records.len()
+            || logical_digest(&staged_records) != source_digest
+        {
+            return Err(TosumuError::Corrupt {
+                pgno: 0,
+                reason: "VACUUM staging logical verification failed",
+            });
+        }
 
-    let verification = unlock.verify(staging_path)?;
-    if verification.pages.pages_ok != verification.pages.pages_checked
-        || !verification.btree.checked
-        || !verification.btree.ok
-    {
-        return Err(TosumuError::Corrupt {
-            pgno: 0,
-            reason: "VACUUM staging structured verification failed",
-        });
-    }
+        let verification = unlock.verify(staging_path)?;
+        if verification.pages.pages_ok != verification.pages.pages_checked
+            || !verification.btree.checked
+            || !verification.btree.ok
+        {
+            return Err(TosumuError::Corrupt {
+                pgno: 0,
+                reason: "VACUUM staging structured verification failed",
+            });
+        }
 
-    Ok(StagingRebuild {
-        logical_records: source_records.len() as u64,
-        source_pages,
-        staging_pages,
-    })
+        Ok(StagingRebuild {
+            logical_records: source_records.len() as u64,
+            source_pages,
+            staging_pages,
+        })
+    })();
+
+    if result.is_err() && owns_staging {
+        cleanup_owned_staging(staging_path);
+    }
+    result
+}
+
+fn cleanup_owned_staging(staging_path: &Path) {
+    let _ = std::fs::remove_file(staging_path);
+    let _ = std::fs::remove_file(wal_path(staging_path));
+    let _ = std::fs::remove_file(crate::writer_gate::writer_lock_path(staging_path));
 }
 
 fn logical_digest(records: &[(Vec<u8>, Vec<u8>)]) -> [u8; 32] {
@@ -240,6 +255,60 @@ mod tests {
     }
 
     #[test]
+    fn recovery_key_rebuild_verifies_with_the_original_recovery_key() {
+        let directory = tempfile::tempdir().unwrap();
+        let source_path = directory.path().join("source-recovery.tsm");
+        let staging_path = directory.path().join("staging-recovery.tsm");
+        let mut created = PageStore::create_encrypted(&source_path, "initial secret").unwrap();
+        created.put(b"catalog", b"recovery protected").unwrap();
+        drop(created);
+        let recovery_key =
+            PageStore::add_recovery_key_protector(&source_path, "initial secret").unwrap();
+        let mut source = PageStore::open_with_recovery_key(&source_path, &recovery_key).unwrap();
+
+        rebuild_and_verify_staging(
+            &mut source,
+            &staging_path,
+            VacuumUnlock::RecoveryKey(&recovery_key),
+        )
+        .unwrap();
+
+        let staged =
+            PageStore::open_with_recovery_key_readonly(&staging_path, &recovery_key).unwrap();
+        assert_eq!(
+            staged.get(b"catalog").unwrap(),
+            Some(b"recovery protected".to_vec())
+        );
+    }
+
+    #[test]
+    fn keyfile_rebuild_verifies_with_the_original_keyfile() {
+        let directory = tempfile::tempdir().unwrap();
+        let source_path = directory.path().join("source-keyfile.tsm");
+        let staging_path = directory.path().join("staging-keyfile.tsm");
+        let keyfile_path = directory.path().join("protector.key");
+        std::fs::write(&keyfile_path, [0x5au8; 32]).unwrap();
+        let mut created = PageStore::create_encrypted(&source_path, "initial secret").unwrap();
+        created.put(b"catalog", b"keyfile protected").unwrap();
+        drop(created);
+        PageStore::add_keyfile_protector(&source_path, "initial secret", &keyfile_path).unwrap();
+        let mut source = PageStore::open_with_keyfile(&source_path, &keyfile_path).unwrap();
+
+        rebuild_and_verify_staging(
+            &mut source,
+            &staging_path,
+            VacuumUnlock::Keyfile(&keyfile_path),
+        )
+        .unwrap();
+
+        let staged = PageStore::open_with_keyfile_readonly(&staging_path, &keyfile_path).unwrap();
+        assert_eq!(
+            staged.get(b"catalog").unwrap(),
+            Some(b"keyfile protected".to_vec())
+        );
+    }
+
+    #[test]
     fn existing_staging_artifact_is_never_overwritten() {
         let directory = tempfile::tempdir().unwrap();
         let source_path = directory.path().join("source.tsm");
@@ -252,5 +321,26 @@ mod tests {
             rebuild_and_verify_staging(&mut source, &staging_path, VacuumUnlock::Sentinel).is_err()
         );
         assert_eq!(std::fs::read(staging_path).unwrap(), b"sentinel");
+    }
+
+    #[test]
+    fn owned_staging_artifacts_are_cleaned_after_verification_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let source_path = directory.path().join("source-encrypted.tsm");
+        let staging_path = directory.path().join("staging-encrypted.tsm");
+        let mut source = PageStore::create_encrypted(&source_path, "correct secret").unwrap();
+        source.put(b"key", b"value").unwrap();
+
+        let error = rebuild_and_verify_staging(
+            &mut source,
+            &staging_path,
+            VacuumUnlock::Passphrase("wrong secret"),
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, crate::error::TosumuError::WrongKey));
+        assert!(!staging_path.exists());
+        assert!(!wal_path(&staging_path).exists());
+        assert!(!crate::writer_gate::writer_lock_path(&staging_path).exists());
     }
 }

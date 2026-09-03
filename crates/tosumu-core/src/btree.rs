@@ -89,10 +89,22 @@ impl BTree {
     }
 
     pub(crate) fn create_rebuild_staging(path: &Path, context: &RebuildContext) -> Result<Self> {
+        // A create_new failure means this call never owned the path and must
+        // not clean anything at that name.
         let mut pager = Pager::create_rebuild_staging(path, context)?;
-        let root_pgno = pager.allocate(PAGE_TYPE_LEAF)?;
-        pager.set_root_page(root_pgno)?;
-        Ok(Self { pager })
+        let result = (|| {
+            let root_pgno = pager.allocate(PAGE_TYPE_LEAF)?;
+            pager.set_root_page(root_pgno)?;
+            Ok(Self { pager })
+        })();
+        if result.is_err() {
+            // Pager creation succeeded with create_new, so this call owns the
+            // staging artifacts even if root initialization failed.
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_file(crate::wal::wal_path(path));
+            let _ = std::fs::remove_file(crate::writer_gate::writer_lock_path(path));
+        }
+        result
     }
 
     pub(crate) fn rebuild_context(&mut self) -> Result<RebuildContext> {
