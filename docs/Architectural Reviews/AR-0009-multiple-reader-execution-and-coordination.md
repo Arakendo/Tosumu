@@ -49,9 +49,10 @@ durability semantics.
 - Repeated implementation friction: the first private transaction composed as
   `Sync` accidentally; SDD section 28.4 required a structural `Send`/`!Sync`
   correction before public admission.
-- Missing evidence: feedback from a separate downstream snapshot consumer,
-  final public names and visibility, session identity/age diagnostics, and any
-  future blocking, cancellation, or timeout policy.
+- Missing evidence: final decision and implementation of public names and
+  visibility. Session identity/age diagnostics and any future blocking,
+  cancellation, or timeout policy are deliberately outside the initial
+  candidate unless a caller supplies new evidence.
 
 ## Ownership And Dependency Analysis
 
@@ -414,3 +415,23 @@ public MVCC contract through that implementation.
 - Resulting ADR or documentation change: retain the expanded API behind the
   non-default experimental feature; do not promote its names to a supported
   contract yet.
+
+### Cycle 12 -- 2026-09-02
+
+- Status entering review: Incubating
+- New evidence: the separate `tosumu-sql` crate now forwards the experimental
+  feature and consumes the shared owner using its real row-key and row-value
+  codecs. It atomically publishes two encoded rows, captures a snapshot,
+  commits an update/delete/insert generation, and decodes the unchanged
+  historical range while latest reads observe the new SQL-shaped state.
+- Findings: a downstream logical layer needs shared ownership, atomic KV
+  writes, pinned point/range reads, and bounded diagnostics. It does not need a
+  core `Session`, SQL meaning, pager access, waiting policy, or background
+  executor. The existing top-level `KvStore`/`KvTransaction` vocabulary argues
+  for `SharedKvStore`, `KvReadTransaction`, `KvWriteTransaction`, and
+  `KvConnectionInfo`; generic `Database`/`Session` names should remain available
+  for the SDD's later typestate composition.
+- Disposition: promotion prerequisites are satisfied. Prepare an ADR for the
+  minimal fail-fast KV surface and keep richer session/host policy deferred.
+- Resulting ADR or documentation change: the SQL integration fixture becomes
+  the independent caller evidence for the public-contract decision.

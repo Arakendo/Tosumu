@@ -215,6 +215,7 @@ waiting or stale-frame truncation.
 | --- | --- | --- | --- |
 | Current behavior | MVP+10 baseline integration tests | `cargo test -p tosumu-core --test mvp10_baseline` | Pass |
 | Experimental caller | Opt-in external-style integration test | `cargo test -p tosumu-core --features experimental-shared-readers --test experimental_shared_readers` | Pass |
+| SQL-layer caller | Feature-gated SQL row-codec integration | `cargo test -p tosumu-sql --features experimental-shared-readers --test experimental_shared_readers` | Pass |
 | Recovery | Existing pager/WAL recovery suites | `cargo test -p tosumu-core wal` | Pass |
 | Provider boundary | External consumer suite | `cargo test -p tosumu-core --test provider_boundary` | Pass |
 | Static quality | Workspace formatting and Clippy | Standard workspace commands | Pass |
@@ -490,6 +491,11 @@ format/recovery design that can retain committed versions safely.
   external fixture proves multi-mutation commit, caller-error rollback without
   generation advance, an unchanged older snapshot, wrong-key rejection, and
   encrypted reopen durability.
+- Added a separate `tosumu-sql` integration caller using real SQL row keys and
+  row encoding. Its captured range decodes the old rows after a later atomic
+  update/delete/insert commit, while latest reads decode the new state. This
+  closes AR-0009's downstream-caller gate without coupling SQL semantics into
+  `tosumu-core`.
 
 ## References
 
