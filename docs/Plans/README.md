@@ -22,8 +22,8 @@ validation, and exit states.
 - [MVP+10 Secondary Indexes](mvp-10-secondary-indexes.md) -- implements the
   ADR-0008 SQL-owned ordered index representation after reader visibility and
   conditional writes.
-- [MVP+10 VACUUM](mvp-10-vacuum.md) -- **Active** implementation plan for the
-  ADR-0009 offline verified rebuild and atomic publication contract.
+- [MVP+10 VACUUM](mvp-10-vacuum.md) -- implementation closure recorded for the
+  ADR-0009 offline verified rebuild; native Unix CI confirmation remains open.
 - [Initial SQL Layer](initial-sql-layer.md) -- MVP+9 baseline complete; retained
   as **Completed baseline** implementation history and a source for deferred
   SQL work.

@@ -112,8 +112,12 @@ would retain fragmentation; rewriting them must use fresh page nonces.
 - Rust portability evidence: `std::fs::rename` currently maps to POSIX
   `rename()` on Unix and one of multiple Win32 mechanisms on Windows. Its API
   does not strengthen the Windows mechanisms into the guarantee required here.
-- Missing evidence: no encrypted rebuild constructor or interruption matrix
-  exists yet.
+- Remaining platform execution evidence: the Unix success-path replacement test
+  cannot execute on the current Windows development host. It is present under
+  native `cfg(unix)` and remains a required Linux/macOS CI result; injected
+  publication tests are classification evidence, not emulated atomicity proof.
+- Closure validation on 2026-09-02 passed workspace formatting, strict Clippy,
+  all-target tests (including benchmark smoke workloads), and strict MkDocs.
 
 ## Ownership And Dependency Analysis
 
@@ -206,8 +210,8 @@ Accepted through ADR-0009.
 - [x] Admit POSIX `rename()` plus containing-directory `fsync()` on Unix; reject
       Windows before mutation pending a documented atomic/durable mechanism.
 - [x] Refactor guarded open/checkpoint without permitting public gate bypass.
-- [ ] Implement crypto/generation-preserving staging rebuild and verification.
-- [ ] Add interruption tests before, during, and after publication.
+- [x] Implement crypto/generation-preserving staging rebuild and verification.
+- [x] Add interruption tests before, during, and after publication.
 
 ## Reopening Triggers
 
@@ -228,6 +232,18 @@ vacuum, incremental vacuum, cancellation after publication, or DEK rotation.
 - Disposition: Accepted through ADR-0009.
 - Resulting ADR or documentation change: open a dedicated implementation plan
   with platform publication and encrypted-state preservation as early gates.
+
+### Cycle 2 -- 2026-09-02
+
+- Status entering review: Accepted / implementation active.
+- New evidence: retained admission, state-preserving rebuild, source and staging
+  verification, free-space preflight, public core and CLI callers, and the full
+  injected failure matrix are implemented and pass the workspace gate.
+- Findings: the admitted Unix implementation is ready for native CI execution;
+  Windows remains an explicit pre-mutation refusal, and injected failures do not
+  substitute for native atomic-replacement evidence.
+- Disposition: implementation closure recorded; retain the platform execution
+  item until Linux/macOS CI passes, then move active MVP+10 work to benchmarks.
 
 ### Cycle 2 -- 2026-09-02
 

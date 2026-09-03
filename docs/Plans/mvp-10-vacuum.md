@@ -55,8 +55,8 @@ recovery, generation, or encrypted-protector guarantees.
       staging files.
 - [x] Prove post-publication uncertainty never restores an older source.
 - [x] Cover unencrypted and every supported protector unlock path.
-- [ ] Run formatting, strict clippy, all-target tests, and strict docs.
-- [ ] Update ADR/AR history and advance MVP+10 to benchmark closure.
+- [x] Run formatting, strict clippy, all-target tests, and strict docs.
+- [x] Update ADR/AR history and advance MVP+10 to benchmark closure.
 
 ## Acceptance
 
