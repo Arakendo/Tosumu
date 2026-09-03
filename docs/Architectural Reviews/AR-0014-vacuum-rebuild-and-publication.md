@@ -52,6 +52,13 @@ would retain fragmentation; rewriting them must use fresh page nonces.
   directory. Its typed internal result distinguishes a rename failure from a
   post-rename durability failure; unsupported targets return before inspecting
   or changing either path.
+- Rebuild-state implementation evidence: a private pager context captures the
+  authenticated page-zero image and active derived keys after writable recovery
+  has checkpointed. The staging constructor copies format/protector identity,
+  resets only allocation fields, retains the checkpoint-generation lower bound,
+  and uses the ordinary encrypted page writer. A focused encrypted test proves
+  the passphrase still unlocks, keyslot bytes remain identical, generation does
+  not move backward, and identical page plaintext receives a different frame.
 - Platform publication evidence: POSIX `rename()` requires atomic replacement
   of an existing non-directory entry, and POSIX explicitly prescribes syncing
   the containing directory when the new name must be durably confirmed.

@@ -30,9 +30,9 @@ recovery, generation, or encrypted-protector guarantees.
 
 ### 3. Rebuild State Transfer
 
-- [ ] Capture format, active crypto material, protector slots, and committed
+- [x] Capture format, active crypto material, protector slots, and committed
       generation through a private typed rebuild context.
-- [ ] Create a sibling staging database with the preserved context and fresh
+- [x] Create a sibling staging database with the preserved context and fresh
       page nonces/authentication.
 - [ ] Copy every live logical key/value pair in bounded transactions while
       preserving generation monotonicity.

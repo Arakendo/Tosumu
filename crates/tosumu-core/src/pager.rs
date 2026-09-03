@@ -113,6 +113,15 @@ pub struct Pager {
     txn_saved_freelist_head: u64,
 }
 
+/// Encryption and header identity carried into a VACUUM staging database.
+/// Physical allocation fields are reset by the staging constructor.
+#[allow(dead_code)]
+pub(crate) struct RebuildContext {
+    page0: Box<[u8; PAGE_SIZE]>,
+    page_key: [u8; 32],
+    header_mac_key: Option<[u8; 32]>,
+}
+
 trait PagerPhaseTwoFile: Seek + Write {
     fn sync_data(&mut self) -> std::io::Result<()>;
 }
@@ -224,6 +233,80 @@ impl Pager {
             ));
         }
         Self::open_inner_with_writer_guard(path, OpenUnlock::Sentinel, writer_guard.clone())
+    }
+
+    /// Capture the authenticated header and active derived keys after writable
+    /// open has checkpointed recovery. The context never leaves core.
+    #[allow(dead_code)]
+    pub(crate) fn rebuild_context(&mut self) -> Result<RebuildContext> {
+        self.ensure_writable()?;
+
+        self.file.seek(SeekFrom::Start(0))?;
+        let mut page0 = Box::new([0u8; PAGE_SIZE]);
+        self.file.read_exact(page0.as_mut())?;
+        validate_header(page0.as_ref())?;
+        if let Some(ref header_mac_key) = self.header_mac_key {
+            let count = keyslot_count(page0.as_ref());
+            let stored_mac = read_header_mac_field(page0.as_ref())?;
+            verify_header_mac(header_mac_key, page0.as_ref(), count, &stored_mac)?;
+        }
+
+        Ok(RebuildContext {
+            page0,
+            page_key: self.page_key,
+            header_mac_key: self.header_mac_key,
+        })
+    }
+
+    /// Create a one-page staging database with the source's format, protector
+    /// slots, active encryption keys, and committed-generation lower bound.
+    /// Allocated data pages are encrypted normally and therefore receive fresh
+    /// random nonces and authentication tags.
+    #[allow(dead_code)]
+    pub(crate) fn create_rebuild_staging(path: &Path, context: &RebuildContext) -> Result<Self> {
+        let writer_guard = WriterGuard::acquire(path)?;
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(path)?;
+
+        let mut page0 = context.page0.clone();
+        write_u64(page0.as_mut(), OFF_PAGE_COUNT, 1);
+        write_u64(page0.as_mut(), OFF_FREELIST_HEAD, 0);
+        write_u64(page0.as_mut(), OFF_ROOT_PAGE, 0);
+        if let Some(ref header_mac_key) = context.header_mac_key {
+            let mac = compute_header_mac(header_mac_key, page0.as_ref(), MAX_KEYSLOTS);
+            page0[OFF_HEADER_MAC..OFF_HEADER_MAC + 32].copy_from_slice(&mac);
+        }
+
+        file.write_all(page0.as_ref())?;
+        file.sync_data()?;
+        let checkpoint_lsn = read_u64(page0.as_ref(), OFF_WAL_CHECKPOINT_LSN);
+        let wal = WalWriter::open_or_create_seeded(&wal_path(path), wal_seed_from_page0(&page0)?)?;
+
+        Ok(Pager {
+            file,
+            _writer_guard: Some(writer_guard),
+            page_key: context.page_key,
+            header_mac_key: context.header_mac_key,
+            page_count: 1,
+            freelist_head: 0,
+            root_page: 0,
+            wal: Some(wal),
+            read_only: false,
+            health: PagerHealth::Healthy,
+            txn_active: false,
+            txn_id: 0,
+            next_txn_id: 1,
+            dirty_pages: HashMap::new(),
+            committed_index: CommittedWalIndex::empty(checkpoint_lsn),
+            snapshot_registry: Arc::new(SnapshotRegistry::default()),
+            pending_header_flush: false,
+            txn_saved_page_count: 0,
+            txn_saved_root_page: 0,
+            txn_saved_freelist_head: 0,
+        })
     }
 
     /// Open an existing database file in read-only mode.
@@ -2324,5 +2407,50 @@ mod tests {
             Err(error) => error,
         };
         assert!(matches!(error, TosumuError::InvalidArgument(_)));
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn rebuild_staging_preserves_protectors_and_generation_with_fresh_page_nonce() {
+        let dir = TempDir::new().unwrap();
+        let source_path = dir.path().join("source_encrypted.tsm");
+        let staging_path = dir.path().join("staging_encrypted.tsm");
+
+        let mut source = Pager::create_encrypted(&source_path, "correct horse").unwrap();
+        source.begin_txn().unwrap();
+        let source_root = source.allocate(PAGE_TYPE_LEAF).unwrap();
+        source.set_root_page(source_root).unwrap();
+        source.commit_txn().unwrap();
+        drop(source);
+
+        // Writable reopen checkpoints the committed WAL, so page zero is the
+        // durable generation captured by VACUUM.
+        let mut source = Pager::open_with_passphrase(&source_path, "correct horse").unwrap();
+        let context = source.rebuild_context().unwrap();
+        let source_checkpoint = read_u64(context.page0.as_ref(), OFF_WAL_CHECKPOINT_LSN);
+        assert!(source_checkpoint > 0);
+
+        let source_frame = source.read_frame(source_root).unwrap();
+        let mut staging = Pager::create_rebuild_staging(&staging_path, &context).unwrap();
+        let staging_root = staging.allocate(PAGE_TYPE_LEAF).unwrap();
+        staging.set_root_page(staging_root).unwrap();
+        let staging_frame = staging.read_frame(staging_root).unwrap();
+
+        assert_ne!(source_frame, staging_frame, "page nonce was reused");
+        drop(staging);
+        drop(source);
+
+        let mut reopened = Pager::open_with_passphrase(&staging_path, "correct horse").unwrap();
+        assert_eq!(reopened.root_page(), staging_root);
+        let rebuilt_context = reopened.rebuild_context().unwrap();
+        assert_eq!(
+            &rebuilt_context.page0
+                [KEYSLOT_REGION_OFFSET..KEYSLOT_REGION_OFFSET + MAX_KEYSLOTS * KEYSLOT_SIZE],
+            &context.page0
+                [KEYSLOT_REGION_OFFSET..KEYSLOT_REGION_OFFSET + MAX_KEYSLOTS * KEYSLOT_SIZE]
+        );
+        assert!(
+            read_u64(rebuilt_context.page0.as_ref(), OFF_WAL_CHECKPOINT_LSN) >= source_checkpoint
+        );
     }
 }
