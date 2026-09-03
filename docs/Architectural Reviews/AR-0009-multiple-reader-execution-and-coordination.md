@@ -483,3 +483,21 @@ checkpointing remain outside the accepted contract.
 - Disposition: remain Accepted through ADR-0006.
 - Resulting ADR or documentation change: public specifications and roadmaps now
   identify conditional writes as the next MVP+10 slice.
+
+### Cycle 16 -- 2026-09-02
+
+- Status entering review: Accepted.
+- New evidence: Criterion reader fanout remains near 15 K logical reads/s from
+  one through eight threads on the measured Windows host, consistent with the
+  current owner mutex. A four-reader/one-writer workload asserts retained old
+  values and fresh new visibility on every iteration.
+- Findings: MVP+10 establishes coherent concurrent lifetimes, not parallel read
+  scaling. The repeated overlap workload also exposed a duplicate-heavy leaf
+  split defect; a public 160-cycle regression now proves compaction preserves
+  both pinned historical and latest values.
+- Disposition: remain Accepted through ADR-0006. Treat parallel reader
+  execution as a reopening trigger requiring a different pager/cache ownership
+  design, not as an unimplemented promise of the current contract.
+- Resulting ADR or documentation change: ADR-0006 and the SDD now state the
+  serialized-read limitation; benchmark observations are retained in the
+  dedicated MVP+10 benchmark plan.

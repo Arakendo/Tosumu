@@ -15,7 +15,7 @@ validation, and exit states.
 
 - [Main Feature Roadmap](main-feature-roadmap.md) -- canonical implementation
   status tracker; **Active**. MVP 0-8 and the MVP+9 baseline are complete;
-  the MVP+10 baseline is now the active planning gate.
+  native Unix VACUUM CI confirmation is the final MVP+10 gate.
 - [MVP+10 Multiple Readers And Coordination](mvp-10-multiple-readers.md) --
   **Proposed; baseline recorded** for current handle, visibility, writer, and
   checkpoint behavior under AR-0009.
@@ -24,8 +24,8 @@ validation, and exit states.
   conditional writes.
 - [MVP+10 VACUUM](mvp-10-vacuum.md) -- implementation closure recorded for the
   ADR-0009 offline verified rebuild; native Unix CI confirmation remains open.
-- [MVP+10 Benchmark Closure](mvp-10-benchmarks.md) -- **Active** plan for shared
-  reader scaling, writer-overlap, and SQLite comparison evidence.
+- [MVP+10 Benchmark Closure](mvp-10-benchmarks.md) -- **Complete** reader
+  scaling, writer-overlap, and SQLite comparison evidence.
 - [Initial SQL Layer](initial-sql-layer.md) -- MVP+9 baseline complete; retained
   as **Completed baseline** implementation history and a source for deferred
   SQL work.

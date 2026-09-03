@@ -1590,8 +1590,12 @@ Multi-reader concurrency without blocking writes.
   failure.
 - Benchmarks vs SQLite on small representative workloads (§11.11).
 
-**Proves:** real concurrency works. Read-heavy workloads don't block writers, and callers no longer have to open-code basic optimistic-concurrency races.
-**Demo:** 10 reader threads scanning while 1 writer inserts — no contention, no stale errors.
+**Proves:** coherent process-local snapshots coexist with serialized writer
+commits, and callers no longer have to open-code basic optimistic-concurrency
+races. The initial shared owner uses one mutex and does not claim parallel read
+execution or scaling.
+**Demo:** four pinned readers retain their old value across one writer commit;
+after release, a fresh read observes the new value.
 **Explicitly not there:** no multi-writer, no distributed concurrency.
 
 #### MVP +11 — "It runs on mobile" *(Stage 7 — iOS/Android)*

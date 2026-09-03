@@ -104,7 +104,7 @@ Six `cargo fuzz` targets in `fuzz/fuzz_targets/`: page decode, B+ tree ops, WAL 
 
 ## Roadmap
 
-See [`docs/Specifications/Tosumu Software Design Document.md §12`](docs/Specifications/Tosumu%20Software%20Design%20Document.md) for the full MVP and stage breakdown. MVP+8 is complete: `tosumu view` provides a cross-platform TUI (`ratatui` + `crossterm`) for inspecting file header, pages, B+ tree structure, WAL records, and per-keyslot detail on encrypted databases. MVP+9 adds the initial SQL layer and `tosumu sql` CLI path. MVP+10 now exposes shared KV snapshots, conditional writes, SQL-owned secondary indexes, and the initial Unix offline `VACUUM`; native Unix CI confirmation and representative concurrency benchmarks remain open.
+See [`docs/Specifications/Tosumu Software Design Document.md §12`](docs/Specifications/Tosumu%20Software%20Design%20Document.md) for the full MVP and stage breakdown. MVP+8 is complete: `tosumu view` provides a cross-platform TUI (`ratatui` + `crossterm`) for inspecting file header, pages, B+ tree structure, WAL records, and per-keyslot detail on encrypted databases. MVP+9 adds the initial SQL layer and `tosumu sql` CLI path. MVP+10 now exposes shared KV snapshots, conditional writes, SQL-owned secondary indexes, and the initial Unix offline `VACUUM`; representative concurrency benchmarks are recorded and native Unix VACUUM CI confirmation remains open.
 
 ## License
 

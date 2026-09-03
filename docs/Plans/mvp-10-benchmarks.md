@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active |
+| Status | Complete |
 | Opened | 2026-09-02 |
 | Last updated | 2026-09-02 |
 | Owner | Tosumu maintainers |
@@ -13,11 +13,11 @@
 
 ## Status
 
-The existing Criterion suite compares plain `PageStore` and SQLite WAL-mode
-insert, point lookup, range scan, and full scan workloads. It does not exercise
-the public MVP+10 shared owner, reader scaling, or a writer committing while
-snapshots remain pinned. This plan adds that missing evidence without turning
-measurements into performance guarantees.
+The Criterion suite now covers the public MVP+10 shared owner at 1, 4, and 8
+reader threads and a four-reader/one-writer overlap, alongside the retained
+plain SQLite comparisons. The overlap workload uncovered and drove a fix for a
+duplicate-heavy leaf split bug before results were accepted. Native Unix VACUUM
+CI remains the separate final MVP+10 milestone gate.
 
 ## Purpose
 
@@ -60,12 +60,38 @@ Synthetic values contain no secrets.
 ## Deliverables
 
 - [x] Inventory the retained benchmark and identify the missing MVP+10 paths.
-- [ ] Add public shared-snapshot reader-scaling comparisons against SQLite WAL.
-- [ ] Add reader/writer overlap comparisons with assertions inside the workload.
-- [ ] Run benchmark smoke tests, strict Clippy, and release-mode measurements.
-- [ ] Record environment, commands, observations, and limitations.
-- [ ] Reconcile the roadmap and mark MVP+10 complete only after native Unix
-      VACUUM CI and benchmark evidence both pass.
+- [x] Add public shared-snapshot reader-scaling comparisons against SQLite WAL.
+- [x] Add reader/writer overlap comparisons with assertions inside the workload.
+- [x] Run benchmark smoke tests, strict Clippy, and release-mode measurements.
+- [x] Record environment, commands, observations, and limitations.
+- [x] Reconcile the roadmap without marking MVP+10 complete before native Unix
+      VACUUM CI passes.
+
+## Retained Observations
+
+Measured 2026-09-02 on x86_64 Windows 10.0.26200, AMD Family 25 Model 97, with
+Rust 1.95.0 and Criterion's release profile. Values below are Criterion point
+estimates; generated reports remain under ignored `target/criterion/`.
+
+| Workload | Tosumu | SQLite |
+| --- | ---: | ---: |
+| 1 reader, 128 lookups | 8.130 ms / 15.745 Kelem/s | 1.902 ms / 67.302 Kelem/s |
+| 4 readers, 512 lookups | 33.895 ms / 15.105 Kelem/s | 4.646 ms / 110.21 Kelem/s |
+| 8 readers, 1,024 lookups | 66.669 ms / 15.359 Kelem/s | 7.746 ms / 132.20 Kelem/s |
+| 4 pinned readers + 1 writer | 1.984 ms / 4.536 Kelem/s | 6.401 ms / 1.406 Kelem/s |
+
+Tosumu's reader-only throughput is effectively flat as reader count grows,
+which matches the current `Arc<Mutex<BTree>>` owner: snapshots are coherent and
+movable between threads, but individual reads do not execute in parallel. The
+overlap result includes thread creation, snapshot/connection lifecycle,
+correctness assertions, and one durable writer operation; it must not be read as
+an isolated write-latency comparison.
+
+The retained single-thread suite observed Tosumu/SQLite point estimates of
+57.189/12.370 ms for 1,000 inserts, 44.927/4.073 us for point lookup,
+108.29/18.755 us for a 100-row range scan, and 6.678/1.406 ms for a 10,000-row
+full scan. Dataset, API, durability configuration, and machine constraints make
+these comparison evidence rather than a general ranking.
 
 ## Validation Matrix
 
@@ -99,6 +125,19 @@ Synthetic values contain no secrets.
 - Findings: no architecture decision or new dependency is required; benchmark
   construction belongs in the existing non-published benchmark crate.
 - Next slice: implement deterministic reader fanout and reader/writer overlap.
+
+### 2026-09-02 -- implementation and measurement
+
+- Work completed: added both benchmark groups through public `SharedKvStore`
+  and SQLite WAL transactions, with snapshot assertions in the timed overlap.
+- Validation: bench all-target smoke and strict Clippy passed; both release
+  benchmark commands and the retained plain comparison completed.
+- Findings: the first repeated overlap run found a fresh-read disappearance on
+  a duplicate-heavy hot leaf. Regression reduction failed at revision 56;
+  commit `3e3a06f` compacts the deduplicated live set before splitting and the
+  160-cycle public regression now passes.
+- Plan changes: benchmark work is complete. MVP+10 remains open only for native
+  Unix execution of the admitted VACUUM publication path.
 
 ## References
 

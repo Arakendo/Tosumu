@@ -90,6 +90,9 @@ mechanism would make the compatibility boundary ambiguous.
 
 - Embedded callers can share one writer owner across threads while retaining
   coherent historical logical reads.
+- The initial owner mutex serializes each logical read operation. Multiple
+  snapshots may coexist and a writer may commit between their calls, but this
+  decision does not claim parallel read execution or scaling.
 - `tosumu-sql` has a real lower-layer snapshot contract for later scan work
   without teaching core about tables or SQL.
 - Long-lived readers can defer checkpoints and cause bounded write rejection;
@@ -120,7 +123,8 @@ mechanism would make the compatibility boundary ambiguous.
 Revisit this decision if a consumer needs cross-process pinned readers,
 read-only shared owners, recovery-key/keyfile constructors, configurable
 retention limits, partial checkpoints, session identity/age, bounded waiting or
-cancellation, async integration, or a typestate locked/unlocked database.
+cancellation, async integration, parallel read throughput, or a typestate
+locked/unlocked database.
 
 ## References
 

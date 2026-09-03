@@ -4,10 +4,10 @@
 | --- | --- |
 | Status | Active |
 | Opened | 2026-08-03 |
-| Last updated | 2026-09-02 (benchmark closure opened) |
+| Last updated | 2026-09-02 (benchmark closure recorded) |
 | Owner | Tosumu maintainers |
 | Authority | Tracking plan; `docs/Specifications/Tosumu Software Design Document.md` remains normative |
-| Current milestone | MVP+10 benchmark closure |
+| Current milestone | MVP+10 native Unix VACUUM CI confirmation |
 
 ## Purpose
 
@@ -259,7 +259,7 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
       and compare-and-set/version operations).
 - [x] Plain single-column SQL-owned ordered secondary indexes (ADR-0008).
 - [x] `VACUUM` with explicit reclamation, interruption, and publication rules.
-- [ ] Representative concurrency and SQLite comparison benchmarks.
+- [x] Representative concurrency and SQLite comparison benchmarks.
 
 **Acceptance Criteria**
 
@@ -484,9 +484,11 @@ conditional writes. Plain single-column secondary indexes now have atomic
 backfill and mutation, snapshot lookup, failure rollback, and reopen evidence.
 Offline `VACUUM` now has retained writer admission, protector/generation
 preservation, verified staging, explicit space and platform refusal, and a full
-injected failure matrix. Native Unix CI confirmation remains open because the
-current development host is Windows. Representative concurrency and SQLite
-comparison benchmarks are the remaining MVP+10 implementation scope.
+injected failure matrix. Benchmark closure records reader fanout,
+reader/writer overlap, and the retained single-thread SQLite comparison; the
+observations show coherent but mutex-serialized Tosumu reads. Native Unix CI
+confirmation remains the final MVP+10 gate because the current development host
+is Windows.
 
 ### MVP+11 Audit
 
@@ -588,7 +590,7 @@ partial or stale milestones directly rather than forcing a pass/fail result.
 | +7 | Verified | Protector lifecycle and attack tests | Maintain key-management evidence |
 | +8 | Verified | TUI/view tests and structured inspect contracts | Maintain viewer evidence |
 | +9 | Verified baseline; deferred scope named | `initial-sql-layer.md`; audit and logical scans explicitly moved out | Post-MVP+10 SQL and future audit plans |
-| +10 | Snapshots, conditional writes, indexes, and offline VACUUM delivered; benchmark closure active | ADR-0005 through ADR-0009; focused MVP+10 plans; shared KV, SQL, and VACUUM tests | Native Unix VACUUM CI and representative benchmarks |
+| +10 | Snapshots, conditional writes, indexes, offline VACUUM, and benchmarks delivered | ADR-0005 through ADR-0009; focused MVP+10 plans; shared KV, SQL, VACUUM, and Criterion evidence | Native Unix VACUUM CI |
 | +11 | Not started | Future dedicated plan | Unassigned |
 | +12 | Not started | Architectural Review required | Unassigned |
 | +13 | Not started | Future dedicated plan and format decision | Unassigned |
