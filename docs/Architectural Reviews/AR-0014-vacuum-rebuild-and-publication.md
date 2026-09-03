@@ -41,8 +41,20 @@ would retain fragmentation; rewriting them must use fresh page nonces.
 - Repeated implementation friction: current constructors acquire their own
   writer guard, so an offline operation cannot retain one source guard across
   both open/checkpoint and replacement without a guarded-open refactor.
-- Missing evidence: no cross-platform atomic-replace helper, directory-sync
-  evidence, encrypted rebuild constructor, or interruption matrix exists yet.
+- Platform publication evidence: POSIX `rename()` requires atomic replacement
+  of an existing non-directory entry, and POSIX explicitly prescribes syncing
+  the containing directory when the new name must be durably confirmed.
+- Windows publication evidence: `ReplaceFileW` documents failure outcomes in
+  which the replaced path can be absent or the old file can have moved to a
+  different name; its `REPLACEFILE_WRITE_THROUGH` flag is unsupported.
+  `MoveFileExW` documents replacement, but its write-through guarantee applies
+  specifically to moves implemented as copy-and-delete and does not state the
+  required atomic old-or-new crash contract.
+- Rust portability evidence: `std::fs::rename` currently maps to POSIX
+  `rename()` on Unix and one of multiple Win32 mechanisms on Windows. Its API
+  does not strengthen the Windows mechanisms into the guarantee required here.
+- Missing evidence: no encrypted rebuild constructor or interruption matrix
+  exists yet.
 
 ## Ownership And Dependency Analysis
 
@@ -103,6 +115,21 @@ the source atomically. If that guarantee is unavailable, the operation refuses
 before source mutation. The source WAL must be empty before replacement; the
 persistent writer-lock sidecar is neither replaced nor removed.
 
+The initial publication capability is admitted on Unix: synchronize the staged
+file, open the containing directory, call same-directory `rename()`, then
+`fsync()` the already-open directory descriptor. A rename failure is
+pre-publication. An `fsync()` failure after rename is publication-complete but
+durability-uncertain and must be reported as such.
+
+Windows is not admitted for initial publication. Neither the documented
+`ReplaceFileW` nor `MoveFileExW` contract proves both atomic old-or-new
+replacement and durable namespace confirmation, so Windows must reject VACUUM
+before checkpointing, creating staging artifacts, or otherwise mutating the
+source. This is a platform limitation, not permission to emulate replacement
+with delete/rename steps. Reopen this finding if Microsoft documents a suitable
+primitive or a narrowly reviewed dependency supplies a stronger contract with
+auditable evidence.
+
 Failure or cancellation before publication leaves the source authoritative and
 removes only recognized staging artifacts. After the publication point the
 operation reports success or a specific durability-uncertain outcome; it must
@@ -117,7 +144,8 @@ Accepted through ADR-0009.
 ## Required Follow-Up
 
 - [x] Record offline rebuild and publication invariants in ADR-0009.
-- [ ] Inventory and admit the platform atomic-replacement mechanism.
+- [x] Admit POSIX `rename()` plus containing-directory `fsync()` on Unix; reject
+      Windows before mutation pending a documented atomic/durable mechanism.
 - [ ] Refactor guarded open/checkpoint without permitting public gate bypass.
 - [ ] Implement crypto/generation-preserving staging rebuild and verification.
 - [ ] Add interruption tests before, during, and after publication.
@@ -141,3 +169,22 @@ vacuum, incremental vacuum, cancellation after publication, or DEK rotation.
 - Disposition: Accepted through ADR-0009.
 - Resulting ADR or documentation change: open a dedicated implementation plan
   with platform publication and encrypted-state preservation as early gates.
+
+### Cycle 2 -- 2026-09-02
+
+- Status entering review: Accepted, publication mechanism unresolved.
+- New evidence: POSIX specifies atomic replacement and directory `fsync()`;
+  Microsoft documents partial `ReplaceFileW` failure states, an unsupported
+  write-through flag, and no equivalent old-or-new durability guarantee for
+  `MoveFileExW`.
+- Findings: Unix publication is implementable without a new dependency;
+  Windows must refuse before source mutation rather than inherit an unproven
+  filesystem claim.
+- Disposition: Accepted with Unix as the first supported publication target and
+  Windows explicitly unsupported until stronger evidence is available.
+- Sources:
+  [POSIX `rename()`](https://pubs.opengroup.org/onlinepubs/9799919799/functions/rename.html),
+  [POSIX directory durability rationale](https://pubs.opengroup.org/onlinepubs/9799919799/xrat/V4_xbd_chap01.html),
+  [Microsoft `ReplaceFileW`](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-replacefilew),
+  [Microsoft `MoveFileExW`](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw),
+  [Rust `std::fs::rename`](https://doc.rust-lang.org/std/fs/fn.rename.html).

@@ -9,10 +9,16 @@ recovery, generation, or encrypted-protector guarantees.
 
 ### 1. Platform Publication Evidence
 
-- [ ] Define native Windows and Unix atomic replacement helpers.
+- [x] Admit Unix `rename()` plus containing-directory `fsync()` as the initial
+      atomic replacement and durability mechanism.
+- [x] Record why documented Windows replacement mechanisms do not yet establish
+      the required old-or-new and durable-publication contract.
+- [ ] Implement the Unix publication helper and its pre/post-publication failure
+      classification.
+- [ ] Refuse Windows and other unsupported targets before checkpointing,
+      creating staging artifacts, or mutating the source.
 - [ ] Prove same-directory replacement, source-old-or-new interruption states,
       and parent-directory durability behavior.
-- [ ] Refuse unsupported targets before creating or mutating source artifacts.
 
 ### 2. Retained Writer Admission
 
