@@ -191,6 +191,31 @@ callers establish the contract.
 - Resulting ADR or documentation change: private prototype and conservation
   properties only; no public method or C range export.
 
+### Cycle 3 -- 2026-09-03
+
+- Status entering review: Incubating; boundary and corruption falsifications
+  required before reviewing a public contract.
+- New evidence: a focused test derives a real leaf boundary from the built tree
+  and exhausts both limits exactly at that boundary; the continuation is the
+  first key in the next leaf and the resumed page conserves the complete scan.
+  Fault tests then replace an overflow chain with a cycle. When the declared
+  logical size exceeds the admitted budget, the page returns the blocked key
+  and size without reading the excluded chain. Raising the budget admits the
+  same entry and preserves the existing `OverflowChainCorrupt` result. A
+  declared length above `MAX_VALUE_SIZE` is rejected immediately even when the
+  entry would otherwise be excluded.
+- Findings: logical continuation needs no physical lookahead at a leaf
+  boundary. Bounded exclusion may deliberately defer corruption that exists
+  only inside unread overflow pages, but it does not defer validation of the
+  trusted leaf metadata used to make the exclusion decision. Once an entry is
+  admitted, existing overflow validation and typed failures remain conserved.
+- Disposition: remain Incubating. The private traversal has cleared its
+  implementation-falsification gate. Review and admit the smallest public Rust
+  result vocabulary, then require an integration test outside `tosumu-core`
+  before exposing the operation to C.
+- Resulting ADR or documentation change: no public API or ADR amendment yet;
+  the next gate changes from traversal feasibility to public-contract evidence.
+
 ## References
 
 - `../ADR/ADR-0001-storage-engine-layer-boundaries.md`

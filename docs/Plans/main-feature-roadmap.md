@@ -7,7 +7,7 @@
 | Last updated | 2026-09-03 (cluster, assurance, and crypto-agility tracks opened) |
 | Owner | Tosumu maintainers |
 | Authority | Tracking plan; `docs/Specifications/Tosumu Software Design Document.md` remains normative |
-| Current milestone | MVP+11 bounded snapshot-scan falsification and public-contract review |
+| Current milestone | MVP+11 bounded snapshot-scan public-contract admission |
 
 ## Purpose
 

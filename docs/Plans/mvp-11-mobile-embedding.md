@@ -195,10 +195,11 @@ No rung implies the next.
 
 ## Immediate Next Slice
 
-Extend AR-0018's passing private prototype with malformed-length/corruption and
-exact leaf-boundary falsifications. Then review the public result vocabulary
-and require an external core integration test before amending ADR-0006 or
-adding C range symbols.
+Review and admit AR-0018's smallest public Rust result vocabulary now that the
+private prototype has passed malformed-length, corruption, and exact leaf-
+boundary falsifications. Implement it with an external core integration test;
+only then let the independent C caller consume multiple pages and a blocked-
+entry result. Amend ADR-0006 only after both callers conserve the contract.
 
 ## References
 
