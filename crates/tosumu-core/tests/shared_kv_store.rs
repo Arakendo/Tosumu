@@ -170,6 +170,43 @@ fn external_caller_observes_stable_snapshot_while_shared_writer_advances() {
 }
 
 #[test]
+fn repeated_pinned_overwrites_keep_the_latest_value_visible() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("repeated-pinned-overwrites.tsm");
+    let database = SharedKvStore::create(&path).unwrap();
+    let key = b"hot-key";
+    database.put(key, &[0; 128]).unwrap();
+
+    for revision in 1..=160u64 {
+        let expected = database.get(key).unwrap().unwrap();
+        let readers: Vec<_> = (0..4).map(|_| database.snapshot().unwrap()).collect();
+        for reader in &readers {
+            assert_eq!(
+                reader.get(key).unwrap().as_deref(),
+                Some(expected.as_slice())
+            );
+        }
+
+        let mut replacement = [0x42; 128];
+        replacement[..8].copy_from_slice(&revision.to_le_bytes());
+        database.put(key, &replacement).unwrap();
+
+        for reader in &readers {
+            assert_eq!(
+                reader.get(key).unwrap().as_deref(),
+                Some(expected.as_slice())
+            );
+        }
+        drop(readers);
+        assert_eq!(
+            database.get(key).unwrap().as_deref(),
+            Some(replacement.as_slice()),
+            "latest value disappeared after revision {revision}"
+        );
+    }
+}
+
+#[test]
 fn encrypted_owner_commits_and_rolls_back_atomic_write_closures() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("encrypted-shared-kv-store.tsm");

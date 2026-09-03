@@ -615,6 +615,20 @@ impl BTree {
             }
         }
 
+        // A physically full leaf can still have a small live set after
+        // last-write-wins deduplication (for example, repeated overwrites of
+        // one hot key). Compact that set in place before deciding a structural
+        // split is necessary. Splitting a one-record live set would create an
+        // empty left leaf and repeated equal separators on later fills.
+        match self
+            .pager
+            .with_page_mut(pgno, |page| leaf_rewrite_refs(page, old_next, &records))
+        {
+            Ok(()) => return Ok(None),
+            Err(TosumuError::OutOfSpace) => {}
+            Err(error) => return Err(error),
+        }
+
         if records.is_empty() {
             return Err(TosumuError::Corrupt {
                 pgno,
