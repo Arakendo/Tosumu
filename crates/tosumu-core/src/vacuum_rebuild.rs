@@ -62,6 +62,13 @@ pub(crate) struct StagingRebuild {
     pub(crate) staging_pages: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RebuildPhase {
+    StagingCreation,
+    RecordCopy(u64),
+    Verification,
+}
+
 pub(crate) fn open_guarded_source(
     source_path: &Path,
     unlock: VacuumUnlock<'_>,
@@ -79,6 +86,15 @@ pub(crate) fn rebuild_and_verify_staging(
     staging_path: &Path,
     unlock: VacuumUnlock<'_>,
 ) -> Result<StagingRebuild> {
+    rebuild_and_verify_staging_with_observer(source, staging_path, unlock, |_| Ok(()))
+}
+
+fn rebuild_and_verify_staging_with_observer(
+    source: &mut PageStore,
+    staging_path: &Path,
+    unlock: VacuumUnlock<'_>,
+    mut observe: impl FnMut(RebuildPhase) -> Result<()>,
+) -> Result<StagingRebuild> {
     if staging_path.exists() || wal_path(staging_path).exists() {
         return Err(TosumuError::InvalidArgument(
             "VACUUM staging path already exists",
@@ -89,12 +105,14 @@ pub(crate) fn rebuild_and_verify_staging(
     let source_records = source.scan()?;
     let source_digest = logical_digest(&source_records);
     let context = source.rebuild_context()?;
+    observe(RebuildPhase::StagingCreation)?;
 
     let mut owns_staging = false;
     let result = (|| {
         let mut staging = PageStore::create_rebuild_staging(staging_path, &context)?;
         owns_staging = true;
-        for (key, value) in &source_records {
+        for (record_index, (key, value)) in source_records.iter().enumerate() {
+            observe(RebuildPhase::RecordCopy(record_index as u64))?;
             staging.put(key, value)?;
         }
         let staging_pages = staging.stat()?.page_count;
@@ -106,6 +124,8 @@ pub(crate) fn rebuild_and_verify_staging(
                 "VACUUM staging WAL is not empty after rebuild",
             )));
         }
+
+        observe(RebuildPhase::Verification)?;
 
         let reopened = unlock.open_readonly(staging_path)?;
         let staged_records = reopened.scan()?;
@@ -162,7 +182,10 @@ fn logical_digest(records: &[(Vec<u8>, Vec<u8>)]) -> [u8; 32] {
 
 #[cfg(test)]
 mod tests {
-    use super::{open_guarded_source, rebuild_and_verify_staging, VacuumUnlock};
+    use super::{
+        open_guarded_source, rebuild_and_verify_staging, rebuild_and_verify_staging_with_observer,
+        RebuildPhase, VacuumUnlock,
+    };
     use crate::error::TosumuError;
     use crate::page_store::PageStore;
     use crate::wal::wal_path;
@@ -339,6 +362,54 @@ mod tests {
         .unwrap_err();
 
         assert!(matches!(error, crate::error::TosumuError::WrongKey));
+        assert!(!staging_path.exists());
+        assert!(!wal_path(&staging_path).exists());
+        assert!(!crate::writer_gate::writer_lock_path(&staging_path).exists());
+    }
+
+    #[test]
+    fn injected_copy_failure_preserves_source_and_cleans_owned_staging() {
+        assert_injected_rebuild_failure_cleans(RebuildPhase::RecordCopy(2));
+    }
+
+    #[test]
+    fn injected_verification_failure_preserves_source_and_cleans_owned_staging() {
+        assert_injected_rebuild_failure_cleans(RebuildPhase::Verification);
+    }
+
+    fn assert_injected_rebuild_failure_cleans(failing_phase: RebuildPhase) {
+        let directory = tempfile::tempdir().unwrap();
+        let source_path = directory.path().join("source.tsm");
+        let staging_path = directory.path().join("staging.tsm");
+        let mut source = PageStore::create(&source_path).unwrap();
+        for index in 0..5u32 {
+            source
+                .put(
+                    format!("key-{index}").as_bytes(),
+                    format!("value-{index}").as_bytes(),
+                )
+                .unwrap();
+        }
+        let expected = source.scan().unwrap();
+
+        let error = rebuild_and_verify_staging_with_observer(
+            &mut source,
+            &staging_path,
+            VacuumUnlock::Sentinel,
+            |phase| {
+                if phase == failing_phase {
+                    Err(TosumuError::Io(std::io::Error::other(
+                        "injected rebuild failure",
+                    )))
+                } else {
+                    Ok(())
+                }
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, TosumuError::Io(_)));
+        assert_eq!(source.scan().unwrap(), expected);
         assert!(!staging_path.exists());
         assert!(!wal_path(&staging_path).exists());
         assert!(!crate::writer_gate::writer_lock_path(&staging_path).exists());

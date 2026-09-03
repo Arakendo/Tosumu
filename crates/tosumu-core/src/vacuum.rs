@@ -51,13 +51,14 @@ fn vacuum_inner(source: &Path, unlock: VacuumUnlock<'_>) -> Result<VacuumReport>
 }
 
 fn vacuum_supported(source: &Path, unlock: VacuumUnlock<'_>) -> Result<VacuumReport> {
-    vacuum_supported_with_publisher(source, unlock, replace_database)
+    vacuum_supported_with_publisher(source, unlock, replace_database, || Ok(()))
 }
 
 fn vacuum_supported_with_publisher(
     source: &Path,
     unlock: VacuumUnlock<'_>,
     publish: impl FnOnce(&Path, &Path) -> std::result::Result<PublicationDurability, PublicationError>,
+    before_source_open: impl FnOnce() -> Result<()>,
 ) -> Result<VacuumReport> {
     let staging = staging_path(source);
     let staging_wal = wal_path(&staging);
@@ -66,6 +67,7 @@ fn vacuum_supported_with_publisher(
     let mut owns_staging = false;
     let result = (|| {
         let writer_guard = WriterGuard::acquire(source)?;
+        before_source_open()?;
         let mut source_store = open_guarded_source(source, unlock, &writer_guard)?;
         let bytes_before = std::fs::metadata(source)?.len();
 
@@ -187,6 +189,7 @@ mod tests {
                     },
                 )
             },
+            || Ok(()),
         )
         .unwrap_err();
 
@@ -234,6 +237,7 @@ mod tests {
                     },
                 )
             },
+            || Ok(()),
         )
         .unwrap_err();
 
@@ -245,6 +249,40 @@ mod tests {
             PageStore::open_readonly(&source).unwrap().scan().unwrap(),
             expected
         );
+        assert!(vacuum_staging_entries(directory.path()).is_empty());
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn failure_before_source_open_prevents_checkpoint_and_staging() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source.tsm");
+        let mut store = PageStore::create(&source).unwrap();
+        store.put(b"key", b"value").unwrap();
+        drop(store);
+        let source_before = std::fs::read(&source).unwrap();
+        let wal = crate::wal::wal_path(&source);
+        let wal_before = std::fs::read(&wal).unwrap();
+
+        let error = super::vacuum_supported_with_publisher(
+            &source,
+            crate::vacuum_rebuild::VacuumUnlock::Sentinel,
+            |_, _| panic!("publication must not run"),
+            || {
+                assert!(matches!(
+                    crate::writer_gate::WriterGuard::acquire(&source),
+                    Err(TosumuError::FileBusy { .. })
+                ));
+                Err(TosumuError::Io(io::Error::other(
+                    "injected before source open",
+                )))
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, TosumuError::Io(_)));
+        assert_eq!(std::fs::read(&source).unwrap(), source_before);
+        assert_eq!(std::fs::read(wal).unwrap(), wal_before);
         assert!(vacuum_staging_entries(directory.path()).is_empty());
     }
 

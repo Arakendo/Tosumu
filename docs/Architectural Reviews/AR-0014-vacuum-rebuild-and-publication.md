@@ -83,6 +83,13 @@ would retain fragmentation; rewriting them must use fresh page nonces.
   `VACUUM_DURABILITY_UNCERTAIN`, and proves cleanup does not restore the old
   file. Staging cleanup is armed only after create-new succeeds, so a name
   collision is refused without deleting the pre-existing path.
+- The injected matrix now also stops after gate acquisition but before source
+  open/checkpoint, during a selected record copy, and immediately before staged
+  verification. The first leaves source and WAL bytes unchanged; the latter two
+  preserve the source's logical record set and remove the owned staging main,
+  WAL, and writer-lock paths. Together with the replacement and directory-sync
+  cases, every boundary named by the initial failure plan is exercised without
+  using platform emulation as evidence for atomicity.
 - Platform publication evidence: POSIX `rename()` requires atomic replacement
   of an existing non-directory entry, and POSIX explicitly prescribes syncing
   the containing directory when the new name must be durably confirmed.
