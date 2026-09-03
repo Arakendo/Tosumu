@@ -13,6 +13,13 @@ use super::{
     HDR_PAGE_TYPE,
 };
 
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) struct BoundedScanPage {
+    pub(crate) pairs: Vec<(Vec<u8>, Vec<u8>)>,
+    pub(crate) next_start_inclusive: Option<Vec<u8>>,
+    pub(crate) blocked_entry_payload_bytes: Option<u64>,
+}
+
 trait ReadSource {
     fn root_page(&self) -> u64;
     fn page_count(&self) -> u64;
@@ -108,6 +115,19 @@ impl BTree {
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn scan_page_at_snapshot(
+        &self,
+        pin: &SnapshotPin,
+        start: &[u8],
+        end: &[u8],
+        maximum_pairs: usize,
+        maximum_payload_bytes: u64,
+    ) -> Result<BoundedScanPage> {
+        let source = SnapshotReadSource::new(&self.pager, pin)?;
+        scan_page_from(&source, start, end, maximum_pairs, maximum_payload_bytes)
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn snapshot_diagnostics(&self) -> Result<SnapshotDiagnostics> {
         self.pager.snapshot_diagnostics()
     }
@@ -179,6 +199,84 @@ fn scan_from<R: ReadSource>(
     Ok(results.into_iter().collect())
 }
 
+fn scan_page_from<R: ReadSource>(
+    source: &R,
+    start: &[u8],
+    end: &[u8],
+    maximum_pairs: usize,
+    maximum_payload_bytes: u64,
+) -> Result<BoundedScanPage> {
+    if maximum_pairs == 0 || maximum_payload_bytes == 0 || start > end {
+        return Err(TosumuError::InvalidArgument(
+            "bounded scan requires positive limits and start <= end",
+        ));
+    }
+
+    let first_leaf = find_leaf_from(source, start)?;
+    let mut pairs = Vec::new();
+    let mut payload_bytes = 0u64;
+    let mut cursor = first_leaf;
+
+    loop {
+        let (leaf_pairs, next) = source.with_page(cursor, |page| {
+            Ok((leaf_read_all_refs(page), read_u64(page, HDR_LEFTMOST)))
+        })?;
+        for (key, value) in leaf_pairs {
+            if key.as_slice() > end {
+                return Ok(BoundedScanPage {
+                    pairs,
+                    next_start_inclusive: None,
+                    blocked_entry_payload_bytes: None,
+                });
+            }
+            if key.as_slice() < start {
+                continue;
+            }
+
+            let value_length = match &value {
+                LeafValue::Inline(value) => value.len() as u64,
+                LeafValue::Overflow { head, length } => {
+                    validate_overflow_length(*head, *length)? as u64
+                }
+            };
+            let entry_payload = (key.len() as u64).checked_add(value_length).ok_or(
+                TosumuError::InvalidArgument("bounded scan entry payload length overflow"),
+            )?;
+            if pairs.len() >= maximum_pairs {
+                return Ok(BoundedScanPage {
+                    pairs,
+                    next_start_inclusive: Some(key),
+                    blocked_entry_payload_bytes: None,
+                });
+            }
+            if entry_payload > maximum_payload_bytes - payload_bytes {
+                return Ok(BoundedScanPage {
+                    pairs,
+                    next_start_inclusive: Some(key),
+                    blocked_entry_payload_bytes: Some(entry_payload),
+                });
+            }
+
+            let value = match value {
+                LeafValue::Inline(value) => value,
+                LeafValue::Overflow { head, length } => {
+                    read_overflow_chain_from(source, head, length)?
+                }
+            };
+            payload_bytes += entry_payload;
+            pairs.push((key, value));
+        }
+        if next == 0 {
+            return Ok(BoundedScanPage {
+                pairs,
+                next_start_inclusive: None,
+                blocked_entry_payload_bytes: None,
+            });
+        }
+        cursor = next;
+    }
+}
+
 fn find_leaf_from<R: ReadSource>(source: &R, key: &[u8]) -> Result<u64> {
     const MAX_DEPTH: usize = 64;
     let mut pgno = source.root_page();
@@ -214,18 +312,7 @@ fn find_leaf_from<R: ReadSource>(source: &R, key: &[u8]) -> Result<u64> {
 }
 
 fn read_overflow_chain_from<R: ReadSource>(source: &R, head: u64, length: u64) -> Result<Vec<u8>> {
-    let length = usize::try_from(length).map_err(|_| TosumuError::OverflowChainCorrupt {
-        pgno: head,
-        length,
-        reason: "overflow logical length does not fit usize",
-    })?;
-    if length > MAX_VALUE_SIZE {
-        return Err(TosumuError::OverflowChainCorrupt {
-            pgno: head,
-            length: length as u64,
-            reason: "overflow logical length exceeds maximum",
-        });
-    }
+    let length = validate_overflow_length(head, length)?;
 
     let expected_pages = length.div_ceil(OVERFLOW_PAYLOAD_SIZE);
     let mut value = Vec::with_capacity(length);
@@ -266,4 +353,20 @@ fn read_overflow_chain_from<R: ReadSource>(source: &R, head: u64, length: u64) -
         });
     }
     Ok(value)
+}
+
+fn validate_overflow_length(head: u64, length: u64) -> Result<usize> {
+    let converted = usize::try_from(length).map_err(|_| TosumuError::OverflowChainCorrupt {
+        pgno: head,
+        length,
+        reason: "overflow logical length does not fit usize",
+    })?;
+    if converted > MAX_VALUE_SIZE {
+        return Err(TosumuError::OverflowChainCorrupt {
+            pgno: head,
+            length,
+            reason: "overflow logical length exceeds maximum",
+        });
+    }
+    Ok(converted)
 }

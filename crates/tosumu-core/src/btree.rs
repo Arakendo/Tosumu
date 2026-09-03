@@ -1556,6 +1556,83 @@ mod tests {
     }
 
     #[test]
+    fn bounded_snapshot_pages_concatenate_to_complete_scan() {
+        let p = tmp("bounded_scan_pages");
+        let _ = std::fs::remove_file(&p);
+
+        let mut tree = BTree::create(&p).unwrap();
+        for i in 0u32..180 {
+            let key = format!("key{i:04}");
+            let value = format!("value{i:04}");
+            tree.put(key.as_bytes(), value.as_bytes()).unwrap();
+        }
+        let expected = tree.scan_by_key(b"key0010", b"key0169").unwrap();
+        let pin = tree.pin_snapshot().unwrap();
+        let mut start = b"key0010".to_vec();
+        let mut observed = Vec::new();
+        let mut pages = 0;
+
+        loop {
+            let page = tree
+                .scan_page_at_snapshot(&pin, &start, b"key0169", 7, 96)
+                .unwrap();
+            assert!(page.pairs.len() <= 7);
+            assert!(
+                page.pairs
+                    .iter()
+                    .map(|(key, value)| (key.len() + value.len()) as u64)
+                    .sum::<u64>()
+                    <= 96
+            );
+            observed.extend(page.pairs);
+            pages += 1;
+            match page.next_start_inclusive {
+                Some(next) => start = next,
+                None => break,
+            }
+        }
+
+        assert!(pages > 2, "fixture must cross multiple bounded pages");
+        assert_eq!(observed, expected);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn bounded_snapshot_page_reports_oversized_overflow_without_returning_it() {
+        let p = tmp("bounded_scan_overflow");
+        let _ = std::fs::remove_file(&p);
+
+        let mut tree = BTree::create(&p).unwrap();
+        let value = vec![0x5a; PAGE_PLAINTEXT_SIZE * 3];
+        tree.put(b"large", &value).unwrap();
+        let pin = tree.pin_snapshot().unwrap();
+        let page = tree
+            .scan_page_at_snapshot(&pin, b"large", b"large", 1, 64)
+            .unwrap();
+
+        assert!(page.pairs.is_empty());
+        assert_eq!(page.next_start_inclusive, Some(b"large".to_vec()));
+        assert_eq!(
+            page.blocked_entry_payload_bytes,
+            Some((b"large".len() + value.len()) as u64)
+        );
+
+        let admitted = tree
+            .scan_page_at_snapshot(
+                &pin,
+                b"large",
+                b"large",
+                1,
+                (b"large".len() + value.len()) as u64,
+            )
+            .unwrap();
+        assert_eq!(admitted.pairs, vec![(b"large".to_vec(), value)]);
+        assert_eq!(admitted.next_start_inclusive, None);
+        assert_eq!(admitted.blocked_entry_payload_bytes, None);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
     fn btree_splits_on_many_inserts() {
         let p = tmp("splits");
         let _ = std::fs::remove_file(&p);
