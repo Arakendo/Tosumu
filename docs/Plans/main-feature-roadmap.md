@@ -4,10 +4,10 @@
 | --- | --- |
 | Status | Active |
 | Opened | 2026-08-03 |
-| Last updated | 2026-09-02 (experimental encrypted owner and atomic writes) |
+| Last updated | 2026-09-02 (supported shared KV snapshot contract) |
 | Owner | Tosumu maintainers |
 | Authority | Tracking plan; `docs/Specifications/Tosumu Software Design Document.md` remains normative |
-| Current milestone | MVP+10 public shared-reader contract admission |
+| Current milestone | MVP+10 conditional writes |
 
 ## Purpose
 
@@ -251,14 +251,10 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
 - [x] Dedicated plan with an executable baseline of current lock/read behavior.
 - [x] Accepted format-v3 generation, retained-WAL, limit, checkpoint, and
       compatibility architecture in ADR-0005.
-- [ ] Read transactions pinned to a stable LSN snapshot.
-      Private point/range reads and ownership are executable; this remains open
-      while the SQL caller evidence is promoted through an ADR-backed supported
-      KV contract.
-- [ ] Single-writer/multiple-reader coordination without readers observing
-      partial commits.
-      The experimental owner now proves one mutex-held multi-mutation write and
-      an unchanged older snapshot; supported API admission remains open.
+- [x] Read transactions pinned to a stable committed-generation snapshot,
+      exposed through the ADR-0006 `SharedKvStore` contract.
+- [x] Single-writer/multiple-reader coordination without readers observing
+      partial commits, including one atomic multi-mutation write closure.
 - [ ] Version-observing reads and conditional-write helpers (`put_if_absent`
       and compare-and-set/version operations).
 - [ ] Plain single-column secondary B+ tree indexes.
@@ -267,15 +263,15 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
 
 **Acceptance Criteria**
 
-- [ ] Concurrent readers each observe a coherent snapshot.
-- [ ] A writer can commit without invalidating or partially changing an active
+- [x] Concurrent readers each observe a coherent snapshot.
+- [x] A writer can commit without invalidating or partially changing an active
       reader's snapshot.
 - [ ] Conditional writes reject stale preconditions atomically.
 - [ ] Secondary-index mutation is atomic with primary-row mutation and remains
       correct through recovery.
 - [ ] `VACUUM` preserves all committed logical rows and does not replace the
       source with an incomplete artifact.
-- [ ] Concurrency limits and unsupported multi-writer behavior are explicit.
+- [x] Concurrency limits and unsupported multi-writer behavior are explicit.
 
 ### MVP+11: It Runs On Mobile
 
@@ -481,11 +477,9 @@ covered.
 
 ### MVP+10 Audit
 
-The storage prerequisites are no longer `NOT STARTED`. Private executable
-evidence proves coherent pinned point/range reads, writer commits that preserve
-active snapshots, finite registration/retained-WAL limits, diagnostics, and
-last-reader recovery. The public shared-handle transaction contract remains
-open, so the corresponding milestone acceptance boxes above stay unchecked.
+ADR-0006 and its supported core and SQL-layer callers prove coherent pinned
+point/range reads, writer commits that preserve active snapshots, finite
+registration/retained-WAL limits, diagnostics, and last-reader recovery.
 Atomic conditional writes, secondary-index mutation, `VACUUM`, and
 representative concurrency benchmarks have not started.
 
@@ -589,7 +583,7 @@ partial or stale milestones directly rather than forcing a pass/fail result.
 | +7 | Verified | Protector lifecycle and attack tests | Maintain key-management evidence |
 | +8 | Verified | TUI/view tests and structured inspect contracts | Maintain viewer evidence |
 | +9 | Verified baseline; deferred scope named | `initial-sql-layer.md`; audit and logical scans explicitly moved out | Post-MVP+10 SQL and future audit plans |
-| +10 | Mechanism accepted; implementation active | ADR-0005; `mvp-10-multiple-readers.md`; baseline and WAL-pressure tests | Private format-v3 owner and crash fixtures |
+| +10 | Shared snapshot contract delivered; broader implementation active | ADR-0005, ADR-0006; `mvp-10-multiple-readers.md`; shared KV and SQL caller tests | Conditional writes, indexes, vacuum, and benchmarks |
 | +11 | Not started | Future dedicated plan | Unassigned |
 | +12 | Not started | Architectural Review required | Unassigned |
 | +13 | Not started | Future dedicated plan and format decision | Unassigned |
@@ -608,6 +602,8 @@ Before implementation moves beyond the completed MVP+9 baseline:
       and execution ownership. See [AR-0009](../Architectural%20Reviews/AR-0009-multiple-reader-execution-and-coordination.md).
 - [x] Update the reviews and create ADR-0005 for the accepted format-v3
       ownership, generation, retained-WAL, and compatibility boundary.
+- [x] Admit and implement the ADR-0006 shared KV owner, read transaction,
+      atomic write callback, and bounded diagnostics contract.
 - [x] Keep secondary indexes subordinate to the MVCC/storage plan rather than
       teaching `tosumu-core` SQL semantics.
 

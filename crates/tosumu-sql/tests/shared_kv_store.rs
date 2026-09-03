@@ -1,6 +1,4 @@
-#![cfg(feature = "experimental-shared-readers")]
-
-use tosumu_core::experimental::SharedKvDatabase;
+use tosumu_core::SharedKvStore;
 use tosumu_sql::row_codec::{decode_row_values, encode_row_values, row_key};
 use tosumu_sql::Value;
 
@@ -18,8 +16,8 @@ fn decoded_name(bytes: &[u8]) -> String {
 #[test]
 fn sql_row_encoding_consumes_a_coherent_shared_snapshot() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("sql-shared-reader-prototype.tsm");
-    let database = SharedKvDatabase::create(&path).unwrap();
+    let path = directory.path().join("sql-shared-kv-store.tsm");
+    let database = SharedKvStore::create(&path).unwrap();
     let first = row_key("users", &Value::Integer(1));
     let second = row_key("users", &Value::Integer(2));
     let third = row_key("users", &Value::Integer(3));

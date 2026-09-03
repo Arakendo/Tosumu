@@ -1,19 +1,16 @@
-#![cfg(feature = "experimental-shared-readers")]
-
-use tosumu_core::experimental::{ReadTransaction, SharedKvDatabase};
-use tosumu_core::TosumuError;
+use tosumu_core::{KvReadTransaction, SharedKvStore, TosumuError};
 
 fn assert_send<T: Send>() {}
 fn assert_send_sync<T: Send + Sync>() {}
 
 #[test]
 fn external_caller_observes_stable_snapshot_while_shared_writer_advances() {
-    assert_send_sync::<SharedKvDatabase>();
-    assert_send::<ReadTransaction>();
+    assert_send_sync::<SharedKvStore>();
+    assert_send::<KvReadTransaction>();
 
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("experimental-shared-readers.tsm");
-    let database = SharedKvDatabase::create(&path).unwrap();
+    let path = directory.path().join("shared-kv-store.tsm");
+    let database = SharedKvStore::create(&path).unwrap();
     database.put(b"a", b"captured").unwrap();
     database.put(b"b", b"stable").unwrap();
 
@@ -48,17 +45,15 @@ fn external_caller_observes_stable_snapshot_while_shared_writer_advances() {
     assert!(!database.connection_info().unwrap().checkpoint_blocked);
 
     drop(database);
-    let reopened = SharedKvDatabase::open(&path).unwrap();
+    let reopened = SharedKvStore::open(&path).unwrap();
     assert_eq!(reopened.get(b"a").unwrap(), Some(b"new".to_vec()));
 }
 
 #[test]
 fn encrypted_owner_commits_and_rolls_back_atomic_write_closures() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory
-        .path()
-        .join("experimental-encrypted-shared-readers.tsm");
-    let database = SharedKvDatabase::create_encrypted(&path, "correct horse").unwrap();
+    let path = directory.path().join("encrypted-shared-kv-store.tsm");
+    let database = SharedKvStore::create_encrypted(&path, "correct horse").unwrap();
     database.put(b"a", b"captured").unwrap();
     database.put(b"b", b"remove-after-capture").unwrap();
 
@@ -110,10 +105,10 @@ fn encrypted_owner_commits_and_rolls_back_atomic_write_closures() {
     drop(reader);
     drop(database);
     assert!(matches!(
-        SharedKvDatabase::open_with_passphrase(&path, "wrong passphrase"),
+        SharedKvStore::open_with_passphrase(&path, "wrong passphrase"),
         Err(TosumuError::WrongKey)
     ));
-    let reopened = SharedKvDatabase::open_with_passphrase(&path, "correct horse").unwrap();
+    let reopened = SharedKvStore::open_with_passphrase(&path, "correct horse").unwrap();
     assert_eq!(reopened.get(b"a").unwrap(), Some(b"committed".to_vec()));
     assert_eq!(reopened.get(b"b").unwrap(), None);
     assert_eq!(
@@ -125,8 +120,8 @@ fn encrypted_owner_commits_and_rolls_back_atomic_write_closures() {
 #[test]
 fn write_callback_reentry_fails_without_deadlock_or_generation_change() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("experimental-write-reentry.tsm");
-    let database = SharedKvDatabase::create(&path).unwrap();
+    let path = directory.path().join("shared-kv-write-reentry.tsm");
+    let database = SharedKvStore::create(&path).unwrap();
     database.put(b"key", b"committed").unwrap();
     let captured_generation = database.connection_info().unwrap().latest_generation;
     let reader = database.snapshot().unwrap();
@@ -170,8 +165,8 @@ fn write_callback_reentry_fails_without_deadlock_or_generation_change() {
 #[test]
 fn panicking_write_callback_publishes_nothing_and_requires_reopen() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("experimental-write-panic.tsm");
-    let database = SharedKvDatabase::create(&path).unwrap();
+    let path = directory.path().join("shared-kv-write-panic.tsm");
+    let database = SharedKvStore::create(&path).unwrap();
     database.put(b"key", b"committed").unwrap();
 
     let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -184,6 +179,6 @@ fn panicking_write_callback_publishes_nothing_and_requires_reopen() {
     assert!(matches!(database.get(b"key"), Err(TosumuError::Poisoned)));
 
     drop(database);
-    let reopened = SharedKvDatabase::open(&path).unwrap();
+    let reopened = SharedKvStore::open(&path).unwrap();
     assert_eq!(reopened.get(b"key").unwrap(), Some(b"committed".to_vec()));
 }

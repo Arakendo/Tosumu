@@ -7,8 +7,6 @@ pub mod backup;
 pub mod btree;
 pub mod crypto;
 pub mod error;
-#[cfg(feature = "experimental-shared-readers")]
-pub mod experimental;
 pub mod export;
 pub mod format;
 pub mod inspect;
@@ -19,10 +17,10 @@ pub mod pager;
 pub mod provider;
 pub mod wal;
 
-// Pager-owned registration, generation selection, and the first shared-owner
-// execution boundary remain private while AR-0009 incubates the public API.
-#[allow(dead_code)]
+// ADR-0006 exposes logical shared ownership while the pager, B+ tree,
+// registration, and retained-version machinery remain internal.
 mod shared_owner;
+mod shared_store;
 #[allow(dead_code)]
 mod snapshot_registry;
 mod writer_gate;
@@ -35,3 +33,4 @@ pub const NAME: &str = "tosumu";
 
 pub use error::{ErrorDetail, ErrorReport, ErrorStatus, ErrorValue, TosumuError};
 pub use provider::{KvStore, KvTransaction, MAX_KEY_SIZE, MAX_VALUE_SIZE};
+pub use shared_store::{KvConnectionInfo, KvReadTransaction, KvWriteTransaction, SharedKvStore};

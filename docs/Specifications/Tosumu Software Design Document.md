@@ -481,23 +481,20 @@ Checkpoint blocked by session 8, open for 14m32s (oldest LSN: 882).
 
 Not "the file is large because mystery."
 
-> **MVP+10 implementation status (2026-08-27).** Sections 7.4–7.8 describe the
-> target public contract, not the currently exported Rust API. Format 3 and a
-> private shared B+ tree owner now prove committed-generation capture, stable
+> **MVP+10 implementation status (2026-09-02).** Sections 7.4–7.8 describe the
+> richer target contract; ADR-0006 admits a smaller supported KV subset. Format
+> 3 and `SharedKvStore` now provide committed-generation capture, stable
 > point/range reads, finite process-local pins, retained-WAL pressure, and
 > last-reader teardown/reopen behavior. The initial private checkpoint policy
 > is deliberately all-or-nothing: any active reader suppresses checkpoint and
 > truncation; reader drop performs no hidden work; the next zero-reader commit
-> performs a full checkpoint. Public `Database`, `Session`, `ReadTransaction`,
-> `BusyPolicy`, `connection_info`, session identity/age, partial/passive
-> checkpoint progress, cancellation, and timeout behavior remain unimplemented
-> under AR-0009. Existing public independent read-only handles remain live views
-> and must not be described as LSN snapshots.
-> The non-default `experimental-shared-readers` feature additionally exercises
-> unencrypted and passphrase-protected shared owners plus a mutex-held atomic
-> write closure. Its names are evidence for AR-0009, not the supported API
-> described above.
-> Experimental write callbacks must use their borrowed transaction rather than
+> performs a full checkpoint. `SharedKvStore`, `KvReadTransaction`,
+> `KvWriteTransaction`, and `KvConnectionInfo` are supported at the crate root.
+> Generic `Database`, `Session`, `BusyPolicy`, session identity/age,
+> partial/passive checkpoint progress, cancellation, and timeout behavior
+> remain unimplemented. Existing independent read-only handles remain live
+> views and must not be described as generation-pinned snapshots.
+> Write callbacks must use their borrowed transaction rather than
 > re-entering the same owner; re-entry fails explicitly. Callback panic leaves
 > staged work unpublished, poisons the owner, and requires validated reopen.
 
@@ -3121,9 +3118,10 @@ WAL + LSN naturally supports "what did this key look like at LSN N?" The cost is
 
 **Minimum viable version:** `tosumu get key --at-lsn 1000`. Physical format 3
 now defines the durable commit LSN and carries that generation in authenticated
-page zero across zero-reader full checkpoints. Retained history, reader pins,
-and a public point-in-time API remain incomplete, so the UI work is not merely
-an `--at-lsn` flag yet.
+page zero across zero-reader full checkpoints. `SharedKvStore` retains history
+only for snapshots captured at the latest committed generation; arbitrary
+historical generation selection and a public point-in-time API remain
+incomplete, so the UI work is not merely an `--at-lsn` flag yet.
 
 **Stretch version:** `tosumu diff key --from 900 --to 1000` — show what changed between two LSNs. Useful for debugging "what happened between this deploy and the customer's complaint."
 

@@ -13,9 +13,6 @@ readme.workspace = true
 [lints]
 workspace = true
 
-[features]
-experimental-shared-readers = ["tosumu-core/experimental-shared-readers"]
-
 [dependencies]
 tosumu-core = { path = "../tosumu-core" }
 thiserror = "2.0.18"

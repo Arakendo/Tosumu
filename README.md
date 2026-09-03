@@ -8,19 +8,18 @@ The name is a conlang word: `to` (knowledge) + `su` (organized structure) + `mu`
 
 ## Status
 
-**MVP+10 is in progress behind private APIs.** The core storage engine,
+**MVP+10 is in progress.** The core storage engine,
 encryption/key-management stack, interactive TUI viewer, and narrow primary-key
 SQL path are implemented. Format 3 now has committed generations, retained WAL,
-bounded reader pins, and private generation-stable B+ tree reads. A public
-shared database/session/read-transaction API is not yet supported. See the
+bounded reader pins, and generation-stable B+ tree reads. The supported
+`SharedKvStore` API exposes cloneable shared ownership, pinned KV read
+transactions, atomic write closures, and bounded connection diagnostics. See the
 [Main Feature Roadmap](docs/Plans/main-feature-roadmap.md) for the canonical
 delivery checklist.
 
-An opt-in `experimental-shared-readers` Cargo feature exposes a deliberately
-unstable logical KV prototype for caller-shape testing. Its module and names are
-not compatibility commitments and are excluded from the default feature set.
-The prototype covers unencrypted and passphrase-protected owners, pinned reads,
-and atomic write closures; production adoption should wait for API admission.
+The initial shared API is deliberately synchronous and fail-fast. It does not
+yet add generic sessions, waiting or cancellation policy, cross-process pinned
+readers, conditional writes, secondary indexes, or `VACUUM`.
 
 | MVP | Capability | State |
 |---|---|---|
@@ -34,7 +33,7 @@ and atomic write closures; production adoption should wait for API admission.
 | +7 | Multiple protectors: up to 8 keyslots, recovery key, KEK rotation, `protector` CLI | ✅ done |
 | +8 | Interactive TUI viewer (`tosumu view`) | ✅ done |
 | +9 | Initial SQL layer and `tosumu sql` CLI | baseline done; audit/scan open |
-| +10 | MVCC / multiple readers | 🚧 private mechanism in progress |
+| +10 | MVCC / multiple readers | 🚧 shared KV snapshots delivered; broader work open |
 
 ## Warning
 
@@ -55,9 +54,9 @@ and atomic write closures; production adoption should wait for API admission.
 ## What it is not
 
 - Not SQL-complete and not a general-purpose query optimizer; MVP+9 provides a narrow primary-key SQL path.
-- No public multi-process data-sharing or snapshot-reader API; cooperating
-  writers are excluded across processes, and independent read-only handles
-  remain live views rather than pinned snapshots.
+- No cross-process pinned-reader protocol; cooperating writers are excluded
+  across processes, while independent read-only handles remain live views
+  rather than snapshots registered with `SharedKvStore`.
 - Not networked.
 - Not a drop-in SQLite replacement.
 - Not audited crypto.
@@ -101,7 +100,7 @@ Six `cargo fuzz` targets in `fuzz/fuzz_targets/`: page decode, B+ tree ops, WAL 
 
 ## Roadmap
 
-See [`docs/Specifications/Tosumu Software Design Document.md §12`](docs/Specifications/Tosumu%20Software%20Design%20Document.md) for the full MVP and stage breakdown. MVP+8 is complete: `tosumu view` provides a cross-platform TUI (`ratatui` + `crossterm`) for inspecting file header, pages, B+ tree structure, WAL records, and per-keyslot detail on encrypted databases. MVP+9 adds the initial SQL layer and `tosumu sql` CLI path. MVP+10 is now proving MVCC storage and ownership privately before admitting its public API.
+See [`docs/Specifications/Tosumu Software Design Document.md §12`](docs/Specifications/Tosumu%20Software%20Design%20Document.md) for the full MVP and stage breakdown. MVP+8 is complete: `tosumu view` provides a cross-platform TUI (`ratatui` + `crossterm`) for inspecting file header, pages, B+ tree structure, WAL records, and per-keyslot detail on encrypted databases. MVP+9 adds the initial SQL layer and `tosumu sql` CLI path. MVP+10 now exposes the admitted shared KV snapshot contract while conditional writes, secondary indexes, `VACUUM`, and representative concurrency benchmarks remain open.
 
 ## License
 

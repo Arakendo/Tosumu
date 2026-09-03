@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Private mechanism complete; public contract admission remains |
+| Status | Shared KV snapshot contract implemented; broader milestone active |
 | Opened | 2026-08-27 |
 | Last updated | 2026-09-02 |
 | Owner | Tosumu maintainers |
 | Target | MVP+10 core storage and embedded provider coordination |
-| Related ADRs | ADR-0001, ADR-0002, ADR-0004, ADR-0005 |
+| Related ADRs | ADR-0001, ADR-0002, ADR-0004, ADR-0005, ADR-0006 |
 | Related reviews | AR-0009, AR-0011 |
 | Related CRs | None |
 | Depends on | MVP+9 baseline, authenticated pager, WAL recovery, provider boundary |
@@ -16,10 +16,10 @@
 
 The pre-MVP+10 executable baseline and ADR-0004 writer admission are complete.
 ADR-0005's format-v3 generation, finite registry, reader-pinned WAL residence,
-and generation-selecting B+ tree reads are active behind a private shared
-owner. The repository does not yet expose a shared public `Database`, sessions,
-or read transactions. AR-0009 remains incubating for that public API and its
-broader execution contract.
+and generation-selecting B+ tree reads are exposed through ADR-0006's supported
+`SharedKvStore`, `KvReadTransaction`, atomic write callback, and bounded
+diagnostics. The richer generic `Database`/`Session` and execution-policy model
+remains future work; AR-0009 is accepted for the evidenced minimum contract.
 
 ## Purpose
 
@@ -61,8 +61,9 @@ read-only Pager open
     -> does not register or pin a reader
 ```
 
-- `KvStore` currently satisfies `Send + Sync`, but there is no shared engine
-  handle or session/transaction type that expresses cross-thread ownership.
+- `SharedKvStore` is a cloneable `Send + Sync` owner. Its
+  `KvReadTransaction` is `Send + !Sync`, while its borrowed
+  `KvWriteTransaction` is `!Send + !Sync`.
 - Multiple read-only handles can open simultaneously.
 - An existing read-only handle observes main-file changes after a writer
   commits. It is a live view, not an LSN-pinned snapshot.
@@ -77,18 +78,16 @@ read-only Pager open
 - Protector edits and public recovery/checkpoint operations participate in the
   same gate. Direct raw `WalWriter` mutation remains outside the coordination
   contract as documented by ADR-0004.
-- Independent public handles do not join the private reader registry or expose
+- Independent public handles do not join the shared reader registry or expose
   a committed-generation snapshot, checkpoint pin, cancellation token, busy
   timeout, coordinated shutdown operation, or long-lived-reader diagnostic.
   Dropping an independent handle remains their only lifecycle mechanism.
-- A private `SharedBTreeOwner` now provides the executable target ownership
-  shape: snapshot capture and commits serialize through one mutex, while a
-  non-cloneable read transaction retains its generation pin and locks only for
-  each logical point or range read. The owner is `Send + Sync`; the transaction
-  is structurally `Send` but not `Sync` as required by the SDD. Its private
-  diagnostics report active and maximum pins, oldest generation, retained WAL
-  bytes and frame versions, both generation horizons, and whether readers block
-  checkpointing.
+- The public `SharedKvStore` wraps the private storage owner: snapshot capture
+  and commits serialize through one mutex, while a non-cloneable read
+  transaction retains its generation pin and locks only for each logical point
+  or range read. `KvConnectionInfo` reports active and maximum pins, oldest
+  generation, retained WAL bytes and frame versions, both generation horizons,
+  and whether readers block checkpointing.
 
 These are observations of the 2026-08-27 implementation. The writer gate is an
 accepted cooperative admission guarantee; the reader observations are not
@@ -134,8 +133,10 @@ must not become the definition of commit visibility.
 Slice 0 changed no public or format contract. Slice 1 reuses the public
 `FileBusy`/`FILE_OPEN_BUSY` vocabulary and adds the persistent writer-sidecar
 operational contract accepted by ADR-0004; it changes no authenticated page or
-WAL bytes. Future shared-handle, session, snapshot, busy-policy, or reader-aware
-checkpoint types remain provisional under AR-0009.
+WAL bytes. ADR-0006 adds the supported provider-neutral `SharedKvStore`,
+`KvReadTransaction`, `KvWriteTransaction`, and `KvConnectionInfo` API without
+changing page or WAL bytes. Generic sessions, busy policies, and richer
+checkpoint policy remain deferred.
 
 ## Implementation Slices
 
@@ -182,14 +183,15 @@ claiming snapshot isolation.
       a cross-process reader protocol.
 - [x] Define the committed-LSN source of truth and reader capture point.
 - [x] Retain versions needed by the oldest active reader.
-- [x] Prove at the private authenticated-page boundary that a pinned read does
-      not observe commits newer than its snapshot. Logical B+ tree ownership
-      remains private until the shared-owner API is admitted.
+- [x] Prove at the authenticated-page boundary that a pinned read does not
+      observe commits newer than its snapshot, then expose the logical B+ tree
+      behavior only through the admitted shared KV API.
 - [x] Bound and diagnose long-lived-reader WAL pressure.
 - [x] Stop for a format decision if retained versions require new WAL or page
       representation.
 
-Exit state: snapshot visibility and lifetime are executable private contracts.
+Exit state: snapshot visibility and lifetime are executable supported KV
+contracts; physical storage ownership remains private.
 
 ### Slice 3: Checkpoint Coordination And Diagnostics
 
@@ -214,8 +216,8 @@ waiting or stale-frame truncation.
 | Concern | Evidence | Command Or Artifact | Required Result |
 | --- | --- | --- | --- |
 | Current behavior | MVP+10 baseline integration tests | `cargo test -p tosumu-core --test mvp10_baseline` | Pass |
-| Experimental caller | Opt-in external-style integration test | `cargo test -p tosumu-core --features experimental-shared-readers --test experimental_shared_readers` | Pass |
-| SQL-layer caller | Feature-gated SQL row-codec integration | `cargo test -p tosumu-sql --features experimental-shared-readers --test experimental_shared_readers` | Pass |
+| Supported KV caller | External-style integration test | `cargo test -p tosumu-core --test shared_kv_store` | Pass |
+| SQL-layer caller | SQL row-codec integration | `cargo test -p tosumu-sql --test shared_kv_store` | Pass |
 | Recovery | Existing pager/WAL recovery suites | `cargo test -p tosumu-core wal` | Pass |
 | Provider boundary | External consumer suite | `cargo test -p tosumu-core --test provider_boundary` | Pass |
 | Static quality | Workspace formatting and Clippy | Standard workspace commands | Pass |
@@ -225,17 +227,19 @@ waiting or stale-frame truncation.
 
 ADR-0004 admits `FILE_OPEN_BUSY` for non-blocking writer-gate contention. Its
 structured path names the `.writer.lock` sidecar and its operation is
-`acquiring database writer gate`. Unsupported snapshot exhaustion, reader-aware
-checkpoint blocking, timeout, and cancellation behavior must still fail
-explicitly rather than wait indefinitely or fall back to live reads.
+`acquiring database writer gate`. Snapshot exhaustion reports structured
+`SNAPSHOT_LIMIT_REACHED`; retained-WAL pressure reports
+`WAL_RETENTION_LIMIT_REACHED`. Waiting, timeout, and cancellation remain
+unsupported rather than being implied by the synchronous mutex.
 
 ## Compatibility And Migration
 
-Slice 1 changes no format, WAL bytes, recovery ordering, Rust API shape, or CLI
-command. It adds a persistent `.writer.lock` operational artifact and changes a
+Slice 1 added the persistent `.writer.lock` operational artifact and changed a
 second cooperating writable open from admission to structured busy rejection.
-Any retained-version representation or committed-LSN field introduced later
-requires explicit compatibility and migration treatment before implementation.
+ADR-0005 introduced format 3 and its documented format-2 refusal; ADR-0006 adds
+only Rust API shape and changes no page or WAL bytes. Further retained-version
+or committed-generation representation changes require explicit compatibility
+and migration treatment before implementation.
 
 ## Security And Trust
 
@@ -246,10 +250,10 @@ external anti-rollback or witness guarantee.
 
 ## Performance And Resource Bounds
 
-Baseline tests establish behavior, not throughput. Future slices must bound
-writer wait, reader registration, retained WAL growth, and checkpoint work.
-Long-lived readers must produce observable pressure rather than unbounded,
-silent retention.
+Baseline tests establish behavior, not throughput. Writer admission is
+fail-fast, reader registration and retained WAL growth have finite limits, and
+long-lived readers produce observable pressure. Representative concurrency and
+checkpoint-cost measurements remain open.
 
 ## Risks And Mitigations
 
@@ -258,7 +262,7 @@ silent retention.
 | Mechanism defines semantics | Platform-specific behavior becomes contract | Specify visibility before selecting locks or runtimes |
 | Two writers mutate one WAL | Lost updates or corrupt recovery ordering | First implementation slice admits or rejects one writer |
 | Live read mislabeled snapshot | Repeat reads observe different commits | Baseline test names current live-view behavior explicitly |
-| Reader pins grow without bound | Disk/resource exhaustion | Bounded diagnostics and explicit policy before retention |
+| Reader pins grow without bound | Disk/resource exhaustion | Finite registration/WAL limits, typed rejection, and bounded diagnostics |
 | Premature format work | Unmigratable compatibility boundary | Stop at AR/ADR gate before changing WAL or page bytes |
 
 ## Completion Criteria
@@ -501,6 +505,11 @@ format/recovery design that can retain committed versions safely.
   rolls back without advancing the generation. Callback panic publishes no WAL
   bytes, poisons the owner, and requires drop plus validated reopen, which
   preserves the prior committed state.
+- Promoted the caller-proven seam under ADR-0006. `SharedKvStore`,
+  `KvReadTransaction`, `KvWriteTransaction`, and `KvConnectionInfo` now live at
+  the `tosumu-core` crate root; the experimental feature/module and SQL feature
+  forwarding are removed. Default-feature core and SQL integration tests retain
+  the accepted snapshot, write-lifecycle, encryption, and auto-trait evidence.
 
 ## References
 
@@ -508,6 +517,8 @@ format/recovery design that can retain committed versions safely.
 - `docs/ADR/ADR-0001-storage-engine-layer-boundaries.md`
 - `docs/ADR/ADR-0002-authenticated-pager-trust-boundary.md`
 - `docs/ADR/ADR-0004-cooperative-single-writer-admission.md`
+- `docs/ADR/ADR-0005-committed-generation-and-retained-wal-snapshots.md`
+- `docs/ADR/ADR-0006-shared-kv-store-and-snapshot-transactions.md`
 - `docs/Architectural Reviews/AR-0009-multiple-reader-execution-and-coordination.md`
 - `docs/Architectural Reviews/AR-0011-committed-generation-and-version-residence.md`
 - `docs/Plans/main-feature-roadmap.md`

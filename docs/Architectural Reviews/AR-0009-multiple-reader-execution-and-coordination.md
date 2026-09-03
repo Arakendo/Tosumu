@@ -7,7 +7,7 @@
 | Last reviewed | 2026-09-02 |
 | Scope | Core storage / transaction coordination / platform mechanism |
 | Trigger | MVP+10 requires a baseline for locking, LSN visibility, and reader/writer behavior before MVCC-style work begins |
-| Related ADRs | ADR-0001, ADR-0002, ADR-0004, ADR-0005 |
+| Related ADRs | ADR-0001, ADR-0002, ADR-0004, ADR-0005, ADR-0006 |
 | Related evidence | Main Feature Roadmap, SDD §§7 and 28.4, AR-0011, current pager/WAL/transaction implementation |
 
 ## Architectural Question
@@ -22,8 +22,8 @@ The normative design describes a shared database handle, one writer, multiple
 readers, committed-LSN snapshots, checkpoint blocking, and typed `Send`/`Sync`
 intent. ADR-0004 admits the writer gate, and ADR-0005 now admits committed
 generations, process-local reader pins, retained-WAL selection, finite limits,
-and reader-aware checkpoint suppression. Their private executable composition
-does not yet admit the public shared-handle/session API described by the SDD.
+and reader-aware checkpoint suppression. ADR-0006 admits their minimum public
+KV composition while leaving the SDD's richer generic session API deferred.
 
 Concurrency risks mixing several separate questions: what a reader is allowed
 to observe, how long its snapshot remains valid, how a writer is serialized,
@@ -37,22 +37,21 @@ durability semantics.
 - Tests or fuzzing: `tests/mvp10_baseline.rs` retains focused reader visibility,
   writer contention, maintenance-gate, and lifecycle evidence. It proves that
   existing read-only handles are live views, not snapshots.
-- Independent consumers: the provider boundary now proves structured
-  `FILE_OPEN_BUSY` rejection for a second cooperating writer. An opt-in
-  integration test compiled as an external crate now consumes only logical
-  experimental shared-reader types and proves concurrent snapshot semantics;
-  no separate downstream project has adopted the prototype yet.
-- Diagnostics or audits: private diagnostics report active/maximum readers,
+- Independent consumers: the provider boundary proves structured
+  `FILE_OPEN_BUSY` rejection for a second cooperating writer. Default-feature
+  core and separate `tosumu-sql` integration tests consume only the supported
+  shared KV surface and prove concurrent snapshot semantics with real SQL row
+  encodings.
+- Diagnostics or audits: `KvConnectionInfo` reports active/maximum readers,
   oldest generation, retained WAL bytes/frame versions, checkpoint/latest
-  horizons, and checkpoint-blocked state. This is not yet the public SDD
-  `connection_info` schema.
+  horizons, and checkpoint-blocked state. It is the bounded ADR-0006 schema,
+  not the richer future SDD session diagnostic model.
 - Repeated implementation friction: the first private transaction composed as
   `Sync` accidentally; SDD section 28.4 required a structural `Send`/`!Sync`
   correction before public admission.
-- Missing evidence: final decision and implementation of public names and
-  visibility. Session identity/age diagnostics and any future blocking,
-  cancellation, or timeout policy are deliberately outside the initial
-  candidate unless a caller supplies new evidence.
+- Missing evidence: none for the ADR-0006 minimum. Session identity/age
+  diagnostics and any future blocking, cancellation, or timeout policy remain
+  reopening triggers that require new caller evidence.
 
 ## Ownership And Dependency Analysis
 
@@ -469,3 +468,18 @@ checkpointing remain outside the accepted contract.
 - Disposition: Accepted through ADR-0006.
 - Resulting ADR or documentation change: ADR-0006 admits the synchronous,
   fail-fast shared KV API and explicitly defers richer execution policy.
+
+### Cycle 15 -- 2026-09-02
+
+- Status entering review: Accepted
+- New evidence: the ADR-0006 names are exported from the `tosumu-core` crate
+  root under default features. The former experimental module and Cargo feature
+  are removed, and both the external-style core fixture and separate
+  `tosumu-sql` row-codec fixture consume the supported names.
+- Findings: implementation now matches the accepted minimum contract without a
+  parallel unstable compatibility surface. It changes no page or WAL bytes and
+  does not imply generic sessions, cross-process pinned readers, waiting,
+  cancellation, or partial checkpoints.
+- Disposition: remain Accepted through ADR-0006.
+- Resulting ADR or documentation change: public specifications and roadmaps now
+  identify conditional writes as the next MVP+10 slice.

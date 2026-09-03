@@ -1,8 +1,7 @@
-//! Opt-in prototypes whose names and shape are not compatibility contracts.
+//! Supported shared key/value owner and snapshot transaction boundary.
 //!
-//! Enable `experimental-shared-readers` to exercise the MVP+10 shared-reader
-//! boundary. This module exists to gather independent caller evidence for
-//! AR-0009. It may change or disappear before the final public API is admitted.
+//! ADR-0006 defines this deliberately small synchronous API. Physical pager,
+//! B+ tree, WAL, and registry types remain private.
 
 use std::marker::PhantomData;
 use std::path::Path;
@@ -12,76 +11,84 @@ use crate::btree::BTree;
 use crate::error::Result;
 use crate::shared_owner::{ReadTransaction as CoreReadTransaction, SharedBTreeOwner};
 
-/// Experimental shared key/value database owner.
+/// Cloneable shared owner for one writable key/value database.
 #[derive(Clone)]
-pub struct SharedKvDatabase {
+pub struct SharedKvStore {
     owner: SharedBTreeOwner,
 }
 
-/// Experimental generation-pinned read transaction.
+/// Generation-pinned logical read transaction.
 ///
 /// This value is `Send` but deliberately not `Sync`. It may move to another
 /// thread, but one transaction cannot be shared for concurrent use.
-pub struct ReadTransaction {
+pub struct KvReadTransaction {
     inner: CoreReadTransaction,
 }
 
-/// Experimental exclusive write transaction passed to [`SharedKvDatabase::write`].
+/// Exclusive write transaction passed to [`SharedKvStore::write`].
 ///
 /// This borrowed value is deliberately neither `Send` nor `Sync`.
-pub struct WriteTransaction<'a> {
+pub struct KvWriteTransaction<'a> {
     tree: &'a mut BTree,
     _not_send_or_sync: PhantomData<Rc<()>>,
 }
 
 /// Bounded process-local snapshot and checkpoint observations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ConnectionInfo {
+pub struct KvConnectionInfo {
+    /// Number of currently registered read transactions.
     pub active_readers: u64,
+    /// Maximum read transactions admitted by this owner.
     pub maximum_readers: u64,
+    /// Oldest generation retained for an active reader, if any.
     pub oldest_reader_generation: Option<u64>,
+    /// Generation represented by the checkpointed main file.
     pub checkpoint_generation: u64,
+    /// Latest committed generation visible to current reads.
     pub latest_generation: u64,
+    /// Encoded bytes currently resident in the WAL sidecar.
     pub retained_wal_bytes: u64,
+    /// Committed page-frame versions currently retained in memory.
     pub retained_frame_versions: u64,
+    /// Whether process-local readers currently suppress checkpointing.
     pub checkpoint_blocked: bool,
 }
 
-impl SharedKvDatabase {
-    /// Create an unencrypted experimental shared database.
+impl SharedKvStore {
+    /// Create an unencrypted shared database.
     pub fn create(path: &Path) -> Result<Self> {
         Ok(Self {
             owner: SharedBTreeOwner::create(path)?,
         })
     }
 
-    /// Open an unencrypted experimental shared database for writing and reads.
+    /// Open an unencrypted shared database for writing and reads.
     pub fn open(path: &Path) -> Result<Self> {
         Ok(Self {
             owner: SharedBTreeOwner::open(path)?,
         })
     }
 
-    /// Create a passphrase-protected experimental shared database.
+    /// Create a passphrase-protected shared database.
     pub fn create_encrypted(path: &Path, passphrase: &str) -> Result<Self> {
         Ok(Self {
             owner: SharedBTreeOwner::create_encrypted(path, passphrase)?,
         })
     }
 
-    /// Open a passphrase-protected experimental shared database.
+    /// Open a passphrase-protected shared database.
     pub fn open_with_passphrase(path: &Path, passphrase: &str) -> Result<Self> {
         Ok(Self {
             owner: SharedBTreeOwner::open_with_passphrase(path, passphrase)?,
         })
     }
 
-    /// Insert or replace one logical value through the shared writer owner.
+    /// Insert or replace one logical value as one committed generation.
     pub fn put(&self, key: &[u8], value: &[u8]) -> Result<()> {
         self.owner.put(key, value)
     }
 
-    /// Delete one logical value through the shared writer owner.
+    /// Delete one logical value as one committed generation.
     pub fn delete(&self, key: &[u8]) -> Result<()> {
         self.owner.delete(key)
     }
@@ -89,16 +96,16 @@ impl SharedKvDatabase {
     /// Execute multiple logical mutations as one committed generation.
     ///
     /// Returning `Ok` commits the staged changes. Returning `Err` rolls them
-    /// back and preserves the caller's error. Re-entering this same database
-    /// owner through a captured clone returns `InvalidArgument`; use only the
-    /// supplied transaction inside the callback. A panic publishes no staged
-    /// WAL bytes, poisons the owner, and requires drop plus reopen.
+    /// back and preserves the caller's error. Re-entering this same owner
+    /// through a captured clone or snapshot returns `InvalidArgument`; use only
+    /// the supplied transaction inside the callback. A panic publishes no
+    /// staged WAL bytes, poisons the owner, and requires drop plus reopen.
     pub fn write<F, T>(&self, operation: F) -> Result<T>
     where
-        F: FnOnce(&mut WriteTransaction<'_>) -> Result<T>,
+        F: FnOnce(&mut KvWriteTransaction<'_>) -> Result<T>,
     {
         self.owner.write(|tree| {
-            operation(&mut WriteTransaction {
+            operation(&mut KvWriteTransaction {
                 tree,
                 _not_send_or_sync: PhantomData,
             })
@@ -111,16 +118,16 @@ impl SharedKvDatabase {
     }
 
     /// Capture and pin the latest durable committed generation.
-    pub fn snapshot(&self) -> Result<ReadTransaction> {
-        Ok(ReadTransaction {
+    pub fn snapshot(&self) -> Result<KvReadTransaction> {
+        Ok(KvReadTransaction {
             inner: self.owner.read_transaction()?,
         })
     }
 
     /// Observe bounded process-local snapshot and retained-WAL pressure.
-    pub fn connection_info(&self) -> Result<ConnectionInfo> {
+    pub fn connection_info(&self) -> Result<KvConnectionInfo> {
         let info = self.owner.diagnostics()?;
-        Ok(ConnectionInfo {
+        Ok(KvConnectionInfo {
             active_readers: info.active,
             maximum_readers: info.maximum,
             oldest_reader_generation: info.oldest_generation,
@@ -133,7 +140,7 @@ impl SharedKvDatabase {
     }
 }
 
-impl ReadTransaction {
+impl KvReadTransaction {
     /// Return the durable generation captured when this transaction opened.
     pub fn generation(&self) -> u64 {
         self.inner.generation()
@@ -150,7 +157,7 @@ impl ReadTransaction {
     }
 }
 
-impl WriteTransaction<'_> {
+impl KvWriteTransaction<'_> {
     /// Insert or replace one logical value in the active transaction.
     pub fn put(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
         self.tree.put(key, value)

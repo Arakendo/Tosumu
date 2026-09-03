@@ -13,9 +13,6 @@ readme.workspace = true
 [lints]
 workspace = true
 
-[features]
-experimental-shared-readers = []
-
 [dependencies]
 argon2 = "0.5"
 chacha20poly1305 = "0.10.1"
