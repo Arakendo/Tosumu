@@ -87,6 +87,88 @@ function Invoke-CargoMetadata {
     return (($raw -join "`n") | ConvertFrom-Json -Depth 100)
 }
 
+function Get-CoreArtifactProfile {
+    param(
+        [string]$Name,
+        [string]$Target,
+        [object[]]$Catalog
+    )
+
+    Push-Location $repositoryRoot
+    try {
+        $lines = & cargo tree -p tosumu-core --locked --target $Target `
+            --edges normal,build --prefix depth --format '{p}|{f}'
+        if ($LASTEXITCODE -ne 0) {
+            throw "cargo tree failed for target '$Target' with exit code $LASTEXITCODE"
+        }
+    } finally {
+        Pop-Location
+    }
+
+    $catalogByCoordinate = @{}
+    $catalogByStableId = @{}
+    foreach ($package in $Catalog) {
+        $coordinate = "$($package.name)@$($package.version)"
+        if ($catalogByCoordinate.ContainsKey($coordinate)) {
+            throw "Ambiguous package coordinate in Cargo closure: $coordinate"
+        }
+        $catalogByCoordinate[$coordinate] = $package
+        $catalogByStableId[[string]$package.id] = $package
+    }
+
+    $observed = @{}
+    foreach ($line in $lines) {
+        if ($line -notmatch '^\d+(?<name>\S+) v(?<version>[^ |]+).*\|(?<features>.*)$') {
+            throw "Unexpected cargo tree output for target '$Target': $line"
+        }
+        $coordinate = "$($Matches.name)@$($Matches.version)"
+        if (-not $catalogByCoordinate.ContainsKey($coordinate)) {
+            throw "cargo tree package is absent from Cargo metadata: $coordinate"
+        }
+        $package = $catalogByCoordinate[$coordinate]
+        $packageId = [string]$package.id
+        if (-not $observed.ContainsKey($packageId)) {
+            $observed[$packageId] = @{}
+        }
+        $featureText = $Matches.features -replace ' \(\*\)$', ''
+        foreach ($feature in ($featureText -split ',')) {
+            if (-not [string]::IsNullOrWhiteSpace($feature)) {
+                $observed[$packageId][$feature.Trim()] = $true
+            }
+        }
+    }
+
+    $packages = foreach ($entry in $observed.GetEnumerator()) {
+        [ordered]@{
+            id = [string]$entry.Key
+            enabled_features = @($entry.Value.Keys | Sort-Object)
+        }
+    }
+    $packageRecords = @($observed.Keys | ForEach-Object { $catalogByStableId[[string]$_] })
+
+    return [ordered]@{
+        name = $Name
+        package = "tosumu-core"
+        target = $Target
+        method = "cargo tree -p tosumu-core --locked --target <target> --edges normal,build"
+        participation_claim = "reachable_for_selected_package_target_and_features"
+        package_count = @($packages).Count
+        packages = @($packages | Sort-Object { $_.id })
+        build_script_candidates = @(
+            $packageRecords |
+                Where-Object has_build_script |
+                ForEach-Object { [string]$_.id } |
+                Sort-Object
+        )
+        procedural_macro_candidates = @(
+            $packageRecords |
+                Where-Object is_proc_macro |
+                ForEach-Object { [string]$_.id } |
+                Sort-Object
+        )
+    }
+}
+
 function Get-StablePackageId {
     param(
         [object]$Package,
@@ -429,6 +511,9 @@ $normalizedRiskExposure = foreach ($entry in $riskExposure.GetEnumerator()) {
 $profiles = foreach ($definition in $profileDefinitions) {
     Get-Profile $definition.name $definition.target $metadataByProfile[$definition.name] $stableIds
 }
+$coreArtifactProfiles = foreach ($definition in ($profileDefinitions | Where-Object { $null -ne $_.target })) {
+    Get-CoreArtifactProfile "tosumu-core-$($definition.name)" $definition.target $catalog
+}
 
 $document = [ordered]@{
     schema = "tosumu-dependency-provenance-baseline"
@@ -463,6 +548,7 @@ $document = [ordered]@{
         transitive_exposure = @($normalizedRiskExposure | Sort-Object { $_.id })
     }
     profiles = @($profiles)
+    core_artifact_profiles = @($coreArtifactProfiles)
 }
 
 $serialized = (($document | ConvertTo-Json -Depth 100) -replace "`r`n", "`n") + "`n"

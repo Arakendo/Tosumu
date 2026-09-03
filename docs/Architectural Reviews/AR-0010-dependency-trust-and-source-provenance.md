@@ -265,3 +265,20 @@ AR-0010 remains Incubating for the repository's broader dependency policy.
   macro, feature, unsafe, and target review before proposing policy acceptance.
 - Resulting ADR or documentation change: add the provisional
   `dependency-risk-classification-v1.json` evidence input; no ADR.
+
+### Cycle 7 -- 2026-09-03
+
+- Status entering review: Incubating
+- New evidence: package-specific `cargo tree` profiles now separate
+  `tosumu-core` target reachability from workspace-wide feature unification.
+  Linux and macOS each resolve 41 packages with seven build-script candidates;
+  Windows resolves 39 and WASM 35, each with five. Every target has one
+  procedural-macro candidate.
+- Findings: the narrower profiles remove browser-feature contamination from
+  native core closure evidence. They establish target/feature reachability, not
+  actual build execution, artifact inclusion, runtime reachability, or
+  assurance-critical participation.
+- Disposition: remain Incubating and review the seven exact build-script source
+  identities before strengthening the claim.
+- Resulting ADR or documentation change: extend the generated baseline with
+  `core_artifact_profiles`; no policy or artifact qualification is accepted.

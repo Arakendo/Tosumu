@@ -409,7 +409,8 @@ repository-wide risk-tiered policy candidate.
 - [x] The initial workspace inventory is machine-generated and reviewable
       rather than manually guessed.
 - [ ] Risk classification cannot be lowered without retained rationale.
-- [ ] Unsupported target closures and optional features are visible.
+- [x] Initial Linux, Windows, macOS, and WASM target closures and selected
+      features are visible; supported release-profile admission remains open.
 - [ ] AR-0010 can accept, revise, or park a general provenance policy.
 
 #### Exit Gate
@@ -801,6 +802,24 @@ specific pressure.
 - Next slice: trace the nine critical and two elevated dependencies through
   transitive packages, build scripts, procedural macros, features, unsafe
   boundaries, and target-specific participation.
+
+### 2026-09-03 -- Slice 1 Core Target Separation
+
+- Work completed: added package-specific `tosumu-core` resolution profiles for
+  Linux, Windows, macOS, and browser WASM using normal/build edges and retained
+  enabled features.
+- Validation: deterministic regeneration and byte-for-byte checking pass with
+  41 Linux, 39 Windows, 41 macOS, and 35 WASM packages. The profiles narrow the
+  build-script candidate sets to seven on Linux/macOS and five on Windows/WASM;
+  each has one procedural-macro candidate.
+- Findings: package/target reachability is stronger than workspace presence but
+  still does not prove build-time execution, artifact inclusion, runtime
+  reachability, or assurance-critical participation.
+- Plan changes: the evidence model now retains those five statements
+  separately. Source-level build-script review is next; artifact claims remain
+  unavailable.
+- Next slice: review the seven narrowed build-script candidates by exact source
+  identity and behavior, then review the single proc-macro path.
 
 ## References
 

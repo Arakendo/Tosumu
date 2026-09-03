@@ -68,6 +68,33 @@ finding that all 58 execute in every profile or that their behavior is unsafe.
 The profile membership and enabled features in the JSON provide the narrower
 context needed for review.
 
+### Package-specific target profiles
+
+The generator also invokes `cargo tree` for `tosumu-core` alone with normal and
+build edges. This avoids treating every feature unified elsewhere in the
+workspace as part of the core library's selected target closure:
+
+| Core profile | Reachable packages | Build-script candidates | Procedural-macro candidates |
+| --- | ---: | ---: | ---: |
+| Linux x86-64 | 41 | 7 | 1 |
+| Windows x86-64 | 39 | 5 | 1 |
+| macOS x86-64 | 41 | 7 | 1 |
+| Browser WASM | 35 | 5 | 1 |
+
+These profiles establish code reachable for the selected package, target, and
+feature resolution. They do not collapse five different statements:
+
+1. source is present in the dependency graph;
+2. code is executed while building Tosumu;
+3. code is compiled into a resulting artifact;
+4. code is reachable for a selected target and feature configuration; and
+5. code participates in an assurance-critical runtime path.
+
+Cargo metadata and `cargo tree` establish the first and support the fourth.
+Build-script and procedural-macro flags identify candidates for the second.
+Artifact inspection and source/runtime review remain necessary for the other
+claims.
+
 ## Initial Critical Boundary
 
 `tosumu-core` directly resolves these normal dependencies in the unfiltered
@@ -111,9 +138,10 @@ remains `not_assessed`.
 
 That unfiltered result is intentionally conservative and is not a native core
 release closure. Workspace feature unification can connect the browser-enabled
-`getrandom` path to `wasm-bindgen`, for example. Target- and artifact-specific
-exposure must be separated before these 57 packages are described as code that
-executes in a particular release.
+`getrandom` path to `wasm-bindgen`, for example. The package-specific profiles
+remove that particular ambiguity, but artifact inspection is still required
+before reachable packages are described as code compiled into or executed by a
+particular release.
 
 One concrete discrepancy is now retained: `zeroize 1.8.2` participates in the
 encryption closure and is declared directly by `tosumu-core`, enabling its
