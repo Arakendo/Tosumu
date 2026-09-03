@@ -11,6 +11,9 @@ pub const TABLE_KEY_PREFIX: &str = "__sql_catalog__/table/";
 /// Reserved key prefix for metadata entries.
 pub const META_KEY_PREFIX: &str = "__sql_catalog__/meta/";
 
+/// Reserved key prefix for secondary-index catalog entries.
+pub const INDEX_KEY_PREFIX: &str = "__sql_catalog__/index/";
+
 /// Current catalog format version.
 pub const CATALOG_VERSION: u8 = 1;
 
@@ -23,6 +26,14 @@ pub struct TableDef {
     pub root_page: Option<u64>,
 }
 
+/// One SQL-owned secondary-index definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexDef {
+    pub name: String,
+    pub table: String,
+    pub column: String,
+}
+
 /// Build the catalog key for a table.
 pub fn table_key(table: &str) -> String {
     format!("{TABLE_KEY_PREFIX}{table}")
@@ -31,6 +42,82 @@ pub fn table_key(table: &str) -> String {
 /// Build the catalog key for metadata.
 pub fn meta_key(key: &str) -> String {
     format!("{META_KEY_PREFIX}{key}")
+}
+
+/// Build the catalog key for a globally named secondary index.
+pub fn index_key(index: &str) -> String {
+    format!("{INDEX_KEY_PREFIX}{index}")
+}
+
+/// Return inclusive bounds covering all secondary-index catalog entries.
+pub fn index_catalog_bounds() -> (Vec<u8>, Vec<u8>) {
+    let start = INDEX_KEY_PREFIX.as_bytes().to_vec();
+    let mut end = start.clone();
+    end.push(u8::MAX);
+    (start, end)
+}
+
+/// Serialize an index definition independently of the table catalog format.
+pub fn serialize_index_def(index_def: &IndexDef) -> SqlResult<Vec<u8>> {
+    let mut output = vec![CATALOG_VERSION];
+    encode_catalog_string(&mut output, &index_def.name, "index name")?;
+    encode_catalog_string(&mut output, &index_def.table, "index table")?;
+    encode_catalog_string(&mut output, &index_def.column, "index column")?;
+    Ok(output)
+}
+
+/// Deserialize one versioned secondary-index definition.
+pub fn deserialize_index_def(data: &[u8]) -> SqlResult<IndexDef> {
+    let Some((&version, remainder)) = data.split_first() else {
+        return Err(SqlError::RowEncoding(
+            "empty secondary-index catalog record".to_string(),
+        ));
+    };
+    if version != CATALOG_VERSION {
+        return Err(SqlError::RowEncoding(format!(
+            "unsupported secondary-index catalog version: expected {CATALOG_VERSION}, got {version}"
+        )));
+    }
+
+    let mut input = remainder;
+    let name = decode_catalog_string(&mut input, "index name")?;
+    let table = decode_catalog_string(&mut input, "index table")?;
+    let column = decode_catalog_string(&mut input, "index column")?;
+    if !input.is_empty() {
+        return Err(SqlError::RowEncoding(
+            "trailing bytes in secondary-index catalog record".to_string(),
+        ));
+    }
+    Ok(IndexDef {
+        name,
+        table,
+        column,
+    })
+}
+
+fn encode_catalog_string(output: &mut Vec<u8>, value: &str, field: &str) -> SqlResult<()> {
+    let length = u16::try_from(value.len()).map_err(|_| {
+        SqlError::RowEncoding(format!("{field} exceeds the catalog string length limit"))
+    })?;
+    output.extend_from_slice(&length.to_le_bytes());
+    output.extend_from_slice(value.as_bytes());
+    Ok(())
+}
+
+fn decode_catalog_string(input: &mut &[u8], field: &str) -> SqlResult<String> {
+    let length_bytes: [u8; 2] = input
+        .get(..2)
+        .ok_or_else(|| SqlError::RowEncoding(format!("truncated {field} length")))?
+        .try_into()
+        .map_err(|_| SqlError::RowEncoding(format!("invalid {field} length")))?;
+    *input = &input[2..];
+    let length = u16::from_le_bytes(length_bytes) as usize;
+    let bytes = input
+        .get(..length)
+        .ok_or_else(|| SqlError::RowEncoding(format!("truncated {field}")))?;
+    *input = &input[length..];
+    String::from_utf8(bytes.to_vec())
+        .map_err(|error| SqlError::RowEncoding(format!("invalid {field}: {error}")))
 }
 
 /// Serialize a TableDef to its wire format.
@@ -325,5 +412,58 @@ mod tests {
     #[test]
     fn catalog_version_constant() {
         assert_eq!(CATALOG_VERSION, 1);
+    }
+
+    #[test]
+    fn index_definition_round_trips_without_changing_table_records() {
+        let definition = IndexDef {
+            name: "users_by_email".to_string(),
+            table: "users".to_string(),
+            column: "email".to_string(),
+        };
+        let encoded = serialize_index_def(&definition).unwrap();
+
+        assert_eq!(deserialize_index_def(&encoded).unwrap(), definition);
+        assert_eq!(
+            index_key("users_by_email"),
+            "__sql_catalog__/index/users_by_email"
+        );
+        assert_eq!(encoded[0], CATALOG_VERSION);
+    }
+
+    #[test]
+    fn index_catalog_bounds_cover_only_index_catalog_keys() {
+        let (start, end) = index_catalog_bounds();
+        let index = index_key("by_email").into_bytes();
+        let table = table_key("users").into_bytes();
+        assert!(start <= index && index <= end);
+        assert!(!(start <= table && table <= end));
+    }
+
+    #[test]
+    fn malformed_index_definitions_are_rejected_without_panicking() {
+        let valid = serialize_index_def(&IndexDef {
+            name: "i".to_string(),
+            table: "t".to_string(),
+            column: "c".to_string(),
+        })
+        .unwrap();
+        for end in 0..valid.len() {
+            assert!(deserialize_index_def(&valid[..end]).is_err());
+        }
+
+        let mut trailing = valid;
+        trailing.push(0);
+        assert!(deserialize_index_def(&trailing).is_err());
+    }
+
+    #[test]
+    fn oversized_index_catalog_field_is_rejected() {
+        let definition = IndexDef {
+            name: "i".repeat(u16::MAX as usize + 1),
+            table: "t".to_string(),
+            column: "c".to_string(),
+        };
+        assert!(serialize_index_def(&definition).is_err());
     }
 }

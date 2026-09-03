@@ -25,11 +25,11 @@ full-text, fuzzy, vector, and spatial indexes are deferred.
 
 ### 1. Codec And Catalog Foundation
 
-- [ ] Add a versioned binary index-entry codec with unambiguous tuple framing.
-- [ ] Preserve type identity for INTEGER, TEXT, and BLOB values.
-- [ ] Add prefix-bound helpers for exact-secondary-value scans.
-- [ ] Add a separate versioned index-definition catalog record.
-- [ ] Prove collisions, embedded zero bytes, prefix values, signed integer
+- [x] Add a versioned binary index-entry codec with unambiguous tuple framing.
+- [x] Preserve type identity for INTEGER, TEXT, and BLOB values.
+- [x] Add prefix-bound helpers for exact-secondary-value scans.
+- [x] Add a separate versioned index-definition catalog record.
+- [x] Prove collisions, embedded zero bytes, prefix values, signed integer
       boundaries, malformed records, and deterministic ordering.
 
 ### 2. Shared Transaction Integration

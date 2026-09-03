@@ -27,6 +27,8 @@ pub mod ast;
 pub mod catalog;
 pub mod error;
 pub mod executor;
+#[allow(dead_code, reason = "used by the next secondary-index execution slice")]
+mod index_codec;
 pub mod lexer;
 pub mod parser;
 pub mod planner;
