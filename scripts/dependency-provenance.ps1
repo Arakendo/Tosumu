@@ -139,7 +139,7 @@ function Get-CoreArtifactProfile {
     Push-Location $repositoryRoot
     try {
         $lines = & cargo tree -p tosumu-core --locked --target $Target `
-            --edges normal,build --prefix depth --format '{p}|{f}'
+            --edges normal,build --prefix depth --format '{p}|{f}' --color never
         if ($LASTEXITCODE -ne 0) {
             throw "cargo tree failed for target '$Target' with exit code $LASTEXITCODE"
         }
