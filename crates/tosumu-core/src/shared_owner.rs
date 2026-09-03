@@ -1,4 +1,6 @@
 use std::cell::Cell;
+use std::cell::RefCell;
+use std::collections::HashSet;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -7,6 +9,13 @@ use crate::btree::BTree;
 use crate::error::{Result, TosumuError};
 use crate::pager::SnapshotDiagnostics;
 use crate::snapshot_registry::SnapshotPin;
+
+thread_local! {
+    static ACTIVE_WRITE_CALLBACKS: RefCell<HashSet<usize>> = RefCell::new(HashSet::new());
+}
+
+const REENTRANT_WRITE_MESSAGE: &str =
+    "shared database owner cannot be re-entered from its write callback";
 
 /// Private executable ownership model for AR-0009.
 ///
@@ -28,6 +37,10 @@ pub(crate) struct ReadTransaction {
     // Their logical snapshot is exclusive per use even though the database
     // owner itself is shared.
     _not_sync: PhantomData<Cell<()>>,
+}
+
+struct WriteCallbackScope {
+    owner_id: usize,
 }
 
 impl SharedBTreeOwner {
@@ -69,6 +82,7 @@ impl SharedBTreeOwner {
     {
         let mut tree = self.lock()?;
         tree.begin_txn()?;
+        let _scope = self.enter_write_callback();
         match operation(&mut tree) {
             Ok(value) => {
                 tree.commit_txn()?;
@@ -99,7 +113,35 @@ impl SharedBTreeOwner {
     }
 
     fn lock(&self) -> Result<MutexGuard<'_, BTree>> {
+        if self.write_callback_is_active() {
+            return Err(TosumuError::InvalidArgument(REENTRANT_WRITE_MESSAGE));
+        }
         self.state.lock().map_err(|_| TosumuError::Poisoned)
+    }
+
+    fn owner_id(&self) -> usize {
+        Arc::as_ptr(&self.state) as usize
+    }
+
+    fn write_callback_is_active(&self) -> bool {
+        let owner_id = self.owner_id();
+        ACTIVE_WRITE_CALLBACKS.with(|active| active.borrow().contains(&owner_id))
+    }
+
+    fn enter_write_callback(&self) -> WriteCallbackScope {
+        let owner_id = self.owner_id();
+        ACTIVE_WRITE_CALLBACKS.with(|active| {
+            active.borrow_mut().insert(owner_id);
+        });
+        WriteCallbackScope { owner_id }
+    }
+}
+
+impl Drop for WriteCallbackScope {
+    fn drop(&mut self) {
+        ACTIVE_WRITE_CALLBACKS.with(|active| {
+            active.borrow_mut().remove(&self.owner_id);
+        });
     }
 }
 
@@ -117,6 +159,10 @@ impl ReadTransaction {
     }
 
     fn lock(&self) -> Result<MutexGuard<'_, BTree>> {
+        let owner_id = Arc::as_ptr(&self.state) as usize;
+        if ACTIVE_WRITE_CALLBACKS.with(|active| active.borrow().contains(&owner_id)) {
+            return Err(TosumuError::InvalidArgument(REENTRANT_WRITE_MESSAGE));
+        }
         self.state.lock().map_err(|_| TosumuError::Poisoned)
     }
 }

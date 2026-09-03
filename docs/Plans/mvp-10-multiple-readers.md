@@ -496,6 +496,11 @@ format/recovery design that can retain committed versions safely.
   update/delete/insert commit, while latest reads decode the new state. This
   closes AR-0009's downstream-caller gate without coupling SQL semantics into
   `tosumu-core`.
+- Closed write-callback reentrancy and panic ambiguity. Same-owner access
+  through a captured clone or snapshot now fails before mutex acquisition and
+  rolls back without advancing the generation. Callback panic publishes no WAL
+  bytes, poisons the owner, and requires drop plus validated reopen, which
+  preserves the prior committed state.
 
 ## References
 

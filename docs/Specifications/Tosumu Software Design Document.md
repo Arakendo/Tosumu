@@ -497,6 +497,9 @@ Not "the file is large because mystery."
 > unencrypted and passphrase-protected shared owners plus a mutex-held atomic
 > write closure. Its names are evidence for AR-0009, not the supported API
 > described above.
+> Experimental write callbacks must use their borrowed transaction rather than
+> re-entering the same owner; re-entry fails explicitly. Callback panic leaves
+> staged work unpublished, poisons the owner, and requires validated reopen.
 
 ### 7.8 Explicit checkpoint API (Stage 3+)
 

@@ -121,3 +121,69 @@ fn encrypted_owner_commits_and_rolls_back_atomic_write_closures() {
         Some(b"same-generation".to_vec())
     );
 }
+
+#[test]
+fn write_callback_reentry_fails_without_deadlock_or_generation_change() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("experimental-write-reentry.tsm");
+    let database = SharedKvDatabase::create(&path).unwrap();
+    database.put(b"key", b"committed").unwrap();
+    let captured_generation = database.connection_info().unwrap().latest_generation;
+    let reader = database.snapshot().unwrap();
+    let reentrant = database.clone();
+
+    let error = database
+        .write(|transaction| {
+            transaction.put(b"key", b"staged")?;
+            reentrant.get(b"key")?;
+            Ok(())
+        })
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        TosumuError::InvalidArgument(
+            "shared database owner cannot be re-entered from its write callback"
+        )
+    ));
+
+    let reader_error = database
+        .write(|transaction| {
+            transaction.put(b"key", b"staged-again")?;
+            reader.get(b"key")?;
+            Ok(())
+        })
+        .unwrap_err();
+    assert!(matches!(
+        reader_error,
+        TosumuError::InvalidArgument(
+            "shared database owner cannot be re-entered from its write callback"
+        )
+    ));
+    assert_eq!(
+        database.connection_info().unwrap().latest_generation,
+        captured_generation
+    );
+    assert_eq!(database.get(b"key").unwrap(), Some(b"committed".to_vec()));
+}
+
+#[test]
+fn panicking_write_callback_publishes_nothing_and_requires_reopen() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("experimental-write-panic.tsm");
+    let database = SharedKvDatabase::create(&path).unwrap();
+    database.put(b"key", b"committed").unwrap();
+
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _: Result<(), TosumuError> = database.write(|transaction| {
+            transaction.put(b"key", b"staged")?;
+            panic!("caller panic");
+        });
+    }));
+    assert!(panic.is_err());
+    assert!(matches!(database.get(b"key"), Err(TosumuError::Poisoned)));
+
+    drop(database);
+    let reopened = SharedKvDatabase::open(&path).unwrap();
+    assert_eq!(reopened.get(b"key").unwrap(), Some(b"committed".to_vec()));
+}

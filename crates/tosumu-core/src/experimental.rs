@@ -89,7 +89,10 @@ impl SharedKvDatabase {
     /// Execute multiple logical mutations as one committed generation.
     ///
     /// Returning `Ok` commits the staged changes. Returning `Err` rolls them
-    /// back and preserves the caller's error.
+    /// back and preserves the caller's error. Re-entering this same database
+    /// owner through a captured clone returns `InvalidArgument`; use only the
+    /// supplied transaction inside the callback. A panic publishes no staged
+    /// WAL bytes, poisons the owner, and requires drop plus reopen.
     pub fn write<F, T>(&self, operation: F) -> Result<T>
     where
         F: FnOnce(&mut WriteTransaction<'_>) -> Result<T>,

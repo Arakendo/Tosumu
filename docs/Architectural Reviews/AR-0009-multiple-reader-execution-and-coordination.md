@@ -435,3 +435,21 @@ public MVCC contract through that implementation.
   minimal fail-fast KV surface and keep richer session/host policy deferred.
 - Resulting ADR or documentation change: the SQL integration fixture becomes
   the independent caller evidence for the public-contract decision.
+
+### Cycle 13 -- 2026-09-02
+
+- Status entering review: Incubating
+- New evidence: write-callback re-entry through either a captured database
+  clone or an existing snapshot is detected per owner and thread before mutex
+  acquisition. It returns structured `InvalidArgument`, rolls back staged
+  changes, and leaves the committed generation unchanged. A separate panic
+  fixture proves staged bytes are not appended, the process-local owner becomes
+  `Poisoned`, and drop plus writable reopen recovers the prior committed value.
+- Findings: the closure API no longer hides a same-thread mutex deadlock, and
+  unwind behavior is fail-closed without attempting fallible work during drop.
+  Callbacks use only their borrowed write transaction; owner reuse after panic
+  is rejected until validated reopen.
+- Disposition: the minimal public contract is ready for an ADR. These lifecycle
+  outcomes must be retained when the experimental names are promoted.
+- Resulting ADR or documentation change: public-contract admission may proceed
+  without adding a reentrant mutex, unwind catcher, or background recovery.
