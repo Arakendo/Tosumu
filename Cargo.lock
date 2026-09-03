@@ -1574,6 +1574,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tosumu-ffi-experimental"
+version = "0.0.0"
+dependencies = [
+ "tempfile",
+ "tosumu-core",
+]
+
+[[package]]
 name = "tosumu-inspection-boundary"
 version = "0.0.0"
 dependencies = [

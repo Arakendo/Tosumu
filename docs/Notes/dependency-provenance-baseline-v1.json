@@ -3,7 +3,7 @@
   "schema_version": 1,
   "subject": {
     "kind": "cargo-workspace-lock",
-    "cargo_lock_sha256": "af9a91a9ce9f97c84edcf3e4acac353ac003d041d06aafc73df81ec5ce026e0b",
+    "cargo_lock_sha256": "e664d028dc6458af43f46086bfb8be64b7f8b6b4b2c95b31ea18223385f61514",
     "risk_classification_sha256": "4bf17fbe395221fabb41d249345bac45a2bb132b96d4d9e388b8bac005f2ee86",
     "build_script_review_sha256": "59a3c92636f486b59bba73bc93605b048245eb7b355e73cca44e7ca5ed44e3f3",
     "executable_input_review_sha256": "858a79ebabb6fd71b3f9f515e430417ef66fb27776c8af1fd87e936adff56335",
@@ -24,11 +24,12 @@
     "workspace:crates/tosumu-bench#tosumu-bench@0.0.0",
     "workspace:crates/tosumu-cli#tosumu-cli@0.0.0",
     "workspace:crates/tosumu-core#tosumu-core@0.0.0",
+    "workspace:crates/tosumu-ffi-experimental#tosumu-ffi-experimental@0.0.0",
     "workspace:crates/tosumu-inspection-boundary#tosumu-inspection-boundary@0.0.0",
     "workspace:crates/tosumu-inspection-wasm#tosumu-inspection-wasm@0.0.0",
     "workspace:crates/tosumu-sql#tosumu-sql@0.0.0"
   ],
-  "package_count": 226,
+  "package_count": 227,
   "packages": [
     {
       "id": "registry+https://github.com/rust-lang/crates.io-index#aead@0.5.2",
@@ -3821,6 +3822,23 @@
       "unsafe_review_state": "not_assessed"
     },
     {
+      "id": "workspace:crates/tosumu-ffi-experimental#tosumu-ffi-experimental@0.0.0",
+      "name": "tosumu-ffi-experimental",
+      "version": "0.0.0",
+      "source": "workspace",
+      "checksum": null,
+      "checksum_state": "not_applicable",
+      "license": "MIT OR Apache-2.0",
+      "rust_version": "1.75",
+      "target_kinds": [
+        "cdylib",
+        "rlib"
+      ],
+      "has_build_script": false,
+      "is_proc_macro": false,
+      "unsafe_review_state": "not_assessed"
+    },
+    {
       "id": "workspace:crates/tosumu-inspection-boundary#tosumu-inspection-boundary@0.0.0",
       "name": "tosumu-inspection-boundary",
       "version": "0.0.0",
@@ -3875,7 +3893,7 @@
     "status": "provisional_under_ar_0010",
     "change_rule": "Lowering an assigned tier or tier floor requires retained rationale in a new AR-0010 review cycle.",
     "classified_package_count": 11,
-    "unclassified_package_count": 215,
+    "unclassified_package_count": 216,
     "required_direct_core_normal_count": 11,
     "entries": [
       {
@@ -4901,7 +4919,7 @@
     {
       "name": "workspace-unfiltered",
       "target": null,
-      "package_count": 226,
+      "package_count": 227,
       "packages": [
         {
           "id": "registry+https://github.com/rust-lang/crates.io-index#aead@0.5.2",
@@ -7046,6 +7064,13 @@
           "enabled_features": []
         },
         {
+          "id": "workspace:crates/tosumu-ffi-experimental#tosumu-ffi-experimental@0.0.0",
+          "roles": [
+            "workspace"
+          ],
+          "enabled_features": []
+        },
+        {
           "id": "workspace:crates/tosumu-inspection-boundary#tosumu-inspection-boundary@0.0.0",
           "roles": [
             "workspace",
@@ -7073,7 +7098,7 @@
     {
       "name": "linux-x86_64",
       "target": "x86_64-unknown-linux-gnu",
-      "package_count": 174,
+      "package_count": 175,
       "packages": [
         {
           "id": "registry+https://github.com/rust-lang/crates.io-index#aead@0.5.2",
@@ -8710,6 +8735,13 @@
           "enabled_features": []
         },
         {
+          "id": "workspace:crates/tosumu-ffi-experimental#tosumu-ffi-experimental@0.0.0",
+          "roles": [
+            "workspace"
+          ],
+          "enabled_features": []
+        },
+        {
           "id": "workspace:crates/tosumu-inspection-boundary#tosumu-inspection-boundary@0.0.0",
           "roles": [
             "workspace",
@@ -8737,7 +8769,7 @@
     {
       "name": "windows-x86_64",
       "target": "x86_64-pc-windows-msvc",
-      "package_count": 173,
+      "package_count": 174,
       "packages": [
         {
           "id": "registry+https://github.com/rust-lang/crates.io-index#aead@0.5.2",
@@ -10372,6 +10404,13 @@
           "enabled_features": []
         },
         {
+          "id": "workspace:crates/tosumu-ffi-experimental#tosumu-ffi-experimental@0.0.0",
+          "roles": [
+            "workspace"
+          ],
+          "enabled_features": []
+        },
+        {
           "id": "workspace:crates/tosumu-inspection-boundary#tosumu-inspection-boundary@0.0.0",
           "roles": [
             "workspace",
@@ -10399,7 +10438,7 @@
     {
       "name": "macos-x86_64",
       "target": "x86_64-apple-darwin",
-      "package_count": 172,
+      "package_count": 173,
       "packages": [
         {
           "id": "registry+https://github.com/rust-lang/crates.io-index#aead@0.5.2",
@@ -12008,6 +12047,13 @@
           "enabled_features": []
         },
         {
+          "id": "workspace:crates/tosumu-ffi-experimental#tosumu-ffi-experimental@0.0.0",
+          "roles": [
+            "workspace"
+          ],
+          "enabled_features": []
+        },
+        {
           "id": "workspace:crates/tosumu-inspection-boundary#tosumu-inspection-boundary@0.0.0",
           "roles": [
             "workspace",
@@ -12035,7 +12081,7 @@
     {
       "name": "wasm32-browser",
       "target": "wasm32-unknown-unknown",
-      "package_count": 167,
+      "package_count": 168,
       "packages": [
         {
           "id": "registry+https://github.com/rust-lang/crates.io-index#aead@0.5.2",
@@ -13608,6 +13654,13 @@
             "workspace",
             "normal",
             "development"
+          ],
+          "enabled_features": []
+        },
+        {
+          "id": "workspace:crates/tosumu-ffi-experimental#tosumu-ffi-experimental@0.0.0",
+          "roles": [
+            "workspace"
           ],
           "enabled_features": []
         },

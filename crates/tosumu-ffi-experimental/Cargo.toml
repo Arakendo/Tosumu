@@ -1,0 +1,24 @@
+[package]
+name = "tosumu-ffi-experimental"
+description = "Private experimental C boundary for Tosumu contract validation."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+publish = false
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+tosumu-core = { path = "../tosumu-core" }
+
+[dev-dependencies]
+tempfile = "3"
