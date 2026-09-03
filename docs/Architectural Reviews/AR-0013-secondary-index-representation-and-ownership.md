@@ -107,10 +107,10 @@ describe ordered logical secondary keyspaces for the initial implementation.
 ## Required Follow-Up
 
 - [x] Record representation and ownership in ADR-0008.
-- [ ] Implement and property-test the versioned index/catalog codecs.
-- [ ] Move `SqlDatabase` onto the shared KV owner and add transactional range
+- [x] Implement and property-test the versioned index/catalog codecs.
+- [x] Move `SqlDatabase` onto the shared KV owner and add transactional range
       reads needed for atomic backfill.
-- [ ] Implement DDL, maintenance, equality planning, snapshot execution, and
+- [x] Implement DDL, maintenance, equality planning, snapshot execution, and
       recovery evidence.
 - [x] Require no physical-format migration for the first index representation.
 
@@ -134,3 +134,18 @@ multi-root directory is admitted for another core storage requirement.
 - Resulting ADR or documentation change: replace the physical-tree shorthand
   with a representation-neutral secondary-index contract and record the first
   logical representation.
+
+### Cycle 2 -- 2026-09-02
+
+- Status entering review: Accepted
+- New evidence: the SQL layer now owns a versioned prefix-free tuple codec and
+  separate index catalog records; `CREATE INDEX` backfills atomically; INSERT
+  replacement and both DELETE forms maintain tuples in the row transaction;
+  equality plans name the selected index and fetch all rows from one pinned
+  snapshot. Tests cover duplicate values, malformed backfill rollback, staged
+  maintenance rollback, entry/row disagreement, and reopen after mutations.
+- Findings: the logical-keyspace representation satisfies the admitted first
+  index contract without a page, record, WAL, or page-zero format change.
+- Disposition: remain Accepted through ADR-0008.
+- Resulting ADR or documentation change: mark the MVP+10 secondary-index slice
+  complete and advance planning to `VACUUM` admission.

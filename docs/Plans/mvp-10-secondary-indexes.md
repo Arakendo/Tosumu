@@ -66,11 +66,11 @@ full-text, fuzzy, vector, and spatial indexes are deferred.
 
 ### 6. Recovery And Closure
 
-- [ ] Reopen after committed DDL and mutations and verify catalog, entries, and
+- [x] Reopen after committed DDL and mutations and verify catalog, entries, and
       query results.
-- [ ] Add injected failure evidence around backfill and row/index maintenance.
-- [ ] Run workspace formatting, strict clippy, all-target tests, and strict docs.
-- [ ] Update ADR/AR review history and roadmap status with measured results.
+- [x] Add injected failure evidence around backfill and row/index maintenance.
+- [x] Run workspace formatting, strict clippy, all-target tests, and strict docs.
+- [x] Update ADR/AR review history and roadmap status with measured results.
 
 ## Acceptance
 

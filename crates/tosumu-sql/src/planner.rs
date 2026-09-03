@@ -36,6 +36,7 @@ pub enum PlanNode {
     SecondaryIndexLookup {
         table: String,
         index: String,
+        column: String,
         secondary_expr: Expr,
         projection: Projection,
     },
@@ -190,6 +191,7 @@ impl Planner {
                         plan: PlanNode::SecondaryIndexLookup {
                             table: table.clone(),
                             index: index.name.clone(),
+                            column: index.column.clone(),
                             secondary_expr,
                             projection: columns.clone(),
                         },

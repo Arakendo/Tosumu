@@ -6,15 +6,16 @@ This page is the public roadmap summary. It is intentionally shorter than the re
 
 - maintain the ADR-0006/0007 `SharedKvStore` snapshot, atomic-write, and
   conditional-write contracts through core and SQL-layer caller tests
-- define the next MVP+10 slice for plain single-column secondary indexes
+- maintain ADR-0008 plain single-column secondary indexes and their atomic
+  row/index mutation contract
+- admit the next MVP+10 `VACUUM` slice before implementation
 - keep the CLI, inspect contract, and TUI viewer coherent
 - keep crash, crypto, and verification behavior visible through tests and tooling
 - improve the trust surface around docs, diagnostics, and website guidance
 
 ## Next
 
-- add plain single-column secondary indexes with atomic primary/index mutation
-  and recovery evidence
+- define `VACUUM` reclamation, interruption, and publication semantics
 - retain fail-fast writer admission and bounded snapshot/WAL pressure while
   keeping cancellation, timeout, and background execution out of the initial API
 - continued work on inspection, audit, and structured diagnostics may still reshape near-term priorities while the project remains pre-stability
@@ -22,7 +23,7 @@ This page is the public roadmap summary. It is intentionally shorter than the re
 ## Later
 
 - logical SQL scans built on the admitted reader-visibility contract
-- secondary indexes and `VACUUM`
+- composite and covering secondary indexes after measured caller pressure
 - mobile-facing wrappers and protector integrations
 - witness, observer, and deployment work for clustered scenarios
 - entropy bookkeeping and richer audit reporting

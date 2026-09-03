@@ -6,8 +6,10 @@
 //! # Supported statements (baseline)
 //!
 //! - `CREATE TABLE <name> ( <pk_name> TYPE PRIMARY KEY, <col> TYPE, ... )`
+//! - `CREATE INDEX <name> ON <table> ( <column> )`
 //! - `INSERT INTO <table> VALUES ( ... )`
 //! - `SELECT <projection> FROM <table> WHERE <pk> = ?`
+//! - `SELECT <projection> FROM <table> WHERE <indexed_column> = ?`
 //!
 //! # Public API
 //!
@@ -524,6 +526,119 @@ mod tests {
             QueryResult::Select {
                 columns: vec!["id".to_string()],
                 rows: vec![vec![Value::Integer(1)]],
+            }
+        );
+    }
+
+    #[test]
+    fn secondary_index_catalog_and_mutations_survive_reopen() {
+        let (path, _dir) = test_db_path();
+        {
+            let mut db = SqlDatabase::create(&path).unwrap();
+            db.execute("CREATE TABLE users ( id INTEGER PRIMARY KEY, name TEXT )")
+                .unwrap();
+            db.execute("INSERT INTO users VALUES ( 1, 'alice' )")
+                .unwrap();
+            db.execute("INSERT INTO users VALUES ( 2, 'alice' )")
+                .unwrap();
+            db.execute("CREATE INDEX users_by_name ON users ( name )")
+                .unwrap();
+            db.execute("INSERT INTO users VALUES ( 2, 'bob' )").unwrap();
+            db.execute("DELETE FROM users WHERE id = 1").unwrap();
+        }
+
+        let mut reopened = SqlDatabase::open(&path).unwrap();
+        let alice = reopened
+            .execute("SELECT id FROM users WHERE name = 'alice'")
+            .unwrap();
+        assert_eq!(
+            alice.result,
+            QueryResult::Select {
+                columns: vec!["id".to_string()],
+                rows: vec![],
+            }
+        );
+        let bob = reopened
+            .execute("SELECT id FROM users WHERE name = 'bob'")
+            .unwrap();
+        assert_eq!(
+            bob.result,
+            QueryResult::Select {
+                columns: vec!["id".to_string()],
+                rows: vec![vec![Value::Integer(2)]],
+            }
+        );
+    }
+
+    #[test]
+    fn indexed_lookup_reports_entry_row_disagreement() {
+        let (path, _dir) = test_db_path();
+        let mut db = SqlDatabase::create(&path).unwrap();
+        db.execute("CREATE TABLE users ( id INTEGER PRIMARY KEY, name TEXT )")
+            .unwrap();
+        db.execute("INSERT INTO users VALUES ( 1, 'alice' )")
+            .unwrap();
+        db.execute("CREATE INDEX users_by_name ON users ( name )")
+            .unwrap();
+
+        let key = row_codec::row_key("users", &Value::Integer(1));
+        let payload = row_codec::encode_row_values(
+            &["id", "name"],
+            &[1, 2],
+            &[Value::Integer(1), Value::Text("mallory".to_string())],
+        )
+        .unwrap();
+        db.store.put(key.as_bytes(), &payload).unwrap();
+
+        assert!(matches!(
+            db.execute("SELECT id FROM users WHERE name = 'alice'"),
+            Err(SqlError::RowEncoding(message)) if message.contains("disagrees")
+        ));
+    }
+
+    #[test]
+    fn failed_index_maintenance_rolls_back_earlier_staged_entry_changes() {
+        let (path, _dir) = test_db_path();
+        let mut db = SqlDatabase::create(&path).unwrap();
+        db.execute("CREATE TABLE users ( id INTEGER PRIMARY KEY, name TEXT )")
+            .unwrap();
+        db.execute("INSERT INTO users VALUES ( 1, 'alice' )")
+            .unwrap();
+        db.execute("CREATE INDEX a_valid ON users ( name )")
+            .unwrap();
+        let invalid = catalog::IndexDef {
+            name: "z_invalid".to_string(),
+            table: "users".to_string(),
+            column: "missing".to_string(),
+        };
+        db.store
+            .put(
+                catalog::index_key("z_invalid").as_bytes(),
+                &catalog::serialize_index_def(&invalid).unwrap(),
+            )
+            .unwrap();
+
+        assert!(matches!(
+            db.execute("INSERT INTO users VALUES ( 1, 'bob' )"),
+            Err(SqlError::ColumnNotFound { .. })
+        ));
+        let (start, end) =
+            index_entry_bounds("users", "a_valid", &Value::Text("alice".to_string())).unwrap();
+        assert_eq!(
+            db.store
+                .snapshot()
+                .unwrap()
+                .scan(&start, &end)
+                .unwrap()
+                .len(),
+            1
+        );
+        let row = db.execute("SELECT name FROM users WHERE id = 1").unwrap();
+        assert_eq!(
+            row.result,
+            QueryResult::Select {
+                columns: vec!["name".to_string()],
+                rows: vec![vec![Value::Text("alice".to_string())]],
             }
         );
     }

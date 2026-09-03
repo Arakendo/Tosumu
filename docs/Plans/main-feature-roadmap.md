@@ -4,10 +4,10 @@
 | --- | --- |
 | Status | Active |
 | Opened | 2026-08-03 |
-| Last updated | 2026-09-02 (supported conditional writes) |
+| Last updated | 2026-09-02 (plain secondary indexes) |
 | Owner | Tosumu maintainers |
 | Authority | Tracking plan; `docs/Specifications/Tosumu Software Design Document.md` remains normative |
-| Current milestone | MVP+10 secondary indexes |
+| Current milestone | MVP+10 `VACUUM` admission |
 
 ## Purpose
 
@@ -257,7 +257,7 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
       partial commits, including one atomic multi-mutation write closure.
 - [x] Version-observing reads and conditional-write helpers (`put_if_absent`
       and compare-and-set/version operations).
-- [ ] Plain single-column SQL-owned ordered secondary indexes (ADR-0008).
+- [x] Plain single-column SQL-owned ordered secondary indexes (ADR-0008).
 - [ ] `VACUUM` with explicit reclamation, interruption, and publication rules.
 - [ ] Representative concurrency and SQLite comparison benchmarks.
 
@@ -267,7 +267,7 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
 - [x] A writer can commit without invalidating or partially changing an active
       reader's snapshot.
 - [x] Conditional writes reject stale preconditions atomically.
-- [ ] Secondary-index mutation is atomic with primary-row mutation and remains
+- [x] Secondary-index mutation is atomic with primary-row mutation and remains
       correct through recovery.
 - [ ] `VACUUM` preserves all committed logical rows and does not replace the
       source with an incomplete artifact.
@@ -477,11 +477,12 @@ covered.
 
 ### MVP+10 Audit
 
-ADR-0006, ADR-0007, and their supported core and SQL-layer callers prove coherent pinned
+ADR-0006, ADR-0007, ADR-0008, and their supported core and SQL-layer callers prove coherent pinned
 point/range reads, writer commits that preserve active snapshots, finite
 registration/retained-WAL limits, diagnostics, last-reader recovery, and atomic
-conditional writes. Secondary-index mutation, `VACUUM`, and
-representative concurrency benchmarks have not started.
+conditional writes. Plain single-column secondary indexes now have atomic
+backfill and mutation, snapshot lookup, failure rollback, and reopen evidence.
+`VACUUM` and representative concurrency benchmarks have not started.
 
 ### MVP+11 Audit
 

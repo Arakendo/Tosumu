@@ -92,11 +92,13 @@ impl Executor {
             PlanNode::SecondaryIndexLookup {
                 table,
                 index,
+                column,
                 secondary_expr,
                 projection,
             } => Self::exec_secondary_index_lookup(
                 &table,
                 &index,
+                &column,
                 &secondary_expr,
                 &projection,
                 bindings,
@@ -392,6 +394,7 @@ impl Executor {
     fn exec_secondary_index_lookup(
         table: &str,
         index: &str,
+        column: &str,
         secondary_expr: &Expr,
         projection: &Projection,
         bindings: &[Value],
@@ -401,6 +404,11 @@ impl Executor {
         let table_def = catalog_context.ok_or_else(|| SqlError::table_not_found(table))?;
         let secondary = resolve_expr(secondary_expr, bindings, &mut 0)?;
         let (columns, projected_indexes) = projection_layout(projection, table_def)?;
+        let indexed_column = table_def
+            .columns
+            .iter()
+            .position(|candidate| candidate.name == column)
+            .ok_or_else(|| SqlError::column_not_found(table, column))?;
         let (start, end) = index_entry_bounds(table, index, &secondary)?;
         let snapshot = store.snapshot()?;
         let entries = snapshot.scan(&start, &end)?;
@@ -428,6 +436,11 @@ impl Executor {
             let decoded = decode_row_values(&payload).map_err(|error| {
                 SqlError::RowEncoding(format!("indexed SELECT row decoding failed: {error}"))
             })?;
+            if decoded.get(indexed_column) != Some(&secondary) {
+                return Err(SqlError::RowEncoding(format!(
+                    "secondary index '{index}' disagrees with its primary row"
+                )));
+            }
             let row = projected_indexes
                 .iter()
                 .map(|&column_index| {
