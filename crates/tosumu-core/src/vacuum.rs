@@ -6,7 +6,8 @@ use crate::vacuum_publication::{
     ensure_supported, replace_database, PublicationDurability, PublicationError,
 };
 use crate::vacuum_rebuild::{
-    open_guarded_source, rebuild_and_verify_staging, verify_source, VacuumUnlock,
+    ensure_staging_space, open_guarded_source, rebuild_and_verify_staging, verify_source,
+    VacuumUnlock,
 };
 use crate::wal::wal_path;
 use crate::writer_gate::{writer_lock_path, WriterGuard};
@@ -73,6 +74,7 @@ fn vacuum_supported_with_publisher(
         let mut source_store = open_guarded_source(source, unlock, &writer_guard)?;
         let bytes_before = std::fs::metadata(source)?.len();
         verify_source(source, unlock)?;
+        ensure_staging_space(source, &staging)?;
 
         let rebuilt = rebuild_and_verify_staging(&mut source_store, &staging, unlock)?;
         owns_staging = true;

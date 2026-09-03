@@ -1582,7 +1582,12 @@ Multi-reader concurrency without blocking writes.
   Windows returns `VACUUM_PLATFORM_UNSUPPORTED` before source mutation pending
   an equally strong documented publication primitive. Core entry points support
   sentinel, passphrase, recovery-key, and keyfile unlock paths, and the CLI is
-  `tosumu vacuum <path>` with the shared unlock flags.
+  `tosumu vacuum <path>` with the shared unlock flags. Before creating the
+  sibling, core verifies the recovered source and requires caller-available
+  filesystem space at least equal to the source main-file length; insufficient
+  space returns `STORAGE_OUT_OF_SPACE`. The free-space check is a preflight
+  observation, not a guarantee against concurrent consumption or later I/O
+  failure.
 - Benchmarks vs SQLite on small representative workloads (§11.11).
 
 **Proves:** real concurrency works. Read-heavy workloads don't block writers, and callers no longer have to open-code basic optimistic-concurrency races.

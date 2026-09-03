@@ -95,6 +95,11 @@ would retain fragmentation; rewriting them must use fresh page nonces.
   the source before creating staging. A source with an authenticated-page or
   structural finding is rejected as `FILE_CORRUPT`; a focused corruption test
   proves the source bytes remain untouched and no staging artifact appears.
+- Before staging creation, VACUUM queries caller-available space on the sibling
+  filesystem and requires at least the current source main-file length. A failed
+  preflight returns `STORAGE_OUT_OF_SPACE` without creating staging. This is a
+  conservative admission observation, not a promise that later allocation
+  cannot fail if filesystem availability changes during the rebuild.
 - Platform publication evidence: POSIX `rename()` requires atomic replacement
   of an existing non-directory entry, and POSIX explicitly prescribes syncing
   the containing directory when the new name must be durably confirmed.

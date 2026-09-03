@@ -62,6 +62,38 @@ pub(crate) fn verify_source(path: &Path, unlock: VacuumUnlock<'_>) -> Result<()>
     )
 }
 
+pub(crate) fn ensure_staging_space(source_path: &Path, staging_path: &Path) -> Result<()> {
+    #[cfg(any(unix, windows))]
+    {
+        ensure_staging_space_with_probe(source_path, staging_path, |path| {
+            fs4::available_space(path)
+        })
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (source_path, staging_path);
+        Ok(())
+    }
+}
+
+fn ensure_staging_space_with_probe(
+    source_path: &Path,
+    staging_path: &Path,
+    available_space: impl FnOnce(&Path) -> std::io::Result<u64>,
+) -> Result<()> {
+    let required = std::fs::metadata(source_path)?.len();
+    let parent = staging_path
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    if available_space(parent)? < required {
+        Err(TosumuError::OutOfSpace)
+    } else {
+        Ok(())
+    }
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct StagingRebuild {
     pub(crate) logical_records: u64,
@@ -198,15 +230,14 @@ fn logical_digest(records: &[(Vec<u8>, Vec<u8>)]) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::{
-        open_guarded_source, rebuild_and_verify_staging, rebuild_and_verify_staging_with_observer,
-        RebuildPhase, VacuumUnlock,
+        ensure_staging_space_with_probe, open_guarded_source, rebuild_and_verify_staging,
+        rebuild_and_verify_staging_with_observer, RebuildPhase, VacuumUnlock,
     };
     use crate::error::TosumuError;
     use crate::page_store::PageStore;
     use crate::wal::wal_path;
     use crate::writer_gate::WriterGuard;
 
-    #[cfg(any(unix, windows))]
     #[test]
     fn guarded_source_keeps_writer_gate_through_rebuild_work() {
         let directory = tempfile::tempdir().unwrap();
@@ -428,5 +459,26 @@ mod tests {
         assert!(!staging_path.exists());
         assert!(!wal_path(&staging_path).exists());
         assert!(!crate::writer_gate::writer_lock_path(&staging_path).exists());
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn insufficient_staging_space_is_typed_before_creation() {
+        let directory = tempfile::tempdir().unwrap();
+        let source_path = directory.path().join("source.tsm");
+        let staging_path = directory.path().join("staging.tsm");
+        let source = PageStore::create(&source_path).unwrap();
+        drop(source);
+        let required = std::fs::metadata(&source_path).unwrap().len();
+
+        let error = ensure_staging_space_with_probe(&source_path, &staging_path, |observed| {
+            assert_eq!(observed, directory.path());
+            Ok(required.saturating_sub(1))
+        })
+        .unwrap_err();
+
+        assert!(matches!(error, TosumuError::OutOfSpace));
+        assert!(!staging_path.exists());
+        assert!(!wal_path(&staging_path).exists());
     }
 }
