@@ -89,6 +89,9 @@ numbering. Copy `TEMPLATE.md` and add the record to this index.
   -- accepted through ADR-0010 for private format-v3 and entropy facades;
   protectors, public provider identity, suite agility, and deployment claims
   remain incubating.
+- [AR-0017: Mobile Embedding, ABI, And Hardware-Protector Boundary](AR-0017-mobile-embedding-abi-and-hardware-protector-boundary.md)
+  -- incubating foreign-ABI ownership, mobile lifecycle and qualification, and
+  real Keychain/Keystore pressure for opaque provider-owned keys.
 
 AR-0009, AR-0011, AR-0012, AR-0013, AR-0014, and the Gate C1 portion of
 AR-0016 are **Accepted** through their related ADRs. Other indexed reviews and
