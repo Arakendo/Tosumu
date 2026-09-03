@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread::{self, ThreadId};
 
 use tosumu_core::error::{ErrorReport, ErrorStatus, ErrorValue, TosumuError};
-use tosumu_core::{KvReadTransaction, SharedKvStore};
+use tosumu_core::{KvConnectionInfo, KvReadTransaction, SharedKvStore};
 
 pub const TAG_SUCCESS: u32 = 0;
 pub const TAG_ABSENT: u32 = 1;
@@ -43,6 +43,7 @@ enum Entry {
     Snapshot(Arc<SnapshotObject>),
     Bytes(Arc<Vec<u8>>),
     Error(Arc<ErrorReport>),
+    Connection(Arc<KvConnectionInfo>),
 }
 
 #[derive(Clone, Copy)]
@@ -51,6 +52,7 @@ pub enum Kind {
     Snapshot,
     Bytes,
     Error,
+    Connection,
 }
 
 #[derive(Default)]
@@ -122,6 +124,7 @@ impl Entry {
                 | (Self::Snapshot(_), Kind::Snapshot)
                 | (Self::Bytes(_), Kind::Bytes)
                 | (Self::Error(_), Kind::Error)
+                | (Self::Connection(_), Kind::Connection)
         )
     }
 }
@@ -218,6 +221,31 @@ pub fn snapshot_begin(handle: u64) -> Result<u64, CallFailure> {
         origin: thread::current().id(),
     })))
     .map_err(CallFailure::Boundary)
+}
+
+pub fn connection_info(handle: u64) -> Result<u64, CallFailure> {
+    let info = database(handle)?
+        .store
+        .connection_info()
+        .map_err(CallFailure::Core)?;
+    insert(Entry::Connection(Arc::new(info))).map_err(CallFailure::Boundary)
+}
+
+pub fn connection_field(handle: u64, field: u32) -> Result<Option<u64>, u32> {
+    let Entry::Connection(info) = lookup(handle)? else {
+        return Err(BOUNDARY_WRONG_KIND);
+    };
+    match field {
+        1 => Ok(Some(info.active_readers)),
+        2 => Ok(Some(info.maximum_readers)),
+        3 => Ok(info.oldest_reader_generation),
+        4 => Ok(Some(info.checkpoint_generation)),
+        5 => Ok(Some(info.latest_generation)),
+        6 => Ok(Some(info.retained_wal_bytes)),
+        7 => Ok(Some(info.retained_frame_versions)),
+        8 => Ok(Some(u64::from(info.checkpoint_blocked))),
+        _ => Err(BOUNDARY_INVALID_INDEX),
+    }
 }
 
 pub fn snapshot_generation(handle: u64) -> Result<u64, CallFailure> {

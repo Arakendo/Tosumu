@@ -120,6 +120,15 @@ pub extern "C" fn tosumu_experimental_v1_database_close(
 }
 
 #[no_mangle]
+pub extern "C" fn tosumu_experimental_v1_database_connection_info(
+    database: u64,
+) -> TosumuExperimentalV1Outcome {
+    contained(Some(database), || {
+        boundary::connection_info(database).map(TosumuExperimentalV1Outcome::success)
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn tosumu_experimental_v1_database_put(
     database: u64,
     key: *const u8,
@@ -236,6 +245,38 @@ pub unsafe extern "C" fn tosumu_experimental_v1_bytes_copy(
 #[no_mangle]
 pub extern "C" fn tosumu_experimental_v1_bytes_close(bytes: u64) -> TosumuExperimentalV1Outcome {
     close(bytes, Kind::Bytes)
+}
+
+#[no_mangle]
+pub extern "C" fn tosumu_experimental_v1_connection_field(
+    connection: u64,
+    field: u32,
+) -> TosumuExperimentalV1Outcome {
+    contained(None, || {
+        Ok(
+            match boundary::connection_field(connection, field).map_err(CallFailure::Boundary)? {
+                Some(value) => TosumuExperimentalV1Outcome::success(value),
+                None => TosumuExperimentalV1Outcome::absent(),
+            },
+        )
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn tosumu_experimental_v1_connection_close(
+    connection: u64,
+) -> TosumuExperimentalV1Outcome {
+    close(connection, Kind::Connection)
+}
+
+#[cfg(feature = "ffi-test-hooks")]
+#[no_mangle]
+pub extern "C" fn tosumu_experimental_v1_test_inject_database_panic(
+    database: u64,
+) -> TosumuExperimentalV1Outcome {
+    contained(Some(database), || {
+        panic!("experimental C boundary panic injection")
+    })
 }
 
 #[no_mangle]
@@ -395,8 +436,18 @@ mod tests {
         };
         assert_eq!(latest.tag, boundary::TAG_SUCCESS);
         assert_eq!(pinned.tag, boundary::TAG_SUCCESS);
+        let connection = tosumu_experimental_v1_database_connection_info(database.payload);
+        assert_eq!(connection.tag, boundary::TAG_SUCCESS);
+        assert_eq!(
+            tosumu_experimental_v1_connection_field(connection.payload, 1).payload,
+            1
+        );
         assert_eq!(
             tosumu_experimental_v1_database_close(database.payload).tag,
+            boundary::TAG_SUCCESS
+        );
+        assert_eq!(
+            tosumu_experimental_v1_connection_close(connection.payload).tag,
             boundary::TAG_SUCCESS
         );
         assert_eq!(unsafe { read_bytes(latest.payload) }, second);
@@ -449,6 +500,25 @@ mod tests {
             tosumu_experimental_v1_bytes_length(database.payload).status,
             boundary::BOUNDARY_WRONG_KIND
         );
+        assert_eq!(
+            tosumu_experimental_v1_database_close(database.payload).tag,
+            boundary::TAG_SUCCESS
+        );
+    }
+
+    #[cfg(feature = "ffi-test-hooks")]
+    #[test]
+    fn contained_panic_poisoning_preserves_close() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = path_bytes(&directory.path().join("panic.tsm"));
+        let database = unsafe { tosumu_experimental_v1_database_create(path.as_ptr(), path.len()) };
+        let panic_result = tosumu_experimental_v1_test_inject_database_panic(database.payload);
+        assert_eq!(panic_result.tag, boundary::TAG_BOUNDARY_FAILURE);
+        assert_eq!(panic_result.status, boundary::BOUNDARY_PANIC);
+
+        let get =
+            unsafe { tosumu_experimental_v1_database_get(database.payload, std::ptr::null(), 0) };
+        assert_eq!(get.status, boundary::BOUNDARY_POISONED);
         assert_eq!(
             tosumu_experimental_v1_database_close(database.payload).tag,
             boundary::TAG_SUCCESS

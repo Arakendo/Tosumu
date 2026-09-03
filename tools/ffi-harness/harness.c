@@ -65,7 +65,16 @@ int main(int argc, char **argv) {
         tosumu_experimental_v1_snapshot_get(snapshot.payload, key, sizeof(key));
     require_success(latest);
     require_success(pinned);
+    tosumu_experimental_v1_outcome connection =
+        tosumu_experimental_v1_database_connection_info(database.payload);
+    require_success(connection);
+    tosumu_experimental_v1_outcome active_readers =
+        tosumu_experimental_v1_connection_field(
+            connection.payload, TOSUMU_EXPERIMENTAL_V1_CONNECTION_ACTIVE_READERS);
+    require_success(active_readers);
+    assert(active_readers.payload == 1);
     require_success(tosumu_experimental_v1_database_close(database.payload));
+    require_success(tosumu_experimental_v1_connection_close(connection.payload));
     require_bytes(latest.payload, second, sizeof(second));
     require_bytes(pinned.payload, first, sizeof(first));
 
@@ -76,6 +85,19 @@ int main(int argc, char **argv) {
     require_success(tosumu_experimental_v1_snapshot_close(snapshot.payload));
     assert(tosumu_experimental_v1_snapshot_close(snapshot.payload).tag ==
            TOSUMU_EXPERIMENTAL_V1_BOUNDARY_FAILURE);
+
+    tosumu_experimental_v1_outcome reopened = tosumu_experimental_v1_database_open(
+        (const uint8_t *)argv[1], strlen(argv[1]));
+    require_success(reopened);
+    tosumu_experimental_v1_outcome panic_result =
+        tosumu_experimental_v1_test_inject_database_panic(reopened.payload);
+    assert(panic_result.tag == TOSUMU_EXPERIMENTAL_V1_BOUNDARY_FAILURE);
+    assert(panic_result.status == TOSUMU_EXPERIMENTAL_V1_BOUNDARY_PANIC);
+    tosumu_experimental_v1_outcome poisoned =
+        tosumu_experimental_v1_database_get(reopened.payload, key, sizeof(key));
+    assert(poisoned.tag == TOSUMU_EXPERIMENTAL_V1_BOUNDARY_FAILURE);
+    assert(poisoned.status == TOSUMU_EXPERIMENTAL_V1_BOUNDARY_POISONED);
+    require_success(tosumu_experimental_v1_database_close(reopened.payload));
 
     tosumu_experimental_v1_outcome missing = tosumu_experimental_v1_database_open(
         (const uint8_t *)argv[2], strlen(argv[2]));

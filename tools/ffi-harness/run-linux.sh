@@ -7,9 +7,9 @@ cargo --version
 cc --version
 ld --version
 
-cargo build -p tosumu-ffi-experimental
+cargo build -p tosumu-ffi-experimental --features ffi-test-hooks
 mkdir -p target/ffi-harness
-cc -std=c11 -Wall -Wextra -Werror \
+cc -std=c11 -Wall -Wextra -Werror -DTOSUMU_EXPERIMENTAL_V1_TEST_HOOKS \
   tools/ffi-harness/harness.c \
   -Itools/ffi-harness \
   -Ltarget/debug -ltosumu_ffi_experimental \

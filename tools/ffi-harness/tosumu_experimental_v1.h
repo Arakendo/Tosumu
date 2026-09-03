@@ -19,6 +19,17 @@ enum {
 };
 
 enum {
+    TOSUMU_EXPERIMENTAL_V1_CONNECTION_ACTIVE_READERS = 1,
+    TOSUMU_EXPERIMENTAL_V1_CONNECTION_MAXIMUM_READERS = 2,
+    TOSUMU_EXPERIMENTAL_V1_CONNECTION_OLDEST_READER_GENERATION = 3,
+    TOSUMU_EXPERIMENTAL_V1_CONNECTION_CHECKPOINT_GENERATION = 4,
+    TOSUMU_EXPERIMENTAL_V1_CONNECTION_LATEST_GENERATION = 5,
+    TOSUMU_EXPERIMENTAL_V1_CONNECTION_RETAINED_WAL_BYTES = 6,
+    TOSUMU_EXPERIMENTAL_V1_CONNECTION_RETAINED_FRAME_VERSIONS = 7,
+    TOSUMU_EXPERIMENTAL_V1_CONNECTION_CHECKPOINT_BLOCKED = 8
+};
+
+enum {
     TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_POINTER = 1,
     TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_UTF8 = 2,
     TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_HANDLE = 3,
@@ -55,6 +66,7 @@ uint32_t tosumu_experimental_v1_abi_version(void);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_database_create(const uint8_t *, size_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_database_open(const uint8_t *, size_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_database_close(uint64_t);
+tosumu_experimental_v1_outcome tosumu_experimental_v1_database_connection_info(uint64_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_database_put(uint64_t, const uint8_t *, size_t, const uint8_t *, size_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_database_delete(uint64_t, const uint8_t *, size_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_database_get(uint64_t, const uint8_t *, size_t);
@@ -65,6 +77,8 @@ tosumu_experimental_v1_outcome tosumu_experimental_v1_snapshot_close(uint64_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_bytes_length(uint64_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_bytes_copy(uint64_t, uint8_t *, size_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_bytes_close(uint64_t);
+tosumu_experimental_v1_outcome tosumu_experimental_v1_connection_field(uint64_t, uint32_t);
+tosumu_experimental_v1_outcome tosumu_experimental_v1_connection_close(uint64_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_error_code(uint64_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_error_status(uint64_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_error_message(uint64_t);
@@ -74,5 +88,9 @@ tosumu_experimental_v1_outcome tosumu_experimental_v1_error_detail_type(uint64_t
 tosumu_experimental_v1_outcome tosumu_experimental_v1_error_detail_scalar(uint64_t, uint64_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_error_detail_string(uint64_t, uint64_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_error_close(uint64_t);
+
+#ifdef TOSUMU_EXPERIMENTAL_V1_TEST_HOOKS
+tosumu_experimental_v1_outcome tosumu_experimental_v1_test_inject_database_panic(uint64_t);
+#endif
 
 #endif

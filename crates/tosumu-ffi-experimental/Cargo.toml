@@ -14,6 +14,9 @@ publish = false
 [lib]
 crate-type = ["rlib", "cdylib"]
 
+[features]
+ffi-test-hooks = []
+
 [lints]
 workspace = true
 
