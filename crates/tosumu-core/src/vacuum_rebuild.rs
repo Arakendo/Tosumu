@@ -55,6 +55,13 @@ impl<'a> VacuumUnlock<'a> {
     }
 }
 
+pub(crate) fn verify_source(path: &Path, unlock: VacuumUnlock<'_>) -> Result<()> {
+    require_clean_verification(
+        unlock.verify(path)?,
+        "VACUUM source structured verification failed",
+    )
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct StagingRebuild {
     pub(crate) logical_records: u64,
@@ -139,16 +146,10 @@ fn rebuild_and_verify_staging_with_observer(
             });
         }
 
-        let verification = unlock.verify(staging_path)?;
-        if verification.pages.pages_ok != verification.pages.pages_checked
-            || !verification.btree.checked
-            || !verification.btree.ok
-        {
-            return Err(TosumuError::Corrupt {
-                pgno: 0,
-                reason: "VACUUM staging structured verification failed",
-            });
-        }
+        require_clean_verification(
+            unlock.verify(staging_path)?,
+            "VACUUM staging structured verification failed",
+        )?;
 
         Ok(StagingRebuild {
             logical_records: source_records.len() as u64,
@@ -161,6 +162,20 @@ fn rebuild_and_verify_staging_with_observer(
         cleanup_owned_staging(staging_path);
     }
     result
+}
+
+fn require_clean_verification(
+    verification: VerificationReport,
+    reason: &'static str,
+) -> Result<()> {
+    if verification.pages.pages_ok == verification.pages.pages_checked
+        && verification.btree.checked
+        && verification.btree.ok
+    {
+        Ok(())
+    } else {
+        Err(TosumuError::Corrupt { pgno: 0, reason })
+    }
 }
 
 fn cleanup_owned_staging(staging_path: &Path) {

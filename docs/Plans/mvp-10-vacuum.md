@@ -36,7 +36,8 @@ recovery, generation, or encrypted-protector guarantees.
       page nonces/authentication.
 - [x] Copy every live logical key/value pair in bounded transactions while
       preserving generation monotonicity.
-- [ ] Reject invalid source structure or insufficient staging space explicitly.
+- [x] Reject invalid source structure before creating staging artifacts.
+- [ ] Reject insufficient staging space explicitly.
 
 ### 4. Verification And Publication
 

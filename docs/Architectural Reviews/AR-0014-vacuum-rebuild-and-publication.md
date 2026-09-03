@@ -90,6 +90,11 @@ would retain fragmentation; rewriting them must use fresh page nonces.
   WAL, and writer-lock paths. Together with the replacement and directory-sync
   cases, every boundary named by the initial failure plan is exercised without
   using platform emulation as evidence for atomicity.
+- After recovery/checkpoint and while retaining the writer gate, VACUUM now
+  runs complete page authentication and B+ tree invariant verification against
+  the source before creating staging. A source with an authenticated-page or
+  structural finding is rejected as `FILE_CORRUPT`; a focused corruption test
+  proves the source bytes remain untouched and no staging artifact appears.
 - Platform publication evidence: POSIX `rename()` requires atomic replacement
   of an existing non-directory entry, and POSIX explicitly prescribes syncing
   the containing directory when the new name must be durably confirmed.

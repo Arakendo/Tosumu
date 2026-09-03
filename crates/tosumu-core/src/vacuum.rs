@@ -5,7 +5,9 @@ use crate::error::{Result, TosumuError};
 use crate::vacuum_publication::{
     ensure_supported, replace_database, PublicationDurability, PublicationError,
 };
-use crate::vacuum_rebuild::{open_guarded_source, rebuild_and_verify_staging, VacuumUnlock};
+use crate::vacuum_rebuild::{
+    open_guarded_source, rebuild_and_verify_staging, verify_source, VacuumUnlock,
+};
 use crate::wal::wal_path;
 use crate::writer_gate::{writer_lock_path, WriterGuard};
 
@@ -70,6 +72,7 @@ fn vacuum_supported_with_publisher(
         before_source_open()?;
         let mut source_store = open_guarded_source(source, unlock, &writer_guard)?;
         let bytes_before = std::fs::metadata(source)?.len();
+        verify_source(source, unlock)?;
 
         let rebuilt = rebuild_and_verify_staging(&mut source_store, &staging, unlock)?;
         owns_staging = true;
@@ -283,6 +286,38 @@ mod tests {
         assert!(matches!(error, TosumuError::Io(_)));
         assert_eq!(std::fs::read(&source).unwrap(), source_before);
         assert_eq!(std::fs::read(wal).unwrap(), wal_before);
+        assert!(vacuum_staging_entries(directory.path()).is_empty());
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn invalid_source_structure_is_rejected_before_staging_creation() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source.tsm");
+        let mut store = PageStore::create(&source).unwrap();
+        store.put(b"key", b"value").unwrap();
+        drop(store);
+
+        let mut bytes = std::fs::read(&source).unwrap();
+        bytes[crate::format::PAGE_SIZE + 64] ^= 1;
+        std::fs::write(&source, &bytes).unwrap();
+
+        let error = super::vacuum_supported_with_publisher(
+            &source,
+            crate::vacuum_rebuild::VacuumUnlock::Sentinel,
+            |_, _| panic!("publication must not run"),
+            || Ok(()),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            TosumuError::Corrupt {
+                pgno: 0,
+                reason: "VACUUM source structured verification failed"
+            }
+        ));
+        assert_eq!(std::fs::read(&source).unwrap(), bytes);
         assert!(vacuum_staging_entries(directory.path()).is_empty());
     }
 
