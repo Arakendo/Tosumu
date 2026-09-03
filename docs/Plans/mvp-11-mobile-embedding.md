@@ -191,10 +191,9 @@ No rung implies the next.
 
 ## Immediate Next Slice
 
-Review the retained Slice 1 experimental ABI request/result schema and handle
-state machine against an independently compiled C harness design. Define the
-narrow unsafe-code exception, build/dependency inputs, and conservation corpus
-before implementing exported functions.
+Implement the admitted private Linux C experiment with no new third-party
+dependency. Keep unsafe operations within the reviewed input-slice and copy-out
+helpers, then obtain an independently compiled C run before crediting Slice 1.
 
 ## References
 
@@ -202,6 +201,7 @@ before implementing exported functions.
 - `docs/Architectural Reviews/AR-0016-cryptographic-provider-seam-and-suite-identity.md`
 - `docs/Notes/mvp-11-foreign-contract-and-target-inventory-v1.md`
 - `docs/Notes/mvp-11-experimental-abi-contract-v1.md`
+- `docs/Notes/mvp-11-c-harness-admission-v1.md`
 - `docs/Specifications/Tosumu Error Design Document.md`
 - `docs/Specifications/Tosumu Inspect API Specification.md`
 - `docs/Specifications/Tosumu Software Design Document.md`

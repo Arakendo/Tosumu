@@ -27,8 +27,9 @@ The experiment has five subjects:
 | Structured error handle | code, status, message, typed details, close | No global/thread-local last error and no Rust source object |
 | Call result | success/absence/not-applied/error plus exactly the payload allowed by that outcome | No null-as-error convention |
 
-Every non-zero handle is opaque. Callers cannot derive address, kind, slot, or
-generation from its bits. Zero is always invalid and is never a live object.
+Every non-zero handle is opaque. Its bit pattern has no contractual address,
+kind, slot, or generation meaning and callers must not interpret it. Zero is
+always invalid and is never a live object.
 
 ## Provisional Operation Set
 
@@ -66,6 +67,12 @@ caller use of Rust layouts, and no API callback. Range results use one bounded,
 versioned encoding or iterator-like pull handle selected during implementation;
 the experiment must not return an unbounded graph of allocations.
 
+Paths are length-delimited UTF-8 and reject malformed text, embedded NUL, and
+platform paths that Rust cannot represent without reinterpretation. This is a
+deliberately portable subset, not a promise to represent every native Windows
+path. Passphrases are also length-delimited UTF-8 because the current core
+contract is `&str`.
+
 Create/open options initially admit only the protector modes already exposed by
 the selected provider-neutral owner. A future platform protector is not encoded
 as a passphrase variant and cannot trigger passphrase fallback.
@@ -88,10 +95,11 @@ handle. Payload outputs remain zeroed/invalid on every non-success outcome.
 
 Boundary failures are a tiny FFI-owned vocabulary for conditions such as
 unsupported ABI version, invalid output pointer, invalid/stale/wrong-kind
-handle, wrong thread, allocation failure while constructing an error, or a
-contained panic. These are not silently added to the core public error-code
-registry. Stabilizing them requires AR-0017 disposition and an Error Design
-Document update.
+handle, wrong thread, recoverable capacity exhaustion while constructing an
+error, or a contained panic. Allocator-level out-of-memory may abort under the
+selected Rust runtime and is not claimed as recoverable. These failures are not
+silently added to the core public error-code registry. Stabilizing them requires
+AR-0017 disposition and an Error Design Document update.
 
 ## Buffer Contract
 
@@ -100,6 +108,10 @@ Document update.
 - Null with non-zero length is invalid. Null with zero length represents an
   empty slice, never absence.
 - Lengths are checked before pointer construction or arithmetic.
+- Non-null pointers must identify readable or writable ranges of the declared
+  length for the duration of the call. Portable C cannot prove this; a dangling
+  or forged non-null pointer is caller memory unsafety, not a typed Tosumu
+  failure.
 - Success outputs are immutable ABI-owned byte handles. Callers release them
   only through the matching ABI close operation.
 - The initial experiment prefers bounded copy-out: query/copy reports the exact
@@ -143,8 +155,10 @@ Invalid --------------------------> Active
   error observation and close remain valid.
 - Close atomically removes the live generation before destruction. Later use
   and double close receive invalid/stale-handle boundary failure.
-- The experiment begins thread-affine. Cross-thread use returns `wrong_thread`
-  until independent mobile caller evidence justifies a wider rule.
+- Ordinary operations begin thread-affine. Cross-thread use returns
+  `wrong_thread` until independent mobile caller evidence justifies a wider
+  rule. Close remains callable from another thread so foreign-runtime cleanup
+  cannot strand the object solely because finalization moved threads.
 
 ### Snapshot
 
@@ -155,9 +169,10 @@ Invalid -- snapshot success --> Active -- close --> Closed/Stale
 ```
 
 A snapshot owns its generation pin and may outlive the database handle that
-created it, matching the underlying owned Rust snapshot behavior. It is
-read-only, thread-affine in the initial experiment, and never silently changes
-to a latest read. Snapshot-limit failure produces no handle.
+created it, matching the underlying owned Rust snapshot behavior. Its reads
+are thread-affine in the initial experiment, its close is thread-independent,
+and it never silently changes to a latest read. Snapshot-limit failure produces
+no handle.
 
 ### Bytes and error objects
 
@@ -165,10 +180,10 @@ to a latest read. Snapshot-limit failure produces no handle.
 Invalid -- successful allocation --> Active -- close --> Closed/Stale
 ```
 
-They are immutable and independent of the originating database lifetime. The
-experiment may permit close/read from any thread only if the registry proves
-concurrent close/read cannot free storage while borrowed; otherwise it applies
-the same conservative thread-affinity rule.
+They are immutable and independent of the originating database lifetime. Close
+is thread-independent. Read access may become thread-independent only when the
+registry proves concurrent close/read cannot free storage while borrowed;
+otherwise reads apply the same conservative thread-affinity rule.
 
 ## Registry And Concurrency Hypothesis
 
@@ -177,6 +192,11 @@ by an adapter-owned registry. Lookup obtains a temporary strong owner before
 releasing the registry lock, so concurrent close cannot free an object during a
 call. Closing removes the entry first; a generation prevents slot reuse from
 reviving stale handles.
+
+A close/use race linearizes at registry lookup. An operation that acquires its
+temporary owner first may complete after close returns; an operation that looks
+up the handle after removal receives `stale_handle`. This rule must be tested
+and documented rather than inferred from scheduling.
 
 This is a hypothesis to test, not an accepted public representation. The
 registry must be bounded, must return explicit exhaustion, and must not hold its

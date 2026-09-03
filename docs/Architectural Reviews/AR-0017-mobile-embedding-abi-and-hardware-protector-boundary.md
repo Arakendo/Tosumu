@@ -284,3 +284,24 @@ claim.
   retained.
 - Resulting ADR or documentation change: normative SDD reconciliation and
   experimental ABI contract note; no ADR, dependency, or public ABI.
+
+### Cycle 4 -- 2026-09-03
+
+- Status entering review: Incubating; experimental behavior defined, no
+  exported functions.
+- New evidence: the harness admission review maps a zero-new-dependency adapter
+  crate, hosted Linux C11 evidence profile, hand-maintained experimental header,
+  thread-independent cleanup, UTF-8 path subset, panic-strategy constraint,
+  exact unsafe-code budget, and conservation/hostile corpus. No C compiler is
+  visible on the current Windows workstation, so independent execution evidence
+  remains absent.
+- Findings: a private `cdylib` experiment can pressure the boundary without
+  changing `tosumu-core` or adding binding/build dependencies. Unsafe behavior
+  can remain limited to checked input-slice construction and bounded copy-out.
+  Linux success will not qualify another platform or stabilize the ABI.
+- Disposition: remain Incubating. Admit the bounded private Linux
+  implementation and independent C harness; do not admit publication, binding
+  generation, mobile targets, callbacks, multi-call transactions, or stable
+  symbols.
+- Resulting ADR or documentation change: C-harness and unsafe-boundary admission
+  record; no ADR, dependency, stable ABI, or platform claim.
