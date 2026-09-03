@@ -38,9 +38,14 @@ would retain fragmentation; rewriting them must use fresh page nonces.
   and secondary-index records as ordinary logical KV pairs.
 - Diagnostics or audits: header inspection exposes page count and freelist head,
   sufficient to measure before/after reclamation without claiming performance.
-- Repeated implementation friction: current constructors acquire their own
+- Repeated implementation friction: the original constructors acquired their own
   writer guard, so an offline operation cannot retain one source guard across
   both open/checkpoint and replacement without a guarded-open refactor.
+- Retained-admission implementation evidence: the writer guard is now a
+  cloneable, path-bound capability over one shared OS file handle. A private
+  pager open accepts only a guard for the same database path, and tests prove
+  the gate remains held when either the maintenance owner or pager owner is
+  dropped before the other.
 - Platform publication evidence: POSIX `rename()` requires atomic replacement
   of an existing non-directory entry, and POSIX explicitly prescribes syncing
   the containing directory when the new name must be durably confirmed.
@@ -146,7 +151,7 @@ Accepted through ADR-0009.
 - [x] Record offline rebuild and publication invariants in ADR-0009.
 - [x] Admit POSIX `rename()` plus containing-directory `fsync()` on Unix; reject
       Windows before mutation pending a documented atomic/durable mechanism.
-- [ ] Refactor guarded open/checkpoint without permitting public gate bypass.
+- [x] Refactor guarded open/checkpoint without permitting public gate bypass.
 - [ ] Implement crypto/generation-preserving staging rebuild and verification.
 - [ ] Add interruption tests before, during, and after publication.
 

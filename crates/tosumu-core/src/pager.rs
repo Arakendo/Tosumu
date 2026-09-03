@@ -213,6 +213,19 @@ impl Pager {
         Self::open_inner(path, false, OpenUnlock::Sentinel)
     }
 
+    /// Open while sharing an already-held writer gate with an offline core
+    /// operation. This capability is crate-private so consumers cannot bypass
+    /// ordinary writer admission.
+    #[allow(dead_code)]
+    pub(crate) fn open_with_writer_guard(path: &Path, writer_guard: &WriterGuard) -> Result<Self> {
+        if !writer_guard.authorizes(path) {
+            return Err(TosumuError::InvalidArgument(
+                "writer guard does not authorize this database path",
+            ));
+        }
+        Self::open_inner_with_writer_guard(path, OpenUnlock::Sentinel, writer_guard.clone())
+    }
+
     /// Open an existing database file in read-only mode.
     pub fn open_readonly(path: &Path) -> Result<Self> {
         Self::open_inner(path, true, OpenUnlock::Sentinel)
@@ -1651,6 +1664,19 @@ impl Pager {
             writer_guard,
         )
     }
+
+    fn open_inner_with_writer_guard(
+        path: &Path,
+        unlock: OpenUnlock<'_>,
+        writer_guard: WriterGuard,
+    ) -> Result<Self> {
+        let mut file = open_file_for_mode(path, false)?;
+        let page0 = read_page0(&mut file)?;
+        validate_header(&page0)?;
+
+        let (page_key, header_mac_key) = unlock_page0_for_open(&page0, unlock)?;
+        finish_open(file, page_key, header_mac_key, &page0, path, writer_guard)
+    }
 }
 
 /// Complete a Pager open given a derived page_key + optional MAC key.
@@ -2263,5 +2289,40 @@ mod tests {
             "expected FileTruncated, got: {:?}",
             result.err(),
         );
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn guarded_open_retains_offline_writer_admission_after_owner_drops() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("guarded_open.tsm");
+        drop(Pager::create(&path).unwrap());
+
+        let offline_guard = WriterGuard::acquire(&path).unwrap();
+        let pager = Pager::open_with_writer_guard(&path, &offline_guard).unwrap();
+        drop(offline_guard);
+
+        let competing = WriterGuard::acquire(&path);
+        assert!(matches!(competing, Err(TosumuError::FileBusy { .. })));
+
+        drop(pager);
+        WriterGuard::acquire(&path).unwrap();
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn guarded_open_rejects_a_guard_for_another_database() {
+        let dir = TempDir::new().unwrap();
+        let authorized = dir.path().join("authorized.tsm");
+        let other = dir.path().join("other.tsm");
+        drop(Pager::create(&authorized).unwrap());
+        drop(Pager::create(&other).unwrap());
+
+        let guard = WriterGuard::acquire(&authorized).unwrap();
+        let error = match Pager::open_with_writer_guard(&other, &guard) {
+            Ok(_) => panic!("guard for another database unexpectedly authorized open"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, TosumuError::InvalidArgument(_)));
     }
 }

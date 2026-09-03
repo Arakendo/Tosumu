@@ -22,7 +22,7 @@ recovery, generation, or encrypted-protector guarantees.
 
 ### 2. Retained Writer Admission
 
-- [ ] Add a private guarded source-open/checkpoint path that consumes or borrows
+- [x] Add a private guarded source-open/checkpoint path that consumes or borrows
       an already acquired `WriterGuard`.
 - [ ] Retain the source sidecar gate across source close, staging verification,
       atomic replacement, and directory synchronization.
