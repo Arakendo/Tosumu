@@ -1633,6 +1633,30 @@ mod tests {
     }
 
     #[test]
+    fn bounded_snapshot_continuation_key_has_an_explicit_additive_bound() {
+        let p = tmp("bounded_scan_large_key");
+        let _ = std::fs::remove_file(&p);
+
+        let mut tree = BTree::create(&p).unwrap();
+        let key = vec![b'k'; 1_000];
+        let value = vec![0x33; PAGE_PLAINTEXT_SIZE * 2];
+        tree.put(&key, &value).unwrap();
+        let pin = tree.pin_snapshot().unwrap();
+        let page = tree
+            .scan_page_at_snapshot(&pin, &key, &key, 1, 999)
+            .unwrap();
+
+        assert!(page.pairs.is_empty());
+        assert_eq!(page.next_start_inclusive, Some(key.clone()));
+        assert!(u16::try_from(page.next_start_inclusive.as_ref().unwrap().len()).is_ok());
+        assert_eq!(
+            page.blocked_entry_payload_bytes,
+            Some((key.len() + value.len()) as u64)
+        );
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
     fn btree_splits_on_many_inserts() {
         let p = tmp("splits");
         let _ = std::fs::remove_file(&p);
@@ -1887,6 +1911,65 @@ mod tests {
             let actual = t.scan_physical().unwrap();
             prop_assert_eq!(actual, expected, "scan_physical must match BTreeMap model after all ops");
 
+            let _ = std::fs::remove_file(&p);
+            let _ = std::fs::remove_file(&wp);
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(24))]
+
+        #[test]
+        fn prop_bounded_pages_equal_complete_snapshot_scan(
+            maximum_pairs in 1usize..12,
+            maximum_payload_bytes in 1u64..240,
+            first in 0u32..40,
+            width in 1u32..80,
+        ) {
+            let p = tmp("bounded_page_proptest");
+            let wp = wal_path(&p);
+            let _ = std::fs::remove_file(&p);
+            let _ = std::fs::remove_file(&wp);
+            let mut tree = BTree::create(&p).unwrap();
+            for i in 0u32..120 {
+                let key = format!("key{i:04}");
+                let value = vec![(i % 251) as u8; (i as usize % 37) + 1];
+                tree.put(key.as_bytes(), &value).unwrap();
+            }
+            let last = (first + width).min(119);
+            let lower = format!("key{first:04}").into_bytes();
+            let upper = format!("key{last:04}").into_bytes();
+            let expected = tree.scan_by_key(&lower, &upper).unwrap();
+            let pin = tree.pin_snapshot().unwrap();
+            let mut start = lower;
+            let mut observed = Vec::new();
+            let mut page_budget = maximum_payload_bytes;
+
+            for _ in 0..=expected.len() * 2 + 1 {
+                let page = tree
+                    .scan_page_at_snapshot(
+                        &pin,
+                        &start,
+                        &upper,
+                        maximum_pairs,
+                        page_budget,
+                    )
+                    .unwrap();
+                observed.extend(page.pairs);
+                match page.next_start_inclusive {
+                    None => break,
+                    Some(next) => {
+                        start = next;
+                        page_budget = page
+                            .blocked_entry_payload_bytes
+                            .map_or(maximum_payload_bytes, |required| {
+                                required.max(maximum_payload_bytes)
+                            });
+                    }
+                }
+            }
+
+            prop_assert_eq!(observed, expected);
             let _ = std::fs::remove_file(&p);
             let _ = std::fs::remove_file(&wp);
         }
