@@ -625,6 +625,19 @@ provider pressure. Reopen or advance when:
 - Next slice: implement C1 as a behavior-preserving structural change and rerun
   the exact vectors, file matrix, WASM build, and performance observation.
 
+### 2026-09-03 -- C1 Entropy Facade
+
+- Work completed: centralized DEK, nonce, salt, database-identifier, and
+  recovery-secret random acquisition behind the purpose-named private
+  `SystemEntropy` facade.
+- Conservation: public APIs and random byte lengths are unchanged;
+  fallible calls still return `RngFailed`, and recovery-secret generation
+  deliberately retains its recorded panic on entropy failure.
+- Validation: the exact construction vector, encrypted create/open fixture,
+  formatting, and strict workspace Clippy pass.
+- Next slice: extract the private concrete format-v3 cryptographic facade and
+  retain existing public free functions as wrappers.
+
 ## References
 
 - `docs/ADR/ADR-0001-storage-engine-layer-boundaries.md`

@@ -15,6 +15,10 @@ use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
+pub(crate) mod entropy;
+
+use entropy::SystemEntropy;
+
 use crate::error::{Result, TosumuError};
 use crate::format::{
     CIPHERTEXT_OFFSET, FILE_HEADER_PLAIN_LEN, KEYSLOT_SIZE, NONCE_SIZE, PAGE_FRAME_TYPE_OFFSET,
@@ -23,16 +27,12 @@ use crate::format::{
 
 /// Generate a fresh 32-byte DEK from the OS random source.
 pub fn generate_dek() -> Result<[u8; 32]> {
-    let mut dek = [0u8; 32];
-    getrandom::getrandom(&mut dek).map_err(|_| TosumuError::RngFailed)?;
-    Ok(dek)
+    SystemEntropy::dek()
 }
 
 /// Generate a random 12-byte nonce for page encryption.
 pub fn random_nonce() -> Result<[u8; 12]> {
-    let mut n = [0u8; 12];
-    getrandom::getrandom(&mut n).map_err(|_| TosumuError::RngFailed)?;
-    Ok(n)
+    SystemEntropy::nonce()
 }
 
 /// Derive the three HKDF subkeys from the DEK.
@@ -379,8 +379,7 @@ const RECOVERY_SECRET_BYTES: usize = 20;
 /// (the entropy already exceeds a passphrase by orders of magnitude).
 pub fn generate_recovery_secret() -> String {
     use data_encoding::BASE32_NOPAD;
-    let mut secret = [0u8; RECOVERY_SECRET_BYTES];
-    getrandom::getrandom(&mut secret).expect("getrandom failed");
+    let secret = SystemEntropy::recovery_secret_bytes();
     let encoded = BASE32_NOPAD.encode(&secret);
     // Group into 4 blocks of 8 for readability: XXXXXXXX-XXXXXXXX-…
     encoded

@@ -31,15 +31,15 @@ secure erasure, provider independence, module validation, or compliance.
 
 | Owner | Purpose | Current behavior |
 | --- | --- | --- |
-| `crypto::generate_dek` | Database DEK | Fallible; maps to `RngFailed` |
-| `crypto::random_nonce` | Page and wrap nonces | Fallible; maps to `RngFailed` |
-| `crypto::generate_recovery_secret` | Recovery secret | Infallible signature; panics on source failure |
-| `Pager::create_encrypted` | Passphrase salt and nonzero `dek_id` seed | Direct `getrandom`; maps to `RngFailed` |
-| Passphrase-protector addition | Per-slot salt | Direct `getrandom`; maps to `RngFailed` |
-| Passphrase rekey variants | Replacement salt | Direct `getrandom`; maps to `RngFailed` |
+| `SystemEntropy::dek` | Database DEK | Fallible; maps to `RngFailed` |
+| `SystemEntropy::nonce` | Page and wrap nonces | Fallible; maps to `RngFailed` |
+| `SystemEntropy::recovery_secret_bytes` | Recovery secret | Preserves the infallible public signature and panic on source failure |
+| `SystemEntropy::passphrase_salt` | Initial, added, and replacement protector salts | Fallible; maps to `RngFailed` |
+| `SystemEntropy::database_identifier_seed` | Nonzero `dek_id` seed | Fallible; maps to `RngFailed` |
 
-The inventory proves that replacing only `random_nonce` and `generate_dek`
-does not create a complete entropy seam.
+The initial ADR-0010 extraction now routes all Tosumu-owned source calls to
+`getrandom` through this purpose-named private facade. It does not add runtime
+selection, deterministic production entropy, or an entropy-quality claim.
 
 ## Secret Residence And Copy Inventory
 
