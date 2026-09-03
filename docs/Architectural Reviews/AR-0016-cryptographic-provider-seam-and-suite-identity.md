@@ -413,10 +413,11 @@ reinterpretation, or compliance label is accepted by this cycle.
   wrappers. Exact vectors, focused crypto tests, the workspace file-behavior
   suite, native lint/format checks, and the browser-WASM build pass.
 - Findings: the extraction requires neither pager-stored provider state nor
-  runtime dispatch or allocation. It therefore preserves the v3 interpretation
-  and does not trigger the conditional hot-path benchmark rerun. The WASM build
-  exposed and prompted a narrow clone-contract repair in the pre-existing
-  non-native writer-gate stub.
+  runtime dispatch or allocation and preserves the v3 interpretation. The
+  required post-extraction `lookup/plain/tosumu` observation measured
+  41.216-42.670 us and reported no regression against the retained local
+  baseline. The WASM build exposed and prompted a narrow clone-contract repair
+  in the pre-existing non-native writer-gate stub.
 - Disposition: ADR-0010 is implemented for the two private facades. C1 remains
   open only for key-free lifecycle instrumentation; public provider, opaque-key,
   alternate-suite, and compliance questions remain incubating.

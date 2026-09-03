@@ -650,9 +650,11 @@ provider pressure. Reopen or advance when:
   The WASM check additionally repaired the non-native `WriterGuard` stub so it
   preserves the clone contract already required by pager ownership.
 - Performance observation: the extraction adds only static concrete calls and
-  no allocation or runtime dispatch, so the matrix's conditional benchmark
-  rerun is not triggered. This is a structural observation, not a throughput
-  claim.
+  no allocation or runtime dispatch. The existing `lookup/plain/tosumu`
+  Criterion path nevertheless ran because ADR-0010 requires post-extraction
+  measurement: its 95% interval was 41.216-42.670 us, with Criterion reporting
+  a 3.75-7.11% time reduction against the retained local baseline. This is one
+  local observation, not a general throughput claim or causal attribution.
 - Remaining C1 work: add key-free lifecycle instrumentation suitable for
   focused tests. C2 provider-independence evidence and every public provider,
   opaque-key, alternate-suite, or compliance claim remain unadmitted.
