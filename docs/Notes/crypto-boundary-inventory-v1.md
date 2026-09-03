@@ -7,8 +7,8 @@
 | Scope | Current format-v3 crypto operations, entropy, key residence, failures, and evidence |
 | Owner | AR-0016 Gate C0 |
 
-This inventory records the current implementation before a cryptographic
-provider seam is introduced. It does not establish cryptographic correctness,
+This inventory began as the pre-seam baseline and now records the admitted C1
+private-facade extraction. It does not establish cryptographic correctness,
 secure erasure, provider independence, module validation, or compliance.
 
 ## Durable Construction Inventory
@@ -40,6 +40,19 @@ secure erasure, provider independence, module validation, or compliance.
 The initial ADR-0010 extraction now routes all Tosumu-owned source calls to
 `getrandom` through this purpose-named private facade. It does not add runtime
 selection, deterministic production entropy, or an entropy-quality claim.
+
+## Format-v3 Mechanism Boundary
+
+The private concrete `FormatV3Crypto` facade now owns the existing
+HKDF-SHA256, ChaCha20-Poly1305, Argon2id, KCV, HMAC-SHA256, and recovery-KEK
+mechanics. The existing public functions in `crypto.rs` are compatibility
+wrappers, not a provider SPI. The pager remains the authenticated storage
+crossing point and retains raw derived keys exactly as before; it does not hold
+a provider object or mutable selection state.
+
+This extraction adds static concrete calls only. It introduces no runtime
+dispatch, allocation, alternate suite, durable suite identifier, or provider
+dependency.
 
 ## Secret Residence And Copy Inventory
 

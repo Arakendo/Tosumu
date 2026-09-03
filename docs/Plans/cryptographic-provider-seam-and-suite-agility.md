@@ -268,14 +268,14 @@ No suite identifier is allocated at this gate.
 **Objective:** Route current operations through a private implementation seam
 without changing format bytes, public APIs, or supported behavior.
 
-- [ ] Move current ChaCha/HKDF/HMAC/Argon2/getrandom mechanics behind private,
+- [x] Move current ChaCha/HKDF/HMAC/Argon2/getrandom mechanics behind private,
       purpose-specific interfaces.
-- [ ] Keep the pager as the sole authenticated crossing point.
-- [ ] Preserve exact frame, keyslot, header, KCV, KDF, AAD, and error behavior.
-- [ ] Use a default RustCrypto implementation selected structurally, not by
+- [x] Keep the pager as the sole authenticated crossing point.
+- [x] Preserve exact frame, keyslot, header, KCV, KDF, AAD, and error behavior.
+- [x] Use a default RustCrypto implementation selected structurally, not by
       mutable process configuration.
 - [ ] Add lifecycle instrumentation suitable for tests without exposing keys.
-- [ ] Keep provider types out of public storage traits and format modules.
+- [x] Keep provider types out of public storage traits and format modules.
 
 **Acceptance:** existing databases and reviewed fixtures are byte-compatible;
 fixed-input KATs, corruption, wrong-key, recovery, hostile-input, WAL, snapshot,
@@ -637,6 +637,25 @@ provider pressure. Reopen or advance when:
   formatting, and strict workspace Clippy pass.
 - Next slice: extract the private concrete format-v3 cryptographic facade and
   retain existing public free functions as wrappers.
+
+### 2026-09-03 -- C1 Format-v3 Facade
+
+- Work completed: moved the existing HKDF-SHA256, ChaCha20-Poly1305,
+  Argon2id, KCV, HMAC-SHA256, and recovery-KEK mechanics behind the private
+  concrete `FormatV3Crypto` facade. Existing free functions remain wrappers,
+  and the pager retains no provider object or runtime selection state.
+- Conservation: the exact construction vector and all 23 focused crypto tests
+  pass. The full file-level matrix is exercised through the workspace suite;
+  native formatting and linting and the browser-WASM adapter build also pass.
+  The WASM check additionally repaired the non-native `WriterGuard` stub so it
+  preserves the clone contract already required by pager ownership.
+- Performance observation: the extraction adds only static concrete calls and
+  no allocation or runtime dispatch, so the matrix's conditional benchmark
+  rerun is not triggered. This is a structural observation, not a throughput
+  claim.
+- Remaining C1 work: add key-free lifecycle instrumentation suitable for
+  focused tests. C2 provider-independence evidence and every public provider,
+  opaque-key, alternate-suite, or compliance claim remain unadmitted.
 
 ## References
 

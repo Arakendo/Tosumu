@@ -55,12 +55,13 @@ the selected suite, but may not substitute another one.
 
 ### Current operation boundary
 
-- `crypto.rs` directly implements DEK and nonce generation, HKDF-SHA256
+- `crypto.rs` retains the existing public free functions as compatibility
+  wrappers. The private concrete `FormatV3Crypto` facade owns HKDF-SHA256
   subkeys, ChaCha20-Poly1305 page protection and DEK wrapping, Argon2id
   passphrase derivation, the deterministic KCV, HMAC-SHA256 header
   authentication, and recovery-secret derivation.
-- Pager creation also calls `getrandom` directly for passphrase salts and
-  `dek_id`; protector addition and rekey paths call it for new salts.
+- The private `SystemEntropy` facade owns Tosumu's direct `getrandom` calls for
+  DEKs, nonces, passphrase salts, `dek_id` seeds, and recovery secrets.
 - The pager and snapshot path call page encryption/decryption and header-MAC
   functions directly. Protector editing calls derivation, KCV, wrap/unwrap,
   and header-MAC functions directly.
@@ -403,3 +404,21 @@ reinterpretation, or compliance label is accepted by this cycle.
 - Disposition: Accepted through ADR-0010 for the two private C1 facades only;
   all later provider, key-handle, and suite questions remain incubating.
 - Resulting ADR or documentation change: ADR-0010.
+
+### Cycle 6 -- 2026-09-03
+
+- Status entering review: Accepted through ADR-0010 for C1 only.
+- New evidence: `SystemEntropy` and the concrete `FormatV3Crypto` facade now
+  own the admitted mechanisms while the existing public crypto functions stay
+  wrappers. Exact vectors, focused crypto tests, the workspace file-behavior
+  suite, native lint/format checks, and the browser-WASM build pass.
+- Findings: the extraction requires neither pager-stored provider state nor
+  runtime dispatch or allocation. It therefore preserves the v3 interpretation
+  and does not trigger the conditional hot-path benchmark rerun. The WASM build
+  exposed and prompted a narrow clone-contract repair in the pre-existing
+  non-native writer-gate stub.
+- Disposition: ADR-0010 is implemented for the two private facades. C1 remains
+  open only for key-free lifecycle instrumentation; public provider, opaque-key,
+  alternate-suite, and compliance questions remain incubating.
+- Resulting ADR or documentation change: implementation and retained plan and
+  inventory updates; no new architectural decision.

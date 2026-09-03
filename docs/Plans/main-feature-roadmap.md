@@ -869,7 +869,7 @@ Before implementation moves beyond the completed MVP+9 baseline:
       and error behavior.
 - [x] Add exact deterministic and fixed-nonce vectors plus the named file-level
       conservation matrix before implementing the private seam.
-- [ ] Implement the ADR-0010 private format-v3 and entropy facades without
+- [x] Implement the ADR-0010 private format-v3 and entropy facades without
       changing format bytes, public APIs, errors, or supported behavior.
 
 ## Completion Rules

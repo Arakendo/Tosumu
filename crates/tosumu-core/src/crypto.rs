@@ -9,21 +9,14 @@
 //   [nonce 12][page_version 8][page_type 1][reserved 3][ciphertext ...][tag 16]
 //   AAD = pgno (u64 LE) || page_version (u64 LE) || page_type (u8)
 
-use chacha20poly1305::aead::{Aead, Payload};
-use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
-use hkdf::Hkdf;
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
-
 pub(crate) mod entropy;
+mod format_v3;
 
 use entropy::SystemEntropy;
+use format_v3::FormatV3Crypto;
 
 use crate::error::{Result, TosumuError};
-use crate::format::{
-    CIPHERTEXT_OFFSET, FILE_HEADER_PLAIN_LEN, KEYSLOT_SIZE, NONCE_SIZE, PAGE_FRAME_TYPE_OFFSET,
-    PAGE_PLAINTEXT_SIZE, PAGE_SIZE, PAGE_VERSION_OFFSET, PAGE_VERSION_SIZE, TAG_SIZE,
-};
+use crate::format::{PAGE_PLAINTEXT_SIZE, PAGE_SIZE};
 
 /// Generate a fresh 32-byte DEK from the OS random source.
 pub fn generate_dek() -> Result<[u8; 32]> {
@@ -39,20 +32,7 @@ pub fn random_nonce() -> Result<[u8; 12]> {
 ///
 /// Returns `(page_key, header_mac_key, audit_key)`.
 pub fn derive_subkeys(dek: &[u8; 32]) -> ([u8; 32], [u8; 32], [u8; 32]) {
-    let hk = Hkdf::<Sha256>::new(None, dek);
-
-    let mut page_key = [0u8; 32];
-    let mut header_mac_key = [0u8; 32];
-    let mut audit_key = [0u8; 32];
-
-    hk.expand(b"tosumu/v1/page", &mut page_key)
-        .expect("HKDF expand: output length is valid");
-    hk.expand(b"tosumu/v1/header-mac", &mut header_mac_key)
-        .expect("HKDF expand: output length is valid");
-    hk.expand(b"tosumu/v1/audit", &mut audit_key)
-        .expect("HKDF expand: output length is valid");
-
-    (page_key, header_mac_key, audit_key)
+    FormatV3Crypto::derive_subkeys(dek)
 }
 
 /// Encrypt `plaintext` (PAGE_PLAINTEXT_SIZE bytes) into a full PAGE_SIZE frame.
@@ -71,32 +51,7 @@ pub fn encrypt_page(
     page_type: u8,
     plaintext: &[u8; PAGE_PLAINTEXT_SIZE],
 ) -> Result<[u8; PAGE_SIZE]> {
-    let nonce = random_nonce()?;
-    let aad = make_aad(pgno, page_version, page_type);
-
-    let cipher = ChaCha20Poly1305::new(page_key.into());
-    let ciphertext = cipher
-        .encrypt(
-            nonce.as_slice().into(),
-            Payload {
-                msg: plaintext.as_slice(),
-                aad: &aad,
-            },
-        )
-        .map_err(|_| TosumuError::EncryptFailed)?;
-
-    if ciphertext.len() != PAGE_PLAINTEXT_SIZE + TAG_SIZE {
-        return Err(TosumuError::EncryptFailed);
-    }
-
-    let mut frame = [0u8; PAGE_SIZE];
-    frame[0..NONCE_SIZE].copy_from_slice(&nonce);
-    frame[PAGE_VERSION_OFFSET..PAGE_VERSION_OFFSET + PAGE_VERSION_SIZE]
-        .copy_from_slice(&page_version.to_le_bytes());
-    frame[PAGE_FRAME_TYPE_OFFSET] = page_type;
-    // reserved bytes [21..24] remain zero
-    frame[CIPHERTEXT_OFFSET..].copy_from_slice(&ciphertext);
-    Ok(frame)
+    FormatV3Crypto::encrypt_page(page_key, pgno, page_version, page_type, plaintext)
 }
 
 /// Decrypt a PAGE_SIZE frame. Returns `(plaintext_buf, page_version)`.
@@ -105,46 +60,7 @@ pub fn decrypt_page(
     pgno: u64,
     frame: &[u8; PAGE_SIZE],
 ) -> Result<([u8; PAGE_PLAINTEXT_SIZE], u64)> {
-    let nonce: [u8; NONCE_SIZE] =
-        frame[0..NONCE_SIZE]
-            .try_into()
-            .map_err(|_| TosumuError::Corrupt {
-                pgno,
-                reason: "bad nonce length",
-            })?;
-    let page_version = u64::from_le_bytes(
-        frame[PAGE_VERSION_OFFSET..PAGE_VERSION_OFFSET + PAGE_VERSION_SIZE]
-            .try_into()
-            .map_err(|_| TosumuError::Corrupt {
-                pgno,
-                reason: "bad page_version length",
-            })?,
-    );
-    let page_type = frame[PAGE_FRAME_TYPE_OFFSET];
-    let aad = make_aad(pgno, page_version, page_type);
-    // ciphertext_with_tag is everything after the plaintext header fields
-    let ciphertext_with_tag = &frame[CIPHERTEXT_OFFSET..];
-
-    let cipher = ChaCha20Poly1305::new(page_key.into());
-    let plaintext = cipher
-        .decrypt(
-            nonce.as_slice().into(),
-            Payload {
-                msg: ciphertext_with_tag,
-                aad: &aad,
-            },
-        )
-        .map_err(|_| TosumuError::AuthFailed { pgno: Some(pgno) })?;
-
-    if plaintext.len() != PAGE_PLAINTEXT_SIZE {
-        return Err(TosumuError::Corrupt {
-            pgno,
-            reason: "decrypted page has wrong length",
-        });
-    }
-    let mut out = [0u8; PAGE_PLAINTEXT_SIZE];
-    out.copy_from_slice(&plaintext);
-    Ok((out, page_version))
+    FormatV3Crypto::decrypt_page(page_key, pgno, frame)
 }
 
 // ── private ───────────────────────────────────────────────────────────────────
@@ -181,26 +97,7 @@ pub fn derive_passphrase_kek(
     salt: &[u8; 16],
     kdf_params: &[u8; 32],
 ) -> Result<[u8; 32]> {
-    use argon2::{Algorithm, Argon2, Params, Version};
-
-    let (m, t, p) = if kdf_params[..16].iter().all(|&b| b == 0) {
-        (ARGON2_M_COST, ARGON2_T_COST, ARGON2_P_COST)
-    } else {
-        let m = read_kdf_u32(kdf_params, 0);
-        let t = read_kdf_u32(kdf_params, 4);
-        let p = read_kdf_u32(kdf_params, 8);
-        (m, t, p)
-    };
-
-    let params = Params::new(m, t, p, Some(32))
-        .map_err(|_| TosumuError::InvalidArgument("invalid Argon2id parameters"))?;
-    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
-
-    let mut kek = [0u8; 32];
-    argon2
-        .hash_password_into(passphrase.as_bytes(), salt, &mut kek)
-        .map_err(|_| TosumuError::InvalidArgument("Argon2id hashing failed"))?;
-    Ok(kek)
+    FormatV3Crypto::derive_passphrase_kek(passphrase, salt, kdf_params)
 }
 
 /// Pack the Argon2id parameters into the 32-byte `kdf_params` keyslot field.
@@ -235,22 +132,7 @@ pub fn wrap_dek(
     dek_id: u64,
     kind: u8,
 ) -> Result<([u8; 12], [u8; 48])> {
-    let nonce = random_nonce()?;
-    let aad = wrap_aad(slot_index, dek_id, kind);
-    let cipher = ChaCha20Poly1305::new(kek.into());
-    let ct = cipher
-        .encrypt(
-            nonce.as_slice().into(),
-            Payload {
-                msg: dek.as_slice(),
-                aad: &aad,
-            },
-        )
-        .map_err(|_| TosumuError::EncryptFailed)?;
-    debug_assert_eq!(ct.len(), 48);
-    let mut wrapped = [0u8; 48];
-    wrapped.copy_from_slice(&ct);
-    Ok((nonce, wrapped))
+    FormatV3Crypto::wrap_dek(kek, dek, slot_index, dek_id, kind)
 }
 
 /// Unwrap a 32-byte DEK.  Returns `WrongKey` if the AEAD tag fails.
@@ -262,21 +144,7 @@ pub fn unwrap_dek(
     dek_id: u64,
     kind: u8,
 ) -> Result<[u8; 32]> {
-    let aad = wrap_aad(slot_index, dek_id, kind);
-    let cipher = ChaCha20Poly1305::new(kek.into());
-    let pt = cipher
-        .decrypt(
-            nonce.as_slice().into(),
-            Payload {
-                msg: wrapped.as_slice(),
-                aad: &aad,
-            },
-        )
-        .map_err(|_| TosumuError::WrongKey)?;
-    debug_assert_eq!(pt.len(), 32);
-    let mut dek = [0u8; 32];
-    dek.copy_from_slice(&pt);
-    Ok(dek)
+    FormatV3Crypto::unwrap_dek(kek, nonce, wrapped, slot_index, dek_id, kind)
 }
 
 // ── Key check value (KCV) (§8.7) ─────────────────────────────────────────────
@@ -293,41 +161,16 @@ const KCV_AAD: &[u8] = b"tosumu/v1/kcv";
 /// KCV = ChaCha20-Poly1305(key=KEK, nonce=0, msg=[0u8;16], aad="tosumu/v1/kcv")
 /// Result = 16-byte ciphertext || 16-byte tag = 32 bytes.
 pub fn compute_kcv(kek: &[u8; 32]) -> [u8; 32] {
-    let cipher = ChaCha20Poly1305::new(kek.into());
-    let ct = cipher
-        .encrypt(
-            KCV_NONCE.as_slice().into(),
-            Payload {
-                msg: &KCV_KNOWN_PT,
-                aad: KCV_AAD,
-            },
-        )
-        .expect("KCV encryption: ChaCha20-Poly1305 over fixed inputs cannot fail");
-    debug_assert_eq!(ct.len(), 32);
-    let mut kcv = [0u8; 32];
-    kcv.copy_from_slice(&ct);
-    kcv
+    FormatV3Crypto::compute_kcv(kek)
 }
 
 /// Verify that `kcv` matches the expected KCV for `kek`.
 /// Returns `WrongKey` if they do not match.
 pub fn verify_kcv(kek: &[u8; 32], kcv: &[u8; 32]) -> Result<()> {
-    let cipher = ChaCha20Poly1305::new(kek.into());
-    cipher
-        .decrypt(
-            KCV_NONCE.as_slice().into(),
-            Payload {
-                msg: kcv.as_slice(),
-                aad: KCV_AAD,
-            },
-        )
-        .map_err(|_| TosumuError::WrongKey)?;
-    Ok(())
+    FormatV3Crypto::verify_kcv(kek, kcv)
 }
 
 // ── Header MAC (§8.5) ─────────────────────────────────────────────────────────
-
-type HmacSha256 = Hmac<Sha256>;
 
 /// Compute the 32-byte HMAC-SHA256 over the header plain region and keyslot region.
 ///
@@ -337,16 +180,7 @@ pub fn compute_header_mac(
     page0: &[u8; PAGE_SIZE],
     keyslot_count: usize,
 ) -> [u8; 32] {
-    use crate::format::KEYSLOT_REGION_OFFSET;
-    let mut mac = <HmacSha256 as hmac::Mac>::new_from_slice(header_mac_key)
-        .expect("HMAC: key length is always valid for SHA-256");
-    mac.update(&page0[..FILE_HEADER_PLAIN_LEN]);
-    let ks_end = KEYSLOT_REGION_OFFSET + keyslot_count * KEYSLOT_SIZE;
-    mac.update(&page0[KEYSLOT_REGION_OFFSET..ks_end]);
-    let result = mac.finalize().into_bytes();
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&result);
-    out
+    FormatV3Crypto::compute_header_mac(header_mac_key, page0, keyslot_count)
 }
 
 /// Verify that the 32-byte header MAC in `page0[OFF_HEADER_MAC]` is correct.
@@ -357,14 +191,7 @@ pub fn verify_header_mac(
     keyslot_count: usize,
     expected_mac: &[u8; 32],
 ) -> Result<()> {
-    use crate::format::KEYSLOT_REGION_OFFSET;
-    let mut mac = <HmacSha256 as hmac::Mac>::new_from_slice(header_mac_key)
-        .expect("HMAC: key length is always valid for SHA-256");
-    mac.update(&page0[..FILE_HEADER_PLAIN_LEN]);
-    let ks_end = KEYSLOT_REGION_OFFSET + keyslot_count * KEYSLOT_SIZE;
-    mac.update(&page0[KEYSLOT_REGION_OFFSET..ks_end]);
-    mac.verify_slice(expected_mac)
-        .map_err(|_| TosumuError::AuthFailed { pgno: None })
+    FormatV3Crypto::verify_header_mac(header_mac_key, page0, keyslot_count, expected_mac)
 }
 
 // ── Recovery key (§8.6.2) ────────────────────────────────────────────────────
@@ -411,18 +238,16 @@ pub fn derive_recovery_kek(recovery_str: &str) -> Result<[u8; 32]> {
         return Err(TosumuError::WrongKey);
     }
 
-    let hk = Hkdf::<Sha256>::new(None, &raw);
-    let mut kek = [0u8; 32];
-    hk.expand(b"tosumu/v1/recovery-kek", &mut kek)
-        .expect("HKDF expand: output length is valid");
-    Ok(kek)
+    Ok(FormatV3Crypto::derive_recovery_kek(&raw))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::format::{
-        KEYSLOT_KIND_PASSPHRASE, KEYSLOT_REGION_OFFSET, OFF_HEADER_MAC, PAGE_VERSION_OFFSET,
+        CIPHERTEXT_OFFSET, FILE_HEADER_PLAIN_LEN, KEYSLOT_KIND_PASSPHRASE, KEYSLOT_REGION_OFFSET,
+        KEYSLOT_SIZE, NONCE_SIZE, OFF_HEADER_MAC, PAGE_FRAME_TYPE_OFFSET, PAGE_VERSION_OFFSET,
+        PAGE_VERSION_SIZE,
     };
 
     // ── HKDF KAT ─────────────────────────────────────────────────────────────
@@ -715,7 +540,7 @@ mod tests {
     fn gate_c0_fixed_construction_vectors() {
         use chacha20poly1305::aead::{Aead, Payload};
         use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
-        use sha2::Digest;
+        use sha2::{Digest, Sha256};
 
         fn hex(bytes: &[u8]) -> String {
             bytes.iter().map(|byte| format!("{byte:02x}")).collect()

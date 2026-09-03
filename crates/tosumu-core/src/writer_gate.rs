@@ -1,8 +1,12 @@
 use std::path::{Path, PathBuf};
+#[cfg(any(unix, windows))]
 use std::sync::Arc;
 
-use crate::error::{Result, TosumuError};
+use crate::error::Result;
+#[cfg(any(unix, windows))]
+use crate::error::TosumuError;
 
+#[cfg(any(unix, windows))]
 const ACQUIRE_OPERATION: &str = "acquiring database writer gate";
 
 pub(crate) fn writer_lock_path(database_path: &Path) -> PathBuf {
@@ -53,6 +57,7 @@ impl WriterGuard {
 }
 
 #[cfg(not(any(unix, windows)))]
+#[derive(Clone, Debug)]
 pub(crate) struct WriterGuard;
 
 #[cfg(not(any(unix, windows)))]
@@ -73,6 +78,7 @@ impl WriterGuard {
 #[cfg(test)]
 mod tests {
     use super::WriterGuard;
+    #[cfg(any(unix, windows))]
     use crate::error::TosumuError;
 
     #[cfg(any(unix, windows))]
