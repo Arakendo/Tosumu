@@ -26,6 +26,10 @@ fn sql_row_encoding_consumes_a_coherent_shared_snapshot() {
         .write(|transaction| {
             transaction.put(first.as_bytes(), &encoded_name("alice"))?;
             transaction.put(second.as_bytes(), &encoded_name("bob"))?;
+            let staged = transaction.scan(first.as_bytes(), second.as_bytes())?;
+            assert_eq!(staged.len(), 2);
+            assert_eq!(decoded_name(&staged[0].1), "alice");
+            assert_eq!(decoded_name(&staged[1].1), "bob");
             Ok(())
         })
         .unwrap();

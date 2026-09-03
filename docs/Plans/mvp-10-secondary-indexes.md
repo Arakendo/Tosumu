@@ -34,7 +34,7 @@ full-text, fuzzy, vector, and spatial indexes are deferred.
 
 ### 2. Shared Transaction Integration
 
-- [ ] Add a provider-neutral ordered range read to `KvWriteTransaction` so
+- [x] Add a provider-neutral ordered range read to `KvWriteTransaction` so
       backfill observes the same staged transaction it publishes.
 - [ ] Move `SqlDatabase` from direct `PageStore` ownership to `SharedKvStore`.
 - [ ] Retain existing SQL behavior and error mapping through focused regression

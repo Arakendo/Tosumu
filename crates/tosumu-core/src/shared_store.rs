@@ -325,4 +325,12 @@ impl KvWriteTransaction<'_> {
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         self.tree.get(key)
     }
+
+    /// Read an inclusive ordered key range from the transaction's staged view.
+    ///
+    /// Earlier puts and deletes in this same callback are reflected in the
+    /// returned pairs. The scan is committed only if the callback succeeds.
+    pub fn scan(&self, start: &[u8], end: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        self.tree.scan_by_key(start, end)
+    }
 }

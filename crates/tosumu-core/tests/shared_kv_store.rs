@@ -226,6 +226,36 @@ fn encrypted_owner_commits_and_rolls_back_atomic_write_closures() {
 }
 
 #[test]
+fn write_transaction_scan_observes_its_staged_ordered_view() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("shared-kv-write-scan.tsm");
+    let database = SharedKvStore::create(&path).unwrap();
+    database.put(b"b", b"old-b").unwrap();
+    database.put(b"c", b"old-c").unwrap();
+
+    let observed = database
+        .write(|transaction| {
+            transaction.put(b"a", b"new-a")?;
+            transaction.put(b"b", b"new-b")?;
+            transaction.delete(b"c")?;
+            transaction.scan(b"a", b"z")
+        })
+        .unwrap();
+
+    assert_eq!(
+        observed,
+        vec![
+            (b"a".to_vec(), b"new-a".to_vec()),
+            (b"b".to_vec(), b"new-b".to_vec()),
+        ]
+    );
+    assert_eq!(
+        database.snapshot().unwrap().scan(b"a", b"z").unwrap(),
+        observed
+    );
+}
+
+#[test]
 fn write_callback_reentry_fails_without_deadlock_or_generation_change() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("shared-kv-write-reentry.tsm");
