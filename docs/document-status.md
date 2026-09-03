@@ -68,12 +68,14 @@ specifications and accepted ADRs.
 | [ADR-0004: Cooperative Single-Writer Admission](ADR/ADR-0004-cooperative-single-writer-admission.md) | Accepted / binding |
 | [ADR-0005: Committed Generation And Retained-WAL Snapshots](ADR/ADR-0005-committed-generation-and-retained-wal-snapshots.md) | Accepted / binding |
 | [ADR-0006: Shared KV Store And Snapshot Transactions](ADR/ADR-0006-shared-kv-store-and-snapshot-transactions.md) | Accepted / binding |
+| [ADR-0007: Database-Generation Conditional Writes](ADR/ADR-0007-database-generation-conditional-writes.md) | Accepted / binding |
 
 ## Architectural Reviews
 
 AR-0009 is **Accepted** through ADR-0004, ADR-0005, and ADR-0006. AR-0011 is
-**Accepted** through ADR-0005. Other current reviews are **Incubating** and do
-not change accepted architecture by themselves.
+**Accepted** through ADR-0005, and AR-0012 is **Accepted** through ADR-0007.
+Other current reviews are **Incubating** and do not change accepted architecture
+by themselves.
 
 | Record | Question |
 | --- | --- |
@@ -88,6 +90,7 @@ not change accepted architecture by themselves.
 | [AR-0009](Architectural%20Reviews/AR-0009-multiple-reader-execution-and-coordination.md) | Multiple-reader visibility, locking, and execution ownership |
 | [AR-0010](Architectural%20Reviews/AR-0010-dependency-trust-and-source-provenance.md) | Dependency trust, exact source identity, and release provenance |
 | [AR-0011](Architectural%20Reviews/AR-0011-committed-generation-and-version-residence.md) | Accepted committed-generation, retained-WAL, checkpoint, and format-v3 evidence |
+| [AR-0012](Architectural%20Reviews/AR-0012-conditional-write-and-version-token-semantics.md) | Database-generation tokens and conditional-write outcomes |
 
 ## Implementation Plans
 

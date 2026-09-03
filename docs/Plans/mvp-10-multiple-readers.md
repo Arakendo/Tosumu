@@ -7,8 +7,8 @@
 | Last updated | 2026-09-02 |
 | Owner | Tosumu maintainers |
 | Target | MVP+10 core storage and embedded provider coordination |
-| Related ADRs | ADR-0001, ADR-0002, ADR-0004, ADR-0005, ADR-0006 |
-| Related reviews | AR-0009, AR-0011 |
+| Related ADRs | ADR-0001, ADR-0002, ADR-0004, ADR-0005, ADR-0006, ADR-0007 |
+| Related reviews | AR-0009, AR-0011, AR-0012 |
 | Related CRs | None |
 | Depends on | MVP+9 baseline, authenticated pager, WAL recovery, provider boundary |
 
@@ -139,6 +139,20 @@ changing page or WAL bytes. Generic sessions, busy policies, and richer
 checkpoint policy remain deferred.
 
 ## Implementation Slices
+
+### Slice 4: Versioned Reads And Conditional Writes
+
+- [x] Distinguish durable database generations from nonexistent per-key
+      revisions and unrelated physical page versions.
+- [x] Decide version-token identity, cross-database rejection, and conservative
+      conflicts under AR-0012 and ADR-0007.
+- [x] Treat unmet preconditions as typed outcomes rather than new errors.
+- [ ] Add atomic versioned read, put-if-absent, value compare-and-set, and
+      generation-checked put operations to `SharedKvStore`.
+- [ ] Exercise the supported surface from core and the separate SQL crate.
+
+Exit state: callers can avoid open-coded optimistic-concurrency races without a
+format change or a false per-key revision claim.
 
 ### Slice 0: Executable Baseline And Boundary Confirmation
 
@@ -519,6 +533,8 @@ format/recovery design that can retain committed versions safely.
 - `docs/ADR/ADR-0004-cooperative-single-writer-admission.md`
 - `docs/ADR/ADR-0005-committed-generation-and-retained-wal-snapshots.md`
 - `docs/ADR/ADR-0006-shared-kv-store-and-snapshot-transactions.md`
+- `docs/ADR/ADR-0007-database-generation-conditional-writes.md`
 - `docs/Architectural Reviews/AR-0009-multiple-reader-execution-and-coordination.md`
 - `docs/Architectural Reviews/AR-0011-committed-generation-and-version-residence.md`
+- `docs/Architectural Reviews/AR-0012-conditional-write-and-version-token-semantics.md`
 - `docs/Plans/main-feature-roadmap.md`

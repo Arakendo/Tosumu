@@ -72,6 +72,10 @@ numbering. Copy `TEMPLATE.md` and add the record to this index.
 - [AR-0011: Committed Generation And Version Residence](AR-0011-committed-generation-and-version-residence.md)
   -- accepted through ADR-0005; retains the MVP+10 commit-LSN, retained-WAL,
   reader-horizon, checkpoint, limit, and format-v3 evidence.
+- [AR-0012: Conditional Write And Version Token Semantics](AR-0012-conditional-write-and-version-token-semantics.md)
+  -- accepted through ADR-0007; defines the database-generation token and
+  conditional-write outcome boundary.
 
-AR-0011 is **Accepted** through ADR-0005. All other indexed reviews are
-currently **Incubating**; none are rejected, deferred, or superseded.
+AR-0009, AR-0011, and AR-0012 are **Accepted** through their related ADRs.
+Other indexed reviews are currently **Incubating**; none are rejected,
+deferred, or superseded.
