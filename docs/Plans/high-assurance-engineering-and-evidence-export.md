@@ -841,6 +841,24 @@ specific pressure.
 - Next slice: close the `version_check` and referenced probe inputs, then review
   the `thiserror-impl` procedural-macro path.
 
+### 2026-09-03 -- Slice 1 Helper And Macro Source Review
+
+- Work completed: hash-bound and reviewed the four-file `version_check` source
+  tree, three `proc-macro2` compiler probes, the `thiserror` compiler probe, and
+  the 11-file `thiserror-impl` procedural-macro source tree.
+- Validation: canonical relative-path/file-hash identities and exact file counts
+  are regenerated; missing subjects, path escape, file-set drift, or content
+  changes fail the retained check.
+- Findings: the helper queries and parses compiler identity, the probes exercise
+  compiler features, and the macro parses derive input and generates Rust error
+  implementations. No direct network operation was observed in these reviewed
+  inputs.
+- Plan changes: the named build-script gaps are closed at source level, but the
+  macro's `proc-macro2`, `quote`, `syn`, and `unicode-ident` execution closure is
+  still unreviewed; state remains `attempted_incomplete`.
+- Next slice: review that four-package proc-macro runtime closure, then capture
+  controlled-build execution evidence separately from source findings.
+
 ## References
 
 - `SECURITY.md`

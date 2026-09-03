@@ -121,6 +121,30 @@ these seven exact scripts. That statement is limited to the reviewed
 `build.rs` files. It does not cover helper libraries, referenced probe sources,
 the procedural macro, or arbitrary behavior elsewhere in their packages.
 
+### Executable helper and macro inputs
+
+The previously named gaps now have file-level source-tree identities and human
+findings:
+
+- all four Rust source files in `version_check 0.9.5`;
+- all three compiler-probe inputs selected by `proc-macro2 1.0.106`;
+- `thiserror 2.0.18/build/probe.rs`; and
+- all 11 Rust source files in `thiserror-impl 2.0.18`.
+
+The generator hashes a canonical list of relative paths and individual file
+hashes, rejects file-set drift, and binds the result into the baseline subject.
+The reviewed non-test `version_check` path runs the selected compiler's version
+command and parses its identity. The probe files contain compiler capability
+tests. `thiserror-impl` parses derive input and emits Rust implementations; no
+direct filesystem, subprocess, network, unsafe block, or runtime initialization
+operation was observed in that macro source tree.
+
+This closes the specifically named source gaps but not the whole procedural-
+macro execution closure. `thiserror-impl` executes through `proc-macro2`,
+`quote`, `syn`, and `unicode-ident`; those libraries remain source-identified
+but not source-reviewed here. The overall state therefore remains
+`attempted_incomplete`.
+
 ## Initial Critical Boundary
 
 `tosumu-core` directly resolves these normal dependencies in the unfiltered
@@ -214,6 +238,7 @@ are erased.
 - `Cargo.lock`
 - `docs/Notes/dependency-risk-classification-v1.json`
 - `docs/Notes/dependency-build-script-review-v1.json`
+- `docs/Notes/dependency-executable-input-review-v1.json`
 - `.github/workflows/ci.yml`
 - `docs/Architectural Reviews/AR-0010-dependency-trust-and-source-provenance.md`
 - `docs/Notes/assurance-claim-inventory-v1.md`

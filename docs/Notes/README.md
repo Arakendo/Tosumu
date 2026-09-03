@@ -19,4 +19,5 @@ Promote a note when its role changes:
 - [Dependency Provenance Baseline v1](dependency-provenance-baseline-v1.md) --
   machine-derived Slice 1 Cargo closure, source/checksum identity, selected
   features, build-time surfaces, provisional direct-core risk classifications,
-  hash-bound build-script review, explicit limitations, and staleness check.
+  hash-bound build-script/executable-input review, explicit limitations, and
+  staleness check.

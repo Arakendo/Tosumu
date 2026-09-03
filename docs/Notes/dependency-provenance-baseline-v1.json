@@ -5,7 +5,8 @@
     "kind": "cargo-workspace-lock",
     "cargo_lock_sha256": "af9a91a9ce9f97c84edcf3e4acac353ac003d041d06aafc73df81ec5ce026e0b",
     "risk_classification_sha256": "4bf17fbe395221fabb41d249345bac45a2bb132b96d4d9e388b8bac005f2ee86",
-    "build_script_review_sha256": "59a3c92636f486b59bba73bc93605b048245eb7b355e73cca44e7ca5ed44e3f3"
+    "build_script_review_sha256": "59a3c92636f486b59bba73bc93605b048245eb7b355e73cca44e7ca5ed44e3f3",
+    "executable_input_review_sha256": "858a79ebabb6fd71b3f9f515e430417ef66fb27776c8af1fd87e936adff56335"
   },
   "observation": {
     "state": "observed_finding",
@@ -14777,6 +14778,63 @@
           "write_out_dir"
         ],
         "finding": "Generates private.rs under OUT_DIR and compiles build/probe.rs to select compatibility cfgs. The referenced probe source and thiserror-impl procedural macro remain separate review subjects."
+      }
+    ]
+  },
+  "executable_input_review": {
+    "status": "attempted_incomplete",
+    "reviewed_subject_count": 4,
+    "entries": [
+      {
+        "id": "registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.106",
+        "selection": "rust_source_tree",
+        "relative_path": "src/probe",
+        "file_count": 3,
+        "source_tree_sha256": "bd4690b9c011faf5612e17d027d91b1cb4c6cb411bdb01d9174fd69e6b56bfb4",
+        "capabilities": [
+          "compiler_feature_probe"
+        ],
+        "finding": "The three probe inputs contain bounded proc-macro span API compile checks; rustc compiles them as metadata and they contain no process, filesystem, network, or runtime initialization behavior.",
+        "limitations": "This covers only files selected by proc-macro2 build.rs as compiler probes, not the proc-macro2 runtime library."
+      },
+      {
+        "id": "registry+https://github.com/rust-lang/crates.io-index#thiserror-impl@2.0.18",
+        "selection": "rust_source_tree",
+        "relative_path": "src",
+        "file_count": 11,
+        "source_tree_sha256": "501a43e42cd18a8359e027a64ab40e2bac82a54ec6fd9b256ac24815d4e83020",
+        "capabilities": [
+          "generate_rust_tokens",
+          "parse_macro_input"
+        ],
+        "finding": "The derive macro parses input syntax and attributes, validates error forms, and emits Error, Display, From, source, and backtrace-related implementations. No direct filesystem, process, network, unsafe block, or runtime initialization operation was observed in its source tree.",
+        "limitations": "The macro executes proc-macro2, quote, and syn code that remains outside this source-tree review; generated tokens still require Tosumu compile and contract tests."
+      },
+      {
+        "id": "registry+https://github.com/rust-lang/crates.io-index#thiserror@2.0.18",
+        "selection": "file",
+        "relative_path": "build/probe.rs",
+        "file_count": 1,
+        "source_tree_sha256": "75c44c984fe7acd649b87da0acaac7dcf32ce0cdbb051359ffc14a305bd1dd26",
+        "capabilities": [
+          "compiler_feature_probe"
+        ],
+        "finding": "The probe defines error-provider types and trait implementations used only to test compiler support; no process, filesystem, network, or runtime initialization behavior was observed.",
+        "limitations": "This covers the source compiled by thiserror build.rs, not generated private.rs output or the derive macro."
+      },
+      {
+        "id": "registry+https://github.com/rust-lang/crates.io-index#version_check@0.9.5",
+        "selection": "rust_source_tree",
+        "relative_path": "src",
+        "file_count": 4,
+        "source_tree_sha256": "099ad796d74ba4726617df06e4295107fbd956be126e068ff3d34b6ce395fb15",
+        "capabilities": [
+          "parse_compiler_identity",
+          "read_build_environment",
+          "run_rustc_version"
+        ],
+        "finding": "The non-test path selects RUSTC or rustc, runs --verbose --version, and parses compiler version, date, and channel; no network or source-generation operation was observed.",
+        "limitations": "Reviewed as the helper called by generic-array; test-only filesystem code is present but is not part of build-script execution."
       }
     ]
   }

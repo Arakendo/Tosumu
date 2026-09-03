@@ -298,3 +298,18 @@ AR-0010 remains Incubating for the repository's broader dependency policy.
   `attempted_incomplete`; inspect the remaining executable inputs next.
 - Resulting ADR or documentation change: add
   `dependency-build-script-review-v1.json`; no policy acceptance.
+
+### Cycle 9 -- 2026-09-03
+
+- Status entering review: Incubating
+- New evidence: exact file-set identities and findings now cover
+  `version_check`, the `proc-macro2` and `thiserror` compiler probes, and the
+  complete `thiserror-impl` Rust source tree.
+- Findings: the named helper/probe gaps are closed at source level. The derive
+  macro itself performs token parsing and generation without observed direct
+  filesystem, subprocess, network, unsafe-block, or runtime-initialization
+  operations, but its four-package macro runtime closure remains unreviewed.
+- Disposition: remain Incubating and `attempted_incomplete`; source review is
+  still not controlled-build execution evidence.
+- Resulting ADR or documentation change: add
+  `dependency-executable-input-review-v1.json`; no policy acceptance.

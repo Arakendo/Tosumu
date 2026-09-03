@@ -2,6 +2,7 @@ param(
     [string]$OutputPath = "docs/Notes/dependency-provenance-baseline-v1.json",
     [string]$RiskPath = "docs/Notes/dependency-risk-classification-v1.json",
     [string]$BuildReviewPath = "docs/Notes/dependency-build-script-review-v1.json",
+    [string]$ExecutableReviewPath = "docs/Notes/dependency-executable-input-review-v1.json",
     [switch]$Check
 )
 
@@ -23,6 +24,35 @@ $absoluteBuildReviewPath = if ([IO.Path]::IsPathRooted($BuildReviewPath)) {
     $BuildReviewPath
 } else {
     Join-Path $repositoryRoot $BuildReviewPath
+}
+$absoluteExecutableReviewPath = if ([IO.Path]::IsPathRooted($ExecutableReviewPath)) {
+    $ExecutableReviewPath
+} else {
+    Join-Path $repositoryRoot $ExecutableReviewPath
+}
+
+function Get-SourceTreeHash {
+    param(
+        [string]$PackageRoot,
+        [object[]]$Files
+    )
+
+    $identity = @(
+        $Files |
+            Sort-Object FullName |
+            ForEach-Object {
+                $relative = [IO.Path]::GetRelativePath($PackageRoot, $_.FullName).Replace('\', '/')
+                $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                "$relative`0$hash`n"
+            }
+    ) -join ""
+    $bytes = [Text.UTF8Encoding]::new($false).GetBytes($identity)
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([Convert]::ToHexString($sha256.ComputeHash($bytes))).ToLowerInvariant()
+    } finally {
+        $sha256.Dispose()
+    }
 }
 
 function Get-LockPackages {
@@ -568,6 +598,65 @@ foreach ($requiredId in $requiredBuildReviewIds) {
     }
 }
 
+$executableReviewDocument = Get-Content -LiteralPath $absoluteExecutableReviewPath -Raw | ConvertFrom-Json -Depth 100
+if ($executableReviewDocument.schema -ne "tosumu-dependency-executable-input-review" -or $executableReviewDocument.schema_version -ne 1) {
+    throw "Unsupported dependency executable-input review schema: $absoluteExecutableReviewPath"
+}
+$requiredExecutableReviewIds = @(
+    "registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.106",
+    "registry+https://github.com/rust-lang/crates.io-index#thiserror-impl@2.0.18",
+    "registry+https://github.com/rust-lang/crates.io-index#thiserror@2.0.18",
+    "registry+https://github.com/rust-lang/crates.io-index#version_check@0.9.5"
+)
+$seenExecutableReviewIds = @{}
+$normalizedExecutableReviews = foreach ($subject in $executableReviewDocument.subjects) {
+    $subjectId = [string]$subject.id
+    if ($subjectId -notin $requiredExecutableReviewIds -or -not $metadataByStableId.ContainsKey($subjectId)) {
+        throw "Executable-input review is not a required current subject: $subjectId"
+    }
+    if ($seenExecutableReviewIds.ContainsKey($subjectId)) {
+        throw "Duplicate executable-input review: $subjectId"
+    }
+    $seenExecutableReviewIds[$subjectId] = $true
+    $package = $metadataByStableId[$subjectId]
+    $packageRoot = Split-Path -Parent ([string]$package.manifest_path)
+    $selectedPath = [IO.Path]::GetFullPath((Join-Path $packageRoot ([string]$subject.relative_path)))
+    $rootPrefix = [IO.Path]::GetFullPath($packageRoot) + [IO.Path]::DirectorySeparatorChar
+    if (-not $selectedPath.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Executable-input selection escapes package root: $subjectId"
+    }
+    $files = @(switch ([string]$subject.selection) {
+        "file" { @(Get-Item -LiteralPath $selectedPath) }
+        "rust_source_tree" { @(Get-ChildItem -LiteralPath $selectedPath -Recurse -File -Filter "*.rs") }
+        default { throw "Unknown executable-input selection for $subjectId" }
+    })
+    if ($files.Count -ne [int]$subject.file_count) {
+        throw "Executable-input file count changed for $subjectId"
+    }
+    $observedHash = Get-SourceTreeHash $packageRoot $files
+    if ($observedHash -ne [string]$subject.source_tree_sha256) {
+        throw "Executable-input source identity changed for $subjectId"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$subject.finding) -or [string]::IsNullOrWhiteSpace([string]$subject.limitations)) {
+        throw "Executable-input review lacks finding or limitations: $subjectId"
+    }
+    [ordered]@{
+        id = $subjectId
+        selection = [string]$subject.selection
+        relative_path = [string]$subject.relative_path
+        file_count = $files.Count
+        source_tree_sha256 = $observedHash
+        capabilities = @($subject.capabilities | ForEach-Object { [string]$_ } | Sort-Object -Unique)
+        finding = [string]$subject.finding
+        limitations = [string]$subject.limitations
+    }
+}
+foreach ($requiredId in $requiredExecutableReviewIds) {
+    if (-not $seenExecutableReviewIds.ContainsKey($requiredId)) {
+        throw "Required executable-input subject lacks source review: $requiredId"
+    }
+}
+
 $document = [ordered]@{
     schema = "tosumu-dependency-provenance-baseline"
     schema_version = 1
@@ -576,6 +665,7 @@ $document = [ordered]@{
         cargo_lock_sha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
         risk_classification_sha256 = (Get-FileHash -LiteralPath $absoluteRiskPath -Algorithm SHA256).Hash.ToLowerInvariant()
         build_script_review_sha256 = (Get-FileHash -LiteralPath $absoluteBuildReviewPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        executable_input_review_sha256 = (Get-FileHash -LiteralPath $absoluteExecutableReviewPath -Algorithm SHA256).Hash.ToLowerInvariant()
     }
     observation = [ordered]@{
         state = "observed_finding"
@@ -608,6 +698,11 @@ $document = [ordered]@{
         scope = [string]$buildReviewDocument.scope
         reviewed_candidate_count = @($normalizedBuildReviews).Count
         entries = @($normalizedBuildReviews | Sort-Object { $_.id })
+    }
+    executable_input_review = [ordered]@{
+        status = [string]$executableReviewDocument.status
+        reviewed_subject_count = @($normalizedExecutableReviews).Count
+        entries = @($normalizedExecutableReviews | Sort-Object { $_.id })
     }
 }
 
