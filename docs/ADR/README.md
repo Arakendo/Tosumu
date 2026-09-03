@@ -31,3 +31,4 @@ remain in history when superseded.
 - [ADR-0007: Database-Generation Conditional Writes](ADR-0007-database-generation-conditional-writes.md)
 - [ADR-0008: SQL-Owned Secondary Index Keyspaces](ADR-0008-sql-owned-secondary-index-keyspaces.md)
 - [ADR-0009: Offline VACUUM Rebuild Publication](ADR-0009-offline-vacuum-rebuild-publication.md)
+- [ADR-0010: Private Format-v3 Cryptographic Mechanism Seams](ADR-0010-private-format-v3-cryptographic-mechanism-seams.md)

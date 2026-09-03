@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed; architectural admission required before public SPI or format change |
+| Status | Gate C1 admitted through ADR-0010; public SPI and format changes remain unadmitted |
 | Opened | 2026-09-03 |
 | Last updated | 2026-09-03 |
 | Owner | Tosumu maintainers |
 | Target | `tosumu-core` crypto boundary, future format revision, protector integrations, and assurance profiles |
-| Related ADRs | ADR-0001, ADR-0002, ADR-0003, ADR-0009 |
+| Related ADRs | ADR-0001, ADR-0002, ADR-0003, ADR-0009, ADR-0010 |
 | Related reviews | AR-0010 dependency trust and source provenance; AR-0016 cryptographic provider seam and suite identity |
 | Related CRs | None; future regulated or internally controlled provider requirements are expected consumer pressure |
 | Depends on | Existing authenticated pager, format-v3 fixtures, crypto KATs, offline rebuild publication, and assurance evidence model |
@@ -253,11 +253,12 @@ be format-stable before code creates a reusable seam.
       key ownership, entropy, protector separation, failure behavior, and
       format compatibility.
 - [x] Inventory every current crypto operation and pager-held key lifetime.
-- [ ] Decide whether the first seam is static/generic, dynamic/object-safe, or
-      private enum dispatch.
-- [ ] Define exact byte- and error-conservation fixtures.
-- [ ] Confirm that format v3 receives no alternate interpretation.
-- [ ] Feed any new native/provider dependencies through AR-0010.
+- [x] Select a private concrete format-v3 facade and separate entropy facade;
+      defer trait, enum, object-safe, and stateful-provider shape until C2.
+- [x] Define exact byte- and error-conservation fixtures.
+- [x] Confirm that format v3 receives no alternate interpretation.
+- [x] Confirm that C1 adds no dependency; feed any later provider dependency
+      through AR-0010.
 
 **Exit gate:** an ADR admits only the private byte-preserving seam, or parks it.
 No suite identifier is allocated at this gate.
@@ -600,14 +601,40 @@ provider pressure. Reopen or advance when:
 - Next slice: retain file-level create/mutate/recover/protector/rebuild
   conservation evidence, then propose the smallest private format-v3 contract.
 
+### 2026-09-03 -- Gate C0 File Matrix And Contract Candidate
+
+- Work completed: retained the named file-level conservation matrix and mapped
+  its passing executable evidence across encrypted lifecycle, snapshots,
+  recovery, protectors, inspection, and rebuild.
+- Findings: the smallest C1 preparation is a private concrete format-v3 facade
+  plus a separate entropy facade. It requires neither a public trait nor a
+  provider carried in the public pager type.
+- Plan changes: file-level conservation and contract-candidate prerequisites
+  are complete. Public crypto-wrapper disposition and formal ADR acceptance
+  remain open.
+- Next slice: decide the existing public free-function disposition and prepare
+  the narrow C1 ADR without repairing the recorded entropy-error inconsistency.
+
+### 2026-09-03 -- Gate C0 Accepted
+
+- Work completed: ADR-0010 accepts the private concrete format-v3 facade and
+  separate private entropy facade; existing public crypto functions remain
+  compatibility wrappers.
+- Claim boundary: no provider SPI, opaque key handle, alternate suite, format
+  identifier, runtime negotiation, or compliance claim was admitted.
+- Next slice: implement C1 as a behavior-preserving structural change and rerun
+  the exact vectors, file matrix, WASM build, and performance observation.
+
 ## References
 
 - `docs/ADR/ADR-0001-storage-engine-layer-boundaries.md`
 - `docs/ADR/ADR-0002-authenticated-pager-trust-boundary.md`
 - `docs/ADR/ADR-0009-offline-vacuum-rebuild-publication.md`
+- `docs/ADR/ADR-0010-private-format-v3-cryptographic-mechanism-seams.md`
 - `docs/Architectural Reviews/AR-0010-dependency-trust-and-source-provenance.md`
 - `docs/Architectural Reviews/AR-0016-cryptographic-provider-seam-and-suite-identity.md`
 - `docs/Notes/crypto-boundary-inventory-v1.md`
+- `docs/Notes/crypto-file-conservation-matrix-v1.md`
 - `docs/Plans/high-assurance-engineering-and-evidence-export.md`
 - `docs/Plans/cluster-fault-tolerance-and-replication.md`
 - `docs/Specifications/Tosumu Software Design Document.md`, sections 4-8

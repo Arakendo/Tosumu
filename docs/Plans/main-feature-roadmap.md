@@ -495,8 +495,9 @@ It does not change format v3 or establish a FIPS or other compliance claim.
 
 - [x] Open the gated plan and record current algorithm, key-lifecycle, format,
       and pager coupling.
-- [ ] Complete [AR-0016](../Architectural%20Reviews/AR-0016-cryptographic-provider-seam-and-suite-identity.md)
-      and its exact conservation baseline before introducing a reusable seam.
+- [x] Accept the private C1 boundary through
+      [ADR-0010](../ADR/ADR-0010-private-format-v3-cryptographic-mechanism-seams.md)
+      after AR-0016 and its conservation baseline.
 - [ ] Insert a private backend seam that preserves exact format-v3 bytes,
       errors, public APIs, and authenticated-pager behavior.
 - [ ] Demonstrate provider independence before stabilizing a public SPI.
@@ -866,8 +867,10 @@ Before implementation moves beyond the completed MVP+9 baseline:
 - [x] Open Gate C0 [AR-0016](../Architectural%20Reviews/AR-0016-cryptographic-provider-seam-and-suite-identity.md)
       and inventory current crypto operations, entropy calls, key lifetimes,
       and error behavior.
-- [ ] Add exact deterministic and fixed-nonce vectors plus file-level
-      conservation fixtures before the private provider seam is implemented.
+- [x] Add exact deterministic and fixed-nonce vectors plus the named file-level
+      conservation matrix before implementing the private seam.
+- [ ] Implement the ADR-0010 private format-v3 and entropy facades without
+      changing format bytes, public APIs, errors, or supported behavior.
 
 ## Completion Rules
 

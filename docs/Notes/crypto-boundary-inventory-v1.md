@@ -113,3 +113,7 @@ The exact vectors are implemented by
 for refactoring; because their expected outputs were captured from the current
 implementation, they are not independent evidence that the construction or
 implementation is cryptographically correct.
+
+The companion `crypto-file-conservation-matrix-v1.md` names the file-level
+tests that preserve randomized creation, unlock, mutation, recovery, snapshot,
+protector, inspection, and rebuild behavior.

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Incubating |
+| Status | Accepted through ADR-0010 for the private format-v3 and entropy seams only; later provider/suite phases remain incubating |
 | Opened | 2026-09-03 |
 | Last reviewed | 2026-09-03 |
 | Scope | Authenticated pager / format-v3 cryptography / protector and entropy boundaries |
@@ -184,6 +184,56 @@ cryptographic library, module, device, or service
 Provider-specific errors, handles, module names, and library types must not
 enter the durable format or the existing public pager/storage contracts.
 
+## Candidate First Private Contract
+
+The smallest Gate C1 contract is a private format-v3 facade, not a public
+provider trait and not a provider stored in every `Pager`.
+
+```text
+existing public crypto free functions
+                 |
+                 v
+private format_v3 facade
+  - derive current subkeys
+  - protect/open current page frames
+  - derive current passphrase/recovery KEKs
+  - wrap/unwrap current DEK
+  - compute/verify current KCV and header MAC
+                 |
+                 v
+RustCrypto implementation details
+
+pager/protector orchestration
+                 |
+                 v
+private entropy facade
+  - fill purpose-sized random bytes
+                 |
+                 v
+getrandom implementation
+```
+
+For C1:
+
+- existing public free functions remain compatibility wrappers;
+- the facade is a private concrete capability boundary selected structurally
+  at compile time, so pager public types gain no generic parameter, trait
+  object, provider identity, allocation, or mutable global;
+- entropy is a separate private capability because salts, identifiers,
+  recovery secrets, page nonces, and wrap nonces cross crypto and pager paths;
+- current raw key arrays and synchronous local calls are conserved rather than
+  advertised as the future public provider contract;
+- all provider/library errors normalize to the existing Tosumu errors at the
+  facade boundary; and
+- no suite identifier, dispatch byte, alternate algorithm, or configuration
+  switch is introduced.
+
+This shape creates an owned place to replace mechanics later without deciding
+opaque handles or dynamic dispatch prematurely. Gate C2 must use an independent
+implementation to decide whether the facade should become a private trait,
+closed enum, object-safe service, or another stateful boundary. That later
+decision may revise the private facade without compatibility cost.
+
 ## Alternatives Considered
 
 ### Alternative A: One public `CryptoProvider` trait now
@@ -246,11 +296,11 @@ and protector boundaries
 
 ## Disposition
 
-**Incubating.** Admit the conservation-baseline work but not the provider seam
-yet. The next cycle must add exact deterministic/fixed-nonce vectors, inventory
-all entropy calls and key copies, and define the proposed private contract
-against those fixtures. If that evidence holds, record the exact private seam
-and conservation obligations in an ADR before implementation.
+**Accepted through ADR-0010 for Gate C1 only.** The retained vectors, file-level
+matrix, and contract analysis admit a private concrete format-v3 facade and a
+separate private entropy facade. Existing public crypto functions remain
+compatibility wrappers. No public provider SPI, opaque-key contract, alternate
+suite, format identifier, or compliance claim is accepted.
 
 No public provider API, alternate suite, format identifier, feature-selected
 reinterpretation, or compliance label is accepted by this cycle.
@@ -261,16 +311,16 @@ reinterpretation, or compliance label is accepted by this cycle.
       durable construction inputs, and normalized failures.
 - [x] Add exact fixed vectors for deterministic constructions and fixed-nonce
       page/wrap inputs without changing production randomness.
-- [ ] Retain file-level conservation fixtures spanning create, mutation,
+- [x] Retain file-level conservation fixtures spanning create, mutation,
       recovery, protector editing, snapshot reads, and VACUUM rebuild.
-- [ ] Propose the smallest private format-v3 backend and separate entropy
+- [x] Propose the smallest private format-v3 backend and separate entropy
       boundary against the executable baseline.
-- [ ] Decide whether current public free functions remain supported wrappers,
+- [x] Decide whether current public free functions remain supported wrappers,
       become crate-private in a breaking pre-alpha revision, or form a distinct
       low-level API.
 - [ ] Review the `generate_recovery_secret` entropy panic as separate error-
       contract work; do not repair it during mechanical extraction.
-- [ ] Create or revise an ADR before implementing the seam.
+- [x] Create or revise an ADR before implementing the seam.
 - [ ] Reopen separately for opaque key handles, public provider SPI, durable
       suite identity, format migration, or a named deployment profile.
 
@@ -326,3 +376,30 @@ reinterpretation, or compliance label is accepted by this cycle.
   definition rather than waiting for a customer-specific provider.
 - Resulting ADR or documentation change: ADR-0003 amended; no crypto seam is
   admitted yet.
+
+### Cycle 4 -- 2026-09-03
+
+- Status entering review: Incubating
+- New evidence: the named file-level conservation matrix relates existing
+  encrypted create/open, mutation, snapshots, recovery, protector, inspection,
+  and rebuild tests to the exact construction vectors and records the passing
+  workspace-test invocation.
+- Findings: C1 does not require a trait object or pager-stored provider. A
+  private concrete format-v3 facade plus a separate entropy facade creates the
+  preparation point while conserving current public wrappers and raw-key
+  behavior.
+- Disposition: Incubating; the contract is concrete enough for ADR review.
+  Public crypto-function disposition and the recovery-secret entropy error
+  remain explicit follow-up rather than hidden seam behavior.
+- Resulting ADR or documentation change: no ADR yet.
+
+### Cycle 5 -- 2026-09-03
+
+- Status entering review: Incubating
+- New evidence: exact construction vectors, the named file-level conservation
+  matrix, ADR-0003's preparatory-seam rule, and the concrete C1 contract.
+- Findings: C1 can preserve public wrappers and avoid pager-stored provider
+  state, runtime selection, new dependencies, or format changes.
+- Disposition: Accepted through ADR-0010 for the two private C1 facades only;
+  all later provider, key-handle, and suite questions remain incubating.
+- Resulting ADR or documentation change: ADR-0010.

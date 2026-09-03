@@ -69,12 +69,16 @@ specifications and accepted ADRs.
 | [ADR-0005: Committed Generation And Retained-WAL Snapshots](ADR/ADR-0005-committed-generation-and-retained-wal-snapshots.md) | Accepted / binding |
 | [ADR-0006: Shared KV Store And Snapshot Transactions](ADR/ADR-0006-shared-kv-store-and-snapshot-transactions.md) | Accepted / binding |
 | [ADR-0007: Database-Generation Conditional Writes](ADR/ADR-0007-database-generation-conditional-writes.md) | Accepted / binding |
+| [ADR-0008: SQL-Owned Secondary Index Keyspaces](ADR/ADR-0008-sql-owned-secondary-index-keyspaces.md) | Accepted / binding |
+| [ADR-0009: Offline VACUUM Rebuild Publication](ADR/ADR-0009-offline-vacuum-rebuild-publication.md) | Accepted / binding |
+| [ADR-0010: Private Format-v3 Cryptographic Mechanism Seams](ADR/ADR-0010-private-format-v3-cryptographic-mechanism-seams.md) | Accepted / binding |
 
 ## Architectural Reviews
 
 AR-0009 is **Accepted** through ADR-0004, ADR-0005, and ADR-0006. AR-0011 is
 **Accepted** through ADR-0005, AR-0012 through ADR-0007, AR-0013 through
-ADR-0008, and AR-0014 through ADR-0009. Other current reviews, including the
+ADR-0008, AR-0014 through ADR-0009, and the private Gate C1 portion of AR-0016
+through ADR-0010. Other unresolved portions and current reviews, including the
 new replication scope review, are **Incubating** and do not change accepted
 architecture by themselves.
 
@@ -109,7 +113,7 @@ architecture by themselves.
 | [Core Source Unit Decomposition](Plans/core-source-unit-decomposition.md) | Completed | Maintain the behavior-preserving private-module boundaries and conservation evidence |
 | [Cluster Fault Tolerance And Replication](Plans/cluster-fault-tolerance-and-replication.md) | Proposed; admission required | Continue AR-0015 scope and authority evidence before native replication protocol work |
 | [High-Assurance Engineering And Evidence Export](Plans/high-assurance-engineering-and-evidence-export.md) | Slice 1 active; assurance claims not admitted | Classify and audit the initial `tosumu-core` critical dependency closure under AR-0010 |
-| [Cryptographic Provider Seam And Suite Agility](Plans/cryptographic-provider-seam-and-suite-agility.md) | Gate C0 active; architecture not admitted | Complete AR-0016 exact vectors and file-level conservation evidence before admitting the private seam |
+| [Cryptographic Provider Seam And Suite Agility](Plans/cryptographic-provider-seam-and-suite-agility.md) | Gate C1 admitted; later architecture not admitted | Implement ADR-0010 private format-v3 and entropy facades with full conservation evidence |
 
 ## Change Requests
 

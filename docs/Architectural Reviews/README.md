@@ -86,10 +86,11 @@ numbering. Copy `TEMPLATE.md` and add the record to this index.
   and defining the scope, identity, failure, and fencing gates that precede a
   protocol decision.
 - [AR-0016: Cryptographic Provider Seam And Suite Identity](AR-0016-cryptographic-provider-seam-and-suite-identity.md)
-  -- incubating an exact format-v3 backend seam while keeping entropy,
-  protectors, durable suite identity, provider identity, and deployment claims
-  distinct.
+  -- accepted through ADR-0010 for private format-v3 and entropy facades;
+  protectors, public provider identity, suite agility, and deployment claims
+  remain incubating.
 
-AR-0009, AR-0011, AR-0012, AR-0013, and AR-0014 are **Accepted** through their related ADRs.
-Other indexed reviews are currently **Incubating**; none are rejected,
-deferred, or superseded.
+AR-0009, AR-0011, AR-0012, AR-0013, AR-0014, and the Gate C1 portion of
+AR-0016 are **Accepted** through their related ADRs. Other indexed reviews and
+unresolved portions are currently **Incubating**; none are rejected, deferred,
+or superseded.
