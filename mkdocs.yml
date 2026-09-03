@@ -62,9 +62,9 @@ nav:
           - ADR-0002 Authenticated Pager Trust Boundary: ADR/ADR-0002-authenticated-pager-trust-boundary.md
           - ADR-0003 Source Unit Cohesion Size Pressure And Decomposition: ADR/ADR-0003-source-unit-cohesion-size-pressure-and-decomposition.md
           - ADR-0004 Cooperative Single-Writer Admission: ADR/ADR-0004-cooperative-single-writer-admission.md
-            - ADR-0005 Committed Generation And Retained WAL Snapshots: ADR/ADR-0005-committed-generation-and-retained-wal-snapshots.md
-            - ADR-0006 Shared KV Store And Snapshot Transactions: ADR/ADR-0006-shared-kv-store-and-snapshot-transactions.md
-            - Template: ADR/TEMPLATE.md
+          - ADR-0005 Committed Generation And Retained WAL Snapshots: ADR/ADR-0005-committed-generation-and-retained-wal-snapshots.md
+          - ADR-0006 Shared KV Store And Snapshot Transactions: ADR/ADR-0006-shared-kv-store-and-snapshot-transactions.md
+          - Template: ADR/TEMPLATE.md
       - Architectural Reviews:
           - Architectural Reviews/README.md
           - AR-0001 TQL Command Language Boundary: Architectural Reviews/AR-0001-tql-command-language-boundary.md
