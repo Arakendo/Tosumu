@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Gate C1 admitted through ADR-0010; public SPI and format changes remain unadmitted |
+| Status | Gate C1 implemented; Gate C2 evidence and all public SPI or format changes remain unadmitted |
 | Opened | 2026-09-03 |
 | Last updated | 2026-09-03 |
 | Owner | Tosumu maintainers |
@@ -15,14 +15,15 @@
 ## Status
 
 Tosumu currently has one implemented cryptographic construction backed by
-RustCrypto crates. Cryptographic operations are substantially centralized in
-`tosumu-core/src/crypto.rs`, but algorithms, key representations, nonce/tag
-sizes, KDF parameters, and authentication domains are concrete format
-semantics rather than provider-neutral contracts.
+RustCrypto crates. The private `FormatV3Crypto` and `SystemEntropy` facades own
+the current mechanisms while existing public crypto functions remain wrappers,
+but algorithms, key representations, nonce/tag sizes, KDF parameters, and
+authentication domains are concrete format semantics rather than provider-
+neutral contracts.
 
 This plan admits no provider SPI, alternate suite, format revision, compliance
-claim, or migration behavior. Its first implementation slice is deliberately
-limited to a private seam that reproduces current bytes and errors exactly.
+claim, or migration behavior. Its completed first implementation slice is
+deliberately limited to a private seam that reproduces current bytes and errors.
 Any public boundary or durable suite identity requires Architectural Review and
 an accepted ADR before implementation treats it as settled.
 
@@ -274,7 +275,9 @@ without changing format bytes, public APIs, or supported behavior.
 - [x] Preserve exact frame, keyslot, header, KCV, KDF, AAD, and error behavior.
 - [x] Use a default RustCrypto implementation selected structurally, not by
       mutable process configuration.
-- [ ] Add lifecycle instrumentation suitable for tests without exposing keys.
+- [x] Preserve the observed raw-key lifecycle at C1 and defer reliable,
+      key-free lifecycle instrumentation to C3, where provider-owned handles
+      can expose creation/use/destruction events without exposing key bytes.
 - [x] Keep provider types out of public storage traits and format modules.
 
 **Acceptance:** existing databases and reviewed fixtures are byte-compatible;
@@ -313,6 +316,9 @@ requiring universal raw-key export.
 - [ ] Prevent debug, error, inspection, evidence, and panic paths from exposing
       keys or sensitive provider material.
 - [ ] Exercise a mock opaque provider and one independent consumer crate.
+- [ ] Add key-free lifecycle instrumentation that observes handle creation,
+      authorized use, cloning/sharing where admitted, revocation, and
+      destruction without serializing key bytes or provider secrets.
 
 **Exit gate:** raw `[u8; 32]` is an implementation detail of providers that
 permit it, not a mandatory public-provider contract.
@@ -655,8 +661,11 @@ provider pressure. Reopen or advance when:
   measurement: its 95% interval was 41.216-42.670 us, with Criterion reporting
   a 3.75-7.11% time reduction against the retained local baseline. This is one
   local observation, not a general throughput claim or causal attribution.
-- Remaining C1 work: add key-free lifecycle instrumentation suitable for
-  focused tests. C2 provider-independence evidence and every public provider,
+- C1 closure: reliable key-lifecycle instrumentation cannot observe freely
+  copied raw arrays without changing the representation ADR-0010 conserves.
+  Call counters would observe facade invocation, not key lifetime. The
+  instrumentation requirement therefore moves to C3 alongside opaque handles;
+  C1 is complete. C2 provider-independence evidence and every public provider,
   opaque-key, alternate-suite, or compliance claim remain unadmitted.
 
 ## References

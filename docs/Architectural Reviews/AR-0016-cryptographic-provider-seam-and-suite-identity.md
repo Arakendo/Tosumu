@@ -423,3 +423,19 @@ reinterpretation, or compliance label is accepted by this cycle.
   alternate-suite, and compliance questions remain incubating.
 - Resulting ADR or documentation change: implementation and retained plan and
   inventory updates; no new architectural decision.
+
+### Cycle 7 -- 2026-09-03
+
+- Status entering review: ADR-0010 implemented; C1 retained one lifecycle-
+  instrumentation checklist item.
+- New evidence: C1 deliberately preserves freely copied raw key arrays. The
+  concrete facade is stateless, so facade-call counters cannot observe key
+  creation, copying, residence, revocation, or destruction.
+- Findings: claiming key-lifecycle evidence from operation counters would
+  strengthen observation beyond the implementation. Reliable key-free
+  instrumentation belongs with C3 provider-owned handles, where lifecycle
+  events have an actual owned subject.
+- Disposition: C1 complete. Move lifecycle instrumentation to C3 without
+  admitting opaque handles or revising ADR-0010's conservation boundary.
+- Resulting ADR or documentation change: crypto plan checklist corrected; no
+  new architectural decision.
