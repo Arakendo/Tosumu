@@ -282,3 +282,19 @@ AR-0010 remains Incubating for the repository's broader dependency policy.
   identities before strengthening the claim.
 - Resulting ADR or documentation change: extend the generated baseline with
   `core_artifact_profiles`; no policy or artifact qualification is accepted.
+
+### Cycle 8 -- 2026-09-03
+
+- Status entering review: Incubating
+- New evidence: all seven `tosumu-core` target build-script candidates have
+  human findings bound to exact `build.rs` SHA-256 identities. The generator
+  rejects candidate drift, missing findings, and source-hash changes.
+- Findings: the scripts perform compiler/version probes, cfg selection, and in
+  some cases `OUT_DIR` generation or target/platform probing. No network or
+  non-rustc native compiler invocation was observed in the exact scripts.
+  Helper build dependencies, referenced probe files, and the procedural macro
+  prevent a complete build-execution review.
+- Disposition: remain Incubating with the build-script review explicitly
+  `attempted_incomplete`; inspect the remaining executable inputs next.
+- Resulting ADR or documentation change: add
+  `dependency-build-script-review-v1.json`; no policy acceptance.

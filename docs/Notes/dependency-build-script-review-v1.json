@@ -1,0 +1,57 @@
+{
+  "schema": "tosumu-dependency-build-script-review",
+  "schema_version": 1,
+  "status": "attempted_incomplete",
+  "scope": "Exact build.rs files reachable from the four tosumu-core target profiles; helper libraries and referenced probe inputs remain separate review work.",
+  "reviews": [
+    {
+      "id": "registry+https://github.com/rust-lang/crates.io-index#crc32fast@1.5.0",
+      "build_script_sha256": "62279ea110418e1b57e46ed5689cae892f3fa424ba237733ecbf4660c3dee71c",
+      "targets": ["linux-x86_64", "macos-x86_64", "wasm32-browser", "windows-x86_64"],
+      "capabilities": ["emit_cfg", "read_build_environment", "run_rustc_version"],
+      "finding": "Queries the configured Rust compiler version and emits the stable ARM CRC32 intrinsic cfg for sufficiently new compilers; no source generation, native compiler, or network operation observed."
+    },
+    {
+      "id": "registry+https://github.com/rust-lang/crates.io-index#generic-array@0.14.7",
+      "build_script_sha256": "08fa30c4a2c1ad24fe5f987e721dfb20131f45ea5b5dc3e836dcf88a8e33248c",
+      "targets": ["linux-x86_64", "macos-x86_64", "wasm32-browser", "windows-x86_64"],
+      "capabilities": ["call_build_dependency", "emit_cfg"],
+      "finding": "Calls version_check to select relaxed coherence and emits one cfg; the executed version_check helper implementation is not yet source-reviewed by this record."
+    },
+    {
+      "id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.186",
+      "build_script_sha256": "4b348c53d0a0cd0067ef9887b50f60a1fffdc5d00dda5c0e27fae6aa0ce3dee8",
+      "targets": ["linux-x86_64", "macos-x86_64"],
+      "capabilities": ["emit_cfg", "read_build_environment", "run_platform_probe", "run_rustc_version"],
+      "finding": "Selects ABI cfgs from target/environment inputs, queries rustc, and contains platform probes for freebsd-version and emcc. No network or native-code compilation was observed in build.rs."
+    },
+    {
+      "id": "registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.106",
+      "build_script_sha256": "baeb20b52f6b536be8657a566591a507bb2e34a45cf8baa42b135510a0c3c729",
+      "targets": ["linux-x86_64", "macos-x86_64", "wasm32-browser", "windows-x86_64"],
+      "capabilities": ["emit_cfg", "read_build_environment", "run_rustc_probe", "write_out_dir"],
+      "finding": "Runs rustc feature probes, reads compiler-control environment, and creates/removes probe outputs under OUT_DIR. Referenced src/probe inputs are not yet individually hashed in this review."
+    },
+    {
+      "id": "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.45",
+      "build_script_sha256": "cd6808c02e476b09a520105e2c6f6d325cccb1ecd542cbbcc836a0ae6f6fb0f1",
+      "targets": ["linux-x86_64", "macos-x86_64", "wasm32-browser", "windows-x86_64"],
+      "capabilities": ["emit_cfg", "read_build_environment", "run_rustc_version"],
+      "finding": "Queries rustc version and emits a compatibility cfg; no filesystem mutation, native compiler, or network operation observed."
+    },
+    {
+      "id": "registry+https://github.com/rust-lang/crates.io-index#rustix@1.1.4",
+      "build_script_sha256": "74cb32e64aa6fe99c2496a425b016e22f4e43c438a8237966b8acae04a98eaf9",
+      "targets": ["linux-x86_64", "macos-x86_64"],
+      "capabilities": ["emit_cfg", "read_build_environment", "read_package_source", "run_rustc_probe", "write_out_dir"],
+      "finding": "Selects platform backends from target, feature, cfg, and source-file presence; runs rustc probes whose outputs land under OUT_DIR. No network or non-rustc compiler invocation observed."
+    },
+    {
+      "id": "registry+https://github.com/rust-lang/crates.io-index#thiserror@2.0.18",
+      "build_script_sha256": "18bf4b4af0f507c7fdfe4dbfc98b5ac3d6a5ef924f46ee56125fd8b22fd61b4c",
+      "targets": ["linux-x86_64", "macos-x86_64", "wasm32-browser", "windows-x86_64"],
+      "capabilities": ["emit_cfg", "generate_rust_source", "read_build_environment", "run_rustc_probe", "write_out_dir"],
+      "finding": "Generates private.rs under OUT_DIR and compiles build/probe.rs to select compatibility cfgs. The referenced probe source and thiserror-impl procedural macro remain separate review subjects."
+    }
+  ]
+}

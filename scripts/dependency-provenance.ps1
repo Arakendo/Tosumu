@@ -1,6 +1,7 @@
 param(
     [string]$OutputPath = "docs/Notes/dependency-provenance-baseline-v1.json",
     [string]$RiskPath = "docs/Notes/dependency-risk-classification-v1.json",
+    [string]$BuildReviewPath = "docs/Notes/dependency-build-script-review-v1.json",
     [switch]$Check
 )
 
@@ -17,6 +18,11 @@ $absoluteRiskPath = if ([IO.Path]::IsPathRooted($RiskPath)) {
     $RiskPath
 } else {
     Join-Path $repositoryRoot $RiskPath
+}
+$absoluteBuildReviewPath = if ([IO.Path]::IsPathRooted($BuildReviewPath)) {
+    $BuildReviewPath
+} else {
+    Join-Path $repositoryRoot $BuildReviewPath
 }
 
 function Get-LockPackages {
@@ -515,6 +521,53 @@ $coreArtifactProfiles = foreach ($definition in ($profileDefinitions | Where-Obj
     Get-CoreArtifactProfile "tosumu-core-$($definition.name)" $definition.target $catalog
 }
 
+$buildReviewDocument = Get-Content -LiteralPath $absoluteBuildReviewPath -Raw | ConvertFrom-Json -Depth 100
+if ($buildReviewDocument.schema -ne "tosumu-dependency-build-script-review" -or $buildReviewDocument.schema_version -ne 1) {
+    throw "Unsupported dependency build-script review schema: $absoluteBuildReviewPath"
+}
+$requiredBuildReviewIds = @(
+    $coreArtifactProfiles.build_script_candidates | Sort-Object -Unique
+)
+$metadataByStableId = @{}
+foreach ($package in $unfiltered.packages) {
+    $metadataByStableId[$stableIds[[string]$package.id]] = $package
+}
+$seenBuildReviewIds = @{}
+$normalizedBuildReviews = foreach ($review in $buildReviewDocument.reviews) {
+    $reviewId = [string]$review.id
+    if ($reviewId -notin $requiredBuildReviewIds) {
+        throw "Build-script review is not a current core target candidate: $reviewId"
+    }
+    if ($seenBuildReviewIds.ContainsKey($reviewId)) {
+        throw "Duplicate build-script review: $reviewId"
+    }
+    $seenBuildReviewIds[$reviewId] = $true
+    $package = $metadataByStableId[$reviewId]
+    $buildTarget = $package.targets | Where-Object { $_.kind -contains "custom-build" }
+    if (@($buildTarget).Count -ne 1) {
+        throw "Expected exactly one build-script target for $reviewId"
+    }
+    $observedHash = (Get-FileHash -LiteralPath $buildTarget.src_path -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($observedHash -ne [string]$review.build_script_sha256) {
+        throw "Build-script source identity changed for $reviewId"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$review.finding) -or @($review.capabilities).Count -eq 0) {
+        throw "Build-script review is incomplete for $reviewId"
+    }
+    [ordered]@{
+        id = $reviewId
+        build_script_sha256 = $observedHash
+        targets = @($review.targets | ForEach-Object { [string]$_ } | Sort-Object -Unique)
+        capabilities = @($review.capabilities | ForEach-Object { [string]$_ } | Sort-Object -Unique)
+        finding = [string]$review.finding
+    }
+}
+foreach ($requiredId in $requiredBuildReviewIds) {
+    if (-not $seenBuildReviewIds.ContainsKey($requiredId)) {
+        throw "Core target build-script candidate lacks source review: $requiredId"
+    }
+}
+
 $document = [ordered]@{
     schema = "tosumu-dependency-provenance-baseline"
     schema_version = 1
@@ -522,6 +575,7 @@ $document = [ordered]@{
         kind = "cargo-workspace-lock"
         cargo_lock_sha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
         risk_classification_sha256 = (Get-FileHash -LiteralPath $absoluteRiskPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        build_script_review_sha256 = (Get-FileHash -LiteralPath $absoluteBuildReviewPath -Algorithm SHA256).Hash.ToLowerInvariant()
     }
     observation = [ordered]@{
         state = "observed_finding"
@@ -549,6 +603,12 @@ $document = [ordered]@{
     }
     profiles = @($profiles)
     core_artifact_profiles = @($coreArtifactProfiles)
+    build_script_review = [ordered]@{
+        status = [string]$buildReviewDocument.status
+        scope = [string]$buildReviewDocument.scope
+        reviewed_candidate_count = @($normalizedBuildReviews).Count
+        entries = @($normalizedBuildReviews | Sort-Object { $_.id })
+    }
 }
 
 $serialized = (($document | ConvertTo-Json -Depth 100) -replace "`r`n", "`n") + "`n"

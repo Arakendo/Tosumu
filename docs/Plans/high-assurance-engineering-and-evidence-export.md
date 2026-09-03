@@ -821,6 +821,26 @@ specific pressure.
 - Next slice: review the seven narrowed build-script candidates by exact source
   identity and behavior, then review the single proc-macro path.
 
+### 2026-09-03 -- Slice 1 Build-Script Source Review
+
+- Work completed: bound human findings for all seven core target build-script
+  candidates to their exact `build.rs` SHA-256 identities and recorded observed
+  environment, subprocess, filesystem, cfg, probe, and generation capabilities.
+- Validation: the generator requires exactly the current candidate set and
+  rejects missing, duplicate, unexpected, incomplete, or hash-mismatched
+  reviews. An intentionally replaced script hash was rejected; deterministic
+  regeneration, retained checking, `git diff --check`, and
+  `mkdocs build --strict` pass.
+- Findings: no network or non-rustc native compiler invocation was observed in
+  the seven scripts. The review is `attempted_incomplete` because
+  `version_check`, referenced compiler-probe inputs, and `thiserror-impl` remain
+  separate executable-source subjects.
+- Plan changes: source review and controlled-build execution evidence remain
+  distinct. A reviewed script is not yet evidence of which branch executed in
+  a named build.
+- Next slice: close the `version_check` and referenced probe inputs, then review
+  the `thiserror-impl` procedural-macro path.
+
 ## References
 
 - `SECURITY.md`

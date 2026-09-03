@@ -7,7 +7,7 @@
 | Observation state | `observed_finding` |
 | Captured | 2026-09-03 |
 | Generator | `scripts/dependency-provenance.ps1` |
-| Retained artifacts | Generated `dependency-provenance-baseline-v1.json`; human-owned `dependency-risk-classification-v1.json` |
+| Retained artifacts | Generated baseline; human-owned risk classification and build-script review JSON |
 
 ## Purpose
 
@@ -94,6 +94,32 @@ Cargo metadata and `cargo tree` establish the first and support the fourth.
 Build-script and procedural-macro flags identify candidates for the second.
 Artifact inspection and source/runtime review remain necessary for the other
 claims.
+
+### Build-script source review
+
+All seven build-script candidates in the four core target profiles now have a
+human finding bound to the SHA-256 of their exact `build.rs`. The generated
+baseline rejects missing candidates, unexpected packages, duplicate reviews,
+or changed script hashes.
+
+The review remains `attempted_incomplete`, not `observed_pass`:
+
+- `crc32fast` and `quote` query the selected rustc version and emit cfgs;
+- `generic-array` delegates compiler-version detection to the still-unreviewed
+  `version_check` build dependency;
+- `libc` reads target/environment inputs, queries rustc, and contains external
+  platform probes for `freebsd-version` and `emcc`;
+- `proc-macro2` runs rustc feature probes and manages probe outputs under
+  `OUT_DIR`;
+- `rustix` selects platform backends using target/configuration inputs, source
+  presence, and rustc compile probes; and
+- `thiserror` generates Rust source under `OUT_DIR` and compiles a referenced
+  probe source.
+
+No network operation or non-rustc native compiler invocation was observed in
+these seven exact scripts. That statement is limited to the reviewed
+`build.rs` files. It does not cover helper libraries, referenced probe sources,
+the procedural macro, or arbitrary behavior elsewhere in their packages.
 
 ## Initial Critical Boundary
 
@@ -187,6 +213,7 @@ are erased.
 - `Cargo.toml`
 - `Cargo.lock`
 - `docs/Notes/dependency-risk-classification-v1.json`
+- `docs/Notes/dependency-build-script-review-v1.json`
 - `.github/workflows/ci.yml`
 - `docs/Architectural Reviews/AR-0010-dependency-trust-and-source-provenance.md`
 - `docs/Notes/assurance-claim-inventory-v1.md`
