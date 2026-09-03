@@ -96,6 +96,7 @@ nav:
           - MVP+10 Secondary Indexes: Plans/mvp-10-secondary-indexes.md
           - MVP+10 VACUUM: Plans/mvp-10-vacuum.md
           - MVP+10 Benchmark Closure: Plans/mvp-10-benchmarks.md
+          - MVP+11 Mobile Embedding: Plans/mvp-11-mobile-embedding.md
           - Initial SQL Layer: Plans/initial-sql-layer.md
           - Tosumu Command Language: Plans/tosumu-command-language.md
           - Tokimu Reciprocal Website Evidence: Plans/tokimu-reciprocal-website-evidence.md
@@ -122,6 +123,7 @@ nav:
           - Architecture Governance Extraction Audit: Notes/architecture-governance-extraction-audit.md
           - Assurance Claim Inventory v1: Notes/assurance-claim-inventory-v1.md
           - Dependency Provenance Baseline v1: Notes/dependency-provenance-baseline-v1.md
+          - MVP+11 Foreign Contract And Target Inventory v1: Notes/mvp-11-foreign-contract-and-target-inventory-v1.md
         - Conversations: Conversations/README.md
         - Archive: Archive/README.md
 

@@ -203,10 +203,10 @@ claim.
 
 - [ ] Reconcile SDD section 19's obsolete claims and distinguish design intent,
       hypotheses, and accepted requirements.
-- [ ] Create a sliced MVP+11 plan: contract baseline, C harness, hostile-handle
+- [x] Create a sliced MVP+11 plan: contract baseline, C harness, hostile-handle
       corpus, target builds, language consumers, platform protector prototype,
       lifecycle fault corpus, packaging, and acceptance review.
-- [ ] Inventory the minimum provider-neutral KV, transaction, snapshot,
+- [x] Inventory the minimum provider-neutral KV, transaction, snapshot,
       inspection, and close operations plus their complete typed outcomes.
 - [ ] Decide ABI version negotiation, handle identity/state, allocation, thread,
       cancellation, callback, and panic-containment rules before stabilization.
@@ -245,3 +245,22 @@ claim.
   and device evidence required for stabilization.
 - Disposition: Incubating; admit inventories and bounded experiments only.
 - Resulting ADR or documentation change: AR-0017 opened; no ADR or public API.
+
+### Cycle 2 -- 2026-09-03
+
+- Status entering review: Incubating; baseline inventory and plan open.
+- New evidence: the foreign-contract inventory maps the current shared KV,
+  snapshot, diagnostic, inspection, and structured-error surfaces to candidate
+  C meanings; records provisional handle/result rules and target evidence; and
+  identifies that closure-borrowed multi-mutation writes cannot cross a
+  callback-free multi-call ABI.
+- Findings: create/open/close, atomic single mutations, latest reads, snapshots,
+  and bounded observations are sufficient for a private C experiment. Atomic
+  multi-call writes require a later choice between a deliberately narrower
+  adapter command batch and a new core-owned transaction capability. Neither is
+  admitted by this cycle.
+- Disposition: remain Incubating. Proceed next with SDD reconciliation and an
+  experimental request/result schema plus handle state machine; do not export
+  functions yet.
+- Resulting ADR or documentation change: MVP+11 plan and contract/target
+  inventory retained; no ADR, dependency, stable ABI, or platform claim.

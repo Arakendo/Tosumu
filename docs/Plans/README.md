@@ -26,6 +26,9 @@ validation, and exit states.
   ADR-0009 offline verified rebuild; native Unix CI confirmation remains open.
 - [MVP+10 Benchmark Closure](mvp-10-benchmarks.md) -- **Complete** reader
   scaling, writer-overlap, and SQLite comparison evidence.
+- [MVP+11 Mobile Embedding](mvp-11-mobile-embedding.md) -- **Proposed; Slice 0
+  baseline complete** callback-free C ownership, independent language callers,
+  target qualification, and real platform-protector gates under AR-0017.
 - [Initial SQL Layer](initial-sql-layer.md) -- MVP+9 baseline complete; retained
   as **Completed baseline** implementation history and a source for deferred
   SQL work.

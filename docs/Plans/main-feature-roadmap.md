@@ -291,7 +291,7 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
       [AR-0017](../Architectural%20Reviews/AR-0017-mobile-embedding-abi-and-hardware-protector-boundary.md)
       to reconcile ABI ownership, artifact-set lifecycle, target qualification,
       fail-closed protector policy, and crypto Gate C3 before implementation.
-- [ ] Complete AR-0017's contract and target inventories and open a dedicated
+- [x] Complete AR-0017's contract and target inventories and open a dedicated
       sliced MVP+11 plan before stabilizing an ABI or adding binding tooling.
 - [ ] C ABI/FFI crate with opaque handles and explicit ownership rules.
 - [ ] Stable cross-language error and byte-buffer contracts.
