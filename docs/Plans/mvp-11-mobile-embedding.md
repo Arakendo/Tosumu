@@ -51,9 +51,12 @@ claimed.
 - [x] Define provisional fixed-width ABI scalars, explicit byte slices, owned
       result/error objects, ABI version query, and kind-specific opaque handles.
 - [x] Expose create/open/close, put/delete/get, and snapshot begin/get/close.
-- [ ] Admit and expose bounded range and connection-observation representations
-      without JSON, callbacks, or unbounded allocation graphs.
-- [ ] Contain panics at every exported entry point and prove no unwind crosses C.
+- [x] Expose immutable bounded connection observations without JSON, callbacks,
+      or a live borrowed core reference.
+- [ ] Admit a resumable core range contract that bounds work before allocation;
+      do not truncate the existing fully materialized scan in the adapter.
+- [x] Contain exported operations through the common unwind boundary and prove
+      the database poison/close transition with a feature-gated C panic hook.
 - [x] Use no callbacks. Do not expose multi-call writes until Slice 3.
 - [x] Build an independently compiled C harness rather than a Rust test calling
       `extern "C"` functions directly.
@@ -192,9 +195,9 @@ No rung implies the next.
 
 ## Immediate Next Slice
 
-Review and implement bounded range and connection-observation representations,
-then add deliberate panic injection and prove the C boundary contains it. Keep
-the ABI private and do not credit Slice 1 as complete until both gates pass.
+Review a resumable, generation-pinned, pair/byte-bounded core range contract
+under ADR-0006/0007. Require an independent Rust caller before the C adapter;
+do not credit Slice 1 by truncating the existing fully materialized scan.
 
 ## References
 

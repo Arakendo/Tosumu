@@ -76,6 +76,43 @@ This is one observed Linux profile. It does not establish MSRV compatibility,
 another native platform, mobile behavior, ABI stability, range/connection
 representation, panic injection, leak freedom, or arbitrary-pointer safety.
 
+GitHub Actions run `33817692660`, job `100853354051`, then exercised commit
+`c17edfe7a8241f0e11df6b58bc9bb9dd6ecc96e5` successfully in 21 seconds on the
+same named hosted Linux profile. The expanded independent caller retrieved a
+bounded connection observation and invoked the feature-gated panic test symbol.
+The panic was contained before control returned to C, produced the declared
+boundary-panic outcome, poisoned later database operations, and left close
+available. The test-only symbol is present only when `ffi-test-hooks` is
+selected and remains in the test-profile export allowlist.
+
+This second result establishes the tested common containment wrapper and one
+database-associated panic transition. It does not prove that allocator aborts,
+foreign invalid-pointer faults, platform exceptions, or every possible panic
+site are recoverable.
+
+## Bounded Range Finding
+
+The current `KvReadTransaction::scan` calls `BTree::scan_at_snapshot`, whose
+`scan_from` implementation materializes the complete selected range in a
+`BTreeMap` and then a `Vec`. An adapter-side pair or byte limit would therefore
+bound only the returned encoding, not the work or memory already consumed.
+
+Do not expose that operation as a bounded C scan. The next admission review
+must define a resumable core scan page/cursor that:
+
+- applies pair and encoded-byte limits while traversing leaves;
+- does not read an overflow value after its declared length exceeds the
+  remaining page budget;
+- distinguishes exhausted range from a resumable continuation;
+- defines inclusive first-bound and exclusive continuation semantics;
+- remains pinned to the snapshot generation; and
+- returns a typed outcome when one entry cannot fit the caller's admitted
+  maximum.
+
+That change extends the public `KvReadTransaction` contract governed by
+ADR-0006/0007. It requires review and an independent Rust caller in addition to
+the C adapter; post-hoc truncation is rejected.
+
 ## Provisional Representation
 
 The hand-maintained header defines only C fixed-width integers, `size_t`, and

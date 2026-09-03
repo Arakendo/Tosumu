@@ -8,9 +8,12 @@ This page is the public roadmap summary. It is intentionally shorter than the re
   conditional-write contracts through core and SQL-layer caller tests
 - maintain ADR-0008 plain single-column secondary indexes and their atomic
   row/index mutation contract
-- complete MVP+11's private C slice by bounding scan/connection observations and
-  deliberately testing panic containment; retain the passing hosted Linux C11
-  caller without treating it as a stable ABI or mobile-support result
+- review a resumable, generation-pinned, pair/byte-bounded snapshot scan for
+  MVP+11; the existing scan fully materializes its range and must not be
+  post-hoc truncated behind a misleadingly bounded C surface
+- retain the passing hosted Linux C11 lifecycle, structured-error, connection-
+  observation, and panic-containment evidence without treating it as a stable
+  ABI or mobile-support result
 - advance [AR-0015](Architectural%20Reviews/AR-0015-native-replication-scope-authority-and-failure-model.md):
   define concrete failure domains, RPO/RTO hypotheses, authority epochs, and
   fencing requirements before native replication work

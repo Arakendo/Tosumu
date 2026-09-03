@@ -323,3 +323,24 @@ claim.
   private Slice 1 experiment; do not stabilize or publish the boundary.
 - Resulting ADR or documentation change: observed C-harness evidence and partial
   MVP+11 Slice 1 credit; no ADR, stable ABI, or mobile claim.
+
+### Cycle 6 -- 2026-09-03
+
+- Status entering review: Incubating; lifecycle/error C evidence obtained,
+  observation and panic gates open.
+- New evidence: GitHub Actions run `33817692660`, job `100853354051`, exercised
+  the bounded immutable connection observation plus a feature-gated induced
+  panic from the independent C process. The common containment wrapper returned
+  the declared panic outcome, subsequent database use returned poisoned, close
+  remained valid, and the job passed in 21 seconds.
+- Findings: connection facts fit an immutable owned observation handle. Panic
+  containment is credible for the exercised unwind profile, but does not cover
+  allocator abort or foreign pointer faults. The current core snapshot scan
+  fully materializes its range before an adapter can enforce limits, so exposing
+  it as bounded would be false.
+- Disposition: remain Incubating. Credit connection observation and the tested
+  panic transition. Review a resumable pair/byte-bounded core scan under
+  ADR-0006/0007 before adding range exports; reject adapter-side post-hoc
+  truncation.
+- Resulting ADR or documentation change: expanded C evidence and bounded-range
+  blocker retained; no stable ABI or mobile claim.
