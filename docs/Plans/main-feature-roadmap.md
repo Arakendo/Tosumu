@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Active |
 | Opened | 2026-08-03 |
-| Last updated | 2026-08-27 (private shared-owner and lifecycle evidence) |
+| Last updated | 2026-09-02 (experimental encrypted owner and atomic writes) |
 | Owner | Tosumu maintainers |
 | Authority | Tracking plan; `docs/Specifications/Tosumu Software Design Document.md` remains normative |
 | Current milestone | MVP+10 public shared-reader contract admission |
@@ -257,6 +257,8 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
       evidence before the supported public contract is admitted.
 - [ ] Single-writer/multiple-reader coordination without readers observing
       partial commits.
+      The experimental owner now proves one mutex-held multi-mutation write and
+      an unchanged older snapshot; supported API admission remains open.
 - [ ] Version-observing reads and conditional-write helpers (`put_if_absent`
       and compare-and-set/version operations).
 - [ ] Plain single-column secondary B+ tree indexes.

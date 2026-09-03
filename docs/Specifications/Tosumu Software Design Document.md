@@ -493,6 +493,10 @@ Not "the file is large because mystery."
 > checkpoint progress, cancellation, and timeout behavior remain unimplemented
 > under AR-0009. Existing public independent read-only handles remain live views
 > and must not be described as LSN snapshots.
+> The non-default `experimental-shared-readers` feature additionally exercises
+> unencrypted and passphrase-protected shared owners plus a mutex-held atomic
+> write closure. Its names are evidence for AR-0009, not the supported API
+> described above.
 
 ### 7.8 Explicit checkpoint API (Stage 3+)
 

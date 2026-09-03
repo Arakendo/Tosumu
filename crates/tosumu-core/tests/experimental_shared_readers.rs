@@ -1,6 +1,7 @@
 #![cfg(feature = "experimental-shared-readers")]
 
 use tosumu_core::experimental::{ReadTransaction, SharedKvDatabase};
+use tosumu_core::TosumuError;
 
 fn assert_send<T: Send>() {}
 fn assert_send_sync<T: Send + Sync>() {}
@@ -49,4 +50,74 @@ fn external_caller_observes_stable_snapshot_while_shared_writer_advances() {
     drop(database);
     let reopened = SharedKvDatabase::open(&path).unwrap();
     assert_eq!(reopened.get(b"a").unwrap(), Some(b"new".to_vec()));
+}
+
+#[test]
+fn encrypted_owner_commits_and_rolls_back_atomic_write_closures() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory
+        .path()
+        .join("experimental-encrypted-shared-readers.tsm");
+    let database = SharedKvDatabase::create_encrypted(&path, "correct horse").unwrap();
+    database.put(b"a", b"captured").unwrap();
+    database.put(b"b", b"remove-after-capture").unwrap();
+
+    let reader = database.snapshot().unwrap();
+    let before_commit = database.connection_info().unwrap().latest_generation;
+    database
+        .write(|transaction| {
+            transaction.put(b"a", b"committed")?;
+            transaction.delete(b"b")?;
+            transaction.put(b"c", b"same-generation")?;
+            assert_eq!(transaction.get(b"a")?, Some(b"committed".to_vec()));
+            Ok(())
+        })
+        .unwrap();
+
+    assert!(database.connection_info().unwrap().latest_generation > before_commit);
+    assert_eq!(database.get(b"a").unwrap(), Some(b"committed".to_vec()));
+    assert_eq!(database.get(b"b").unwrap(), None);
+    assert_eq!(
+        reader.scan(b"a", b"z").unwrap(),
+        vec![
+            (b"a".to_vec(), b"captured".to_vec()),
+            (b"b".to_vec(), b"remove-after-capture".to_vec()),
+        ]
+    );
+
+    let before_rollback = database.connection_info().unwrap().latest_generation;
+    let error = database
+        .write(|transaction| {
+            transaction.put(b"a", b"rolled-back")?;
+            transaction.delete(b"c")?;
+            Err::<(), _>(TosumuError::InvalidArgument("caller rollback"))
+        })
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        TosumuError::InvalidArgument("caller rollback")
+    ));
+    assert_eq!(
+        database.connection_info().unwrap().latest_generation,
+        before_rollback
+    );
+    assert_eq!(database.get(b"a").unwrap(), Some(b"committed".to_vec()));
+    assert_eq!(
+        database.get(b"c").unwrap(),
+        Some(b"same-generation".to_vec())
+    );
+
+    drop(reader);
+    drop(database);
+    assert!(matches!(
+        SharedKvDatabase::open_with_passphrase(&path, "wrong passphrase"),
+        Err(TosumuError::WrongKey)
+    ));
+    let reopened = SharedKvDatabase::open_with_passphrase(&path, "correct horse").unwrap();
+    assert_eq!(reopened.get(b"a").unwrap(), Some(b"committed".to_vec()));
+    assert_eq!(reopened.get(b"b").unwrap(), None);
+    assert_eq!(
+        reopened.get(b"c").unwrap(),
+        Some(b"same-generation".to_vec())
+    );
 }

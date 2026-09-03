@@ -4,8 +4,11 @@
 //! boundary. This module exists to gather independent caller evidence for
 //! AR-0009. It may change or disappear before the final public API is admitted.
 
+use std::marker::PhantomData;
 use std::path::Path;
+use std::rc::Rc;
 
+use crate::btree::BTree;
 use crate::error::Result;
 use crate::shared_owner::{ReadTransaction as CoreReadTransaction, SharedBTreeOwner};
 
@@ -21,6 +24,14 @@ pub struct SharedKvDatabase {
 /// thread, but one transaction cannot be shared for concurrent use.
 pub struct ReadTransaction {
     inner: CoreReadTransaction,
+}
+
+/// Experimental exclusive write transaction passed to [`SharedKvDatabase::write`].
+///
+/// This borrowed value is deliberately neither `Send` nor `Sync`.
+pub struct WriteTransaction<'a> {
+    tree: &'a mut BTree,
+    _not_send_or_sync: PhantomData<Rc<()>>,
 }
 
 /// Bounded process-local snapshot and checkpoint observations.
@@ -51,9 +62,44 @@ impl SharedKvDatabase {
         })
     }
 
+    /// Create a passphrase-protected experimental shared database.
+    pub fn create_encrypted(path: &Path, passphrase: &str) -> Result<Self> {
+        Ok(Self {
+            owner: SharedBTreeOwner::create_encrypted(path, passphrase)?,
+        })
+    }
+
+    /// Open a passphrase-protected experimental shared database.
+    pub fn open_with_passphrase(path: &Path, passphrase: &str) -> Result<Self> {
+        Ok(Self {
+            owner: SharedBTreeOwner::open_with_passphrase(path, passphrase)?,
+        })
+    }
+
     /// Insert or replace one logical value through the shared writer owner.
     pub fn put(&self, key: &[u8], value: &[u8]) -> Result<()> {
         self.owner.put(key, value)
+    }
+
+    /// Delete one logical value through the shared writer owner.
+    pub fn delete(&self, key: &[u8]) -> Result<()> {
+        self.owner.delete(key)
+    }
+
+    /// Execute multiple logical mutations as one committed generation.
+    ///
+    /// Returning `Ok` commits the staged changes. Returning `Err` rolls them
+    /// back and preserves the caller's error.
+    pub fn write<F, T>(&self, operation: F) -> Result<T>
+    where
+        F: FnOnce(&mut WriteTransaction<'_>) -> Result<T>,
+    {
+        self.owner.write(|tree| {
+            operation(&mut WriteTransaction {
+                tree,
+                _not_send_or_sync: PhantomData,
+            })
+        })
     }
 
     /// Read the latest committed logical value.
@@ -98,5 +144,22 @@ impl ReadTransaction {
     /// Read an inclusive ordered key range from the captured generation.
     pub fn scan(&self, start: &[u8], end: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         self.inner.scan_by_key(start, end)
+    }
+}
+
+impl WriteTransaction<'_> {
+    /// Insert or replace one logical value in the active transaction.
+    pub fn put(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
+        self.tree.put(key, value)
+    }
+
+    /// Delete one logical value in the active transaction.
+    pub fn delete(&mut self, key: &[u8]) -> Result<()> {
+        self.tree.delete(key)
+    }
+
+    /// Read the transaction's current staged logical view.
+    pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        self.tree.get(key)
     }
 }

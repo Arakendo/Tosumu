@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Private mechanism complete; public contract admission remains |
 | Opened | 2026-08-27 |
-| Last updated | 2026-08-27 |
+| Last updated | 2026-09-02 |
 | Owner | Tosumu maintainers |
 | Target | MVP+10 core storage and embedded provider coordination |
 | Related ADRs | ADR-0001, ADR-0002, ADR-0004, ADR-0005 |
@@ -484,6 +484,12 @@ format/recovery design that can retain committed versions safely.
   promises. An integration test compiled as an external crate exercises shared
   writer progress, stable point/range reads, generation identity, diagnostics,
   and the required `Send`/`!Sync` transaction shape.
+- Extended the experimental caller seam with passphrase create/open and one
+  atomic write closure. A borrowed `!Send`/`!Sync` write transaction performs
+  logical put/delete/staged-get operations under the shared owner lock. The
+  external fixture proves multi-mutation commit, caller-error rollback without
+  generation advance, an unchanged older snapshot, wrong-key rejection, and
+  encrypted reopen durability.
 
 ## References
 

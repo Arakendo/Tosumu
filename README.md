@@ -19,6 +19,8 @@ delivery checklist.
 An opt-in `experimental-shared-readers` Cargo feature exposes a deliberately
 unstable logical KV prototype for caller-shape testing. Its module and names are
 not compatibility commitments and are excluded from the default feature set.
+The prototype covers unencrypted and passphrase-protected owners, pinned reads,
+and atomic write closures; production adoption should wait for API admission.
 
 | MVP | Capability | State |
 |---|---|---|

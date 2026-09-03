@@ -43,8 +43,42 @@ impl SharedBTreeOwner {
         })
     }
 
+    pub(crate) fn create_encrypted(path: &Path, passphrase: &str) -> Result<Self> {
+        Ok(Self {
+            state: Arc::new(Mutex::new(BTree::create_encrypted(path, passphrase)?)),
+        })
+    }
+
+    pub(crate) fn open_with_passphrase(path: &Path, passphrase: &str) -> Result<Self> {
+        Ok(Self {
+            state: Arc::new(Mutex::new(BTree::open_with_passphrase(path, passphrase)?)),
+        })
+    }
+
     pub(crate) fn put(&self, key: &[u8], value: &[u8]) -> Result<()> {
         self.lock()?.put(key, value)
+    }
+
+    pub(crate) fn delete(&self, key: &[u8]) -> Result<()> {
+        self.lock()?.delete(key)
+    }
+
+    pub(crate) fn write<F, T>(&self, operation: F) -> Result<T>
+    where
+        F: FnOnce(&mut BTree) -> Result<T>,
+    {
+        let mut tree = self.lock()?;
+        tree.begin_txn()?;
+        match operation(&mut tree) {
+            Ok(value) => {
+                tree.commit_txn()?;
+                Ok(value)
+            }
+            Err(error) => {
+                tree.rollback_txn();
+                Err(error)
+            }
+        }
     }
 
     pub(crate) fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {

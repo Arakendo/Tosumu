@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Incubating |
 | Opened | 2026-08-27 |
-| Last reviewed | 2026-08-27 |
+| Last reviewed | 2026-09-02 |
 | Scope | Core storage / transaction coordination / platform mechanism |
 | Trigger | MVP+10 requires a baseline for locking, LSN visibility, and reader/writer behavior before MVCC-style work begins |
 | Related ADRs | ADR-0001, ADR-0002, ADR-0004, ADR-0005 |
@@ -50,9 +50,8 @@ durability semantics.
   `Sync` accidentally; SDD section 28.4 required a structural `Send`/`!Sync`
   correction before public admission.
 - Missing evidence: feedback from a separate downstream snapshot consumer,
-  final public names and visibility, encrypted-owner and richer write lifecycle,
-  session identity/age diagnostics, and any future blocking, cancellation, or
-  timeout policy.
+  final public names and visibility, session identity/age diagnostics, and any
+  future blocking, cancellation, or timeout policy.
 
 ## Ownership And Dependency Analysis
 
@@ -393,3 +392,25 @@ public MVCC contract through that implementation.
   should become an ADR-backed supported contract.
 - Resulting ADR or documentation change: retain the prototype behind its
   experimental feature and add its exact validation command to the MVP+10 plan.
+
+### Cycle 11 -- 2026-09-02
+
+- Status entering review: Incubating
+- New evidence: the experimental owner now creates and opens passphrase-
+  protected databases and exposes one mutex-held atomic write closure. Its
+  borrowed write transaction is structurally neither `Send` nor `Sync` and
+  exposes logical put, delete, and staged get operations without leaking the
+  B+ tree. The external-style fixture commits three mutations as one generation
+  while an older snapshot stays coherent, then proves caller-error rollback
+  leaves both generation and values unchanged. Wrong-passphrase rejection and
+  successful encrypted reopen preserve the committed state.
+- Findings: encrypted owner lifetime and the minimum commit-on-`Ok`, rollback-
+  on-`Err` write lifecycle now compose with shared readers. The experiment adds
+  no waiting, cancellation, background execution, session identity, or
+  consumer-specific meaning.
+- Disposition: remain Incubating. The remaining promotion gate is actual
+  downstream use and the naming/diagnostic feedback it produces; richer host
+  policy remains later work unless that caller requires it.
+- Resulting ADR or documentation change: retain the expanded API behind the
+  non-default experimental feature; do not promote its names to a supported
+  contract yet.
