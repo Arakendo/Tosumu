@@ -145,6 +145,28 @@ macro execution closure. `thiserror-impl` executes through `proc-macro2`,
 but not source-reviewed here. The overall state therefore remains
 `attempted_incomplete`.
 
+### Procedural-macro runtime closure triage
+
+The four-package runtime closure now has exact selected-feature and Rust source-
+tree identities covering 79 files and 59,731 lines. The review is deliberately
+a bounded capability triage, not a line-by-line safety or correctness audit:
+
+- `proc-macro2` contains three observed unsafe blocks and three unsafe
+  functions around fallback token ownership and unchecked literal paths;
+- `quote` exposes token generation and the proc-macro bridge, with no unsafe
+  block or filesystem/process/network API found by the bounded scan;
+- `syn` contains 33 observed unsafe blocks and two implementation unsafe
+  functions, concentrated in token-buffer cursor and speculative parsing
+  mechanics; and
+- `unicode-ident` contains two unchecked table reads whose bounds and table-
+  generation provenance remain unreviewed.
+
+The generator binds each finding to the full `src/**/*.rs` tree, exact file and
+line counts, and features selected by the core target profiles. Any change
+invalidates the retained baseline. The state remains `attempted_incomplete`:
+pattern triage cannot establish unsafe invariants, generated-token correctness,
+or absence of behavior expressed without the searched API spellings.
+
 ## Initial Critical Boundary
 
 `tosumu-core` directly resolves these normal dependencies in the unfiltered
@@ -239,6 +261,7 @@ are erased.
 - `docs/Notes/dependency-risk-classification-v1.json`
 - `docs/Notes/dependency-build-script-review-v1.json`
 - `docs/Notes/dependency-executable-input-review-v1.json`
+- `docs/Notes/dependency-proc-macro-runtime-review-v1.json`
 - `.github/workflows/ci.yml`
 - `docs/Architectural Reviews/AR-0010-dependency-trust-and-source-provenance.md`
 - `docs/Notes/assurance-claim-inventory-v1.md`

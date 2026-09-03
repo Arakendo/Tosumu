@@ -313,3 +313,17 @@ AR-0010 remains Incubating for the repository's broader dependency policy.
   still not controlled-build execution evidence.
 - Resulting ADR or documentation change: add
   `dependency-executable-input-review-v1.json`; no policy acceptance.
+
+### Cycle 10 -- 2026-09-03
+
+- Status entering review: Incubating
+- New evidence: the selected four-package procedural-macro runtime closure is
+  bound by feature set and complete Rust source-tree identity across 79 files
+  and 59,731 lines.
+- Findings: bounded triage localizes unsafe implementation surfaces in
+  `proc-macro2`, `syn`, and `unicode-ident`. It does not establish their
+  invariants or constitute a complete source audit.
+- Disposition: remain Incubating and `attempted_incomplete`; next capture actual
+  controlled-build execution and select unsafe surfaces for focused review.
+- Resulting ADR or documentation change: add
+  `dependency-proc-macro-runtime-review-v1.json`; no policy acceptance.

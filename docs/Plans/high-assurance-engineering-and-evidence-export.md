@@ -859,6 +859,21 @@ specific pressure.
 - Next slice: review that four-package proc-macro runtime closure, then capture
   controlled-build execution evidence separately from source findings.
 
+### 2026-09-03 -- Slice 1 Procedural-Macro Runtime Triage
+
+- Work completed: bound the selected features and complete Rust source trees of
+  `proc-macro2`, `quote`, `syn`, and `unicode-ident`: 79 files and 59,731 lines.
+- Validation: exact tree hashes, file counts, line counts, and selected features
+  are checked against the current core target profiles and package sources.
+- Findings: bounded scanning found material unsafe implementation surfaces in
+  `proc-macro2`, `syn`, and `unicode-ident`; no such block was found in `quote`.
+  This is candidate localization, not proof that the unsafe invariants hold.
+- Plan changes: the macro runtime closure has source-identity and triage evidence
+  but remains `attempted_incomplete`; a full line-by-line audit is not silently
+  inferred from checksum coverage or pattern scanning.
+- Next slice: capture controlled-build execution evidence and decide which
+  unsafe surfaces require deeper focused review for A1.
+
 ## References
 
 - `SECURITY.md`

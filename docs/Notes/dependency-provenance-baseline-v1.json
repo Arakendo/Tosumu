@@ -6,7 +6,8 @@
     "cargo_lock_sha256": "af9a91a9ce9f97c84edcf3e4acac353ac003d041d06aafc73df81ec5ce026e0b",
     "risk_classification_sha256": "4bf17fbe395221fabb41d249345bac45a2bb132b96d4d9e388b8bac005f2ee86",
     "build_script_review_sha256": "59a3c92636f486b59bba73bc93605b048245eb7b355e73cca44e7ca5ed44e3f3",
-    "executable_input_review_sha256": "858a79ebabb6fd71b3f9f515e430417ef66fb27776c8af1fd87e936adff56335"
+    "executable_input_review_sha256": "858a79ebabb6fd71b3f9f515e430417ef66fb27776c8af1fd87e936adff56335",
+    "proc_macro_runtime_review_sha256": "13970b55a266e2e192f1a73005abd91e6ccb8c846133bdee13ac463350614ada"
   },
   "observation": {
     "state": "observed_finding",
@@ -14835,6 +14836,86 @@
         ],
         "finding": "The non-test path selects RUSTC or rustc, runs --verbose --version, and parses compiler version, date, and channel; no network or source-generation operation was observed.",
         "limitations": "Reviewed as the helper called by generic-array; test-only filesystem code is present but is not part of build-script execution."
+      }
+    ]
+  },
+  "proc_macro_runtime_review": {
+    "status": "attempted_incomplete",
+    "method": "Exact src/**/*.rs tree identity plus bounded capability-pattern triage; not a line-by-line correctness or safety audit.",
+    "reviewed_package_count": 4,
+    "entries": [
+      {
+        "id": "registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.106",
+        "relative_path": "src",
+        "file_count": 15,
+        "source_line_count": 6030,
+        "source_tree_sha256": "48effecad71cfea2d9111a93a237f675a71f720863f6824cef28c5d02daf03fa",
+        "selected_features": [
+          "default",
+          "proc-macro"
+        ],
+        "observed_capabilities": [
+          "proc_macro_bridge",
+          "token_generation",
+          "token_parsing",
+          "unsafe_memory_operations"
+        ],
+        "finding": "Triage found three unsafe blocks and three unsafe functions, including fallback token-buffer ownership and unchecked literal construction. No non-documentation filesystem call, process launch, or network API was found in the source tree.",
+        "limitations": "Unsafe invariants and feature-gated fallback versus compiler-backed execution have not received line-by-line review."
+      },
+      {
+        "id": "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.45",
+        "relative_path": "src",
+        "file_count": 7,
+        "source_line_count": 2708,
+        "source_tree_sha256": "669648411853f19a351f7d5dfa41a91ffe8b1503028cb2c6ee7830203ef646ba",
+        "selected_features": [
+          "default",
+          "proc-macro"
+        ],
+        "observed_capabilities": [
+          "proc_macro_bridge",
+          "token_generation"
+        ],
+        "finding": "Triage found token construction and proc-macro bridging, with no unsafe block, filesystem API, process launch, or network API in the source tree.",
+        "limitations": "Generated-token correctness and behavior of proc-macro2 beneath quote remain separate review concerns."
+      },
+      {
+        "id": "registry+https://github.com/rust-lang/crates.io-index#syn@2.0.117",
+        "relative_path": "src",
+        "file_count": 55,
+        "source_line_count": 50059,
+        "source_tree_sha256": "623a8ca07cdc3f6d9710f844efef12f02aa3ed158f288bab0729702616406c70",
+        "selected_features": [
+          "clone-impls",
+          "default",
+          "derive",
+          "parsing",
+          "printing",
+          "proc-macro"
+        ],
+        "observed_capabilities": [
+          "proc_macro_bridge",
+          "syntax_parsing",
+          "token_generation",
+          "unsafe_memory_operations"
+        ],
+        "finding": "Triage found 33 unsafe blocks and two implementation unsafe functions, concentrated in token-buffer cursor and speculative parsing mechanics. Filesystem/process matches were documentation examples; no network API was found.",
+        "limitations": "The 50,059-line selected source tree and its unsafe cursor invariants have not received line-by-line correctness review."
+      },
+      {
+        "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+        "relative_path": "src",
+        "file_count": 2,
+        "source_line_count": 934,
+        "source_tree_sha256": "1ec78eca7c38820221605c92de26bafc1377b1296c198575f62b532fa107bd08",
+        "selected_features": [],
+        "observed_capabilities": [
+          "unicode_identifier_classification",
+          "unsafe_table_indexing"
+        ],
+        "finding": "Triage found two unchecked table reads used by Unicode identifier classification, with no filesystem API, process launch, environment access, or network API.",
+        "limitations": "Bounds invariants and Unicode table-generation provenance have not received independent correctness review."
       }
     ]
   }

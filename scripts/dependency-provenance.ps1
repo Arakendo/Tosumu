@@ -3,6 +3,7 @@ param(
     [string]$RiskPath = "docs/Notes/dependency-risk-classification-v1.json",
     [string]$BuildReviewPath = "docs/Notes/dependency-build-script-review-v1.json",
     [string]$ExecutableReviewPath = "docs/Notes/dependency-executable-input-review-v1.json",
+    [string]$ProcMacroReviewPath = "docs/Notes/dependency-proc-macro-runtime-review-v1.json",
     [switch]$Check
 )
 
@@ -29,6 +30,11 @@ $absoluteExecutableReviewPath = if ([IO.Path]::IsPathRooted($ExecutableReviewPat
     $ExecutableReviewPath
 } else {
     Join-Path $repositoryRoot $ExecutableReviewPath
+}
+$absoluteProcMacroReviewPath = if ([IO.Path]::IsPathRooted($ProcMacroReviewPath)) {
+    $ProcMacroReviewPath
+} else {
+    Join-Path $repositoryRoot $ProcMacroReviewPath
 }
 
 function Get-SourceTreeHash {
@@ -657,6 +663,80 @@ foreach ($requiredId in $requiredExecutableReviewIds) {
     }
 }
 
+$procMacroReviewDocument = Get-Content -LiteralPath $absoluteProcMacroReviewPath -Raw | ConvertFrom-Json -Depth 100
+if ($procMacroReviewDocument.schema -ne "tosumu-dependency-proc-macro-runtime-review" -or $procMacroReviewDocument.schema_version -ne 1) {
+    throw "Unsupported proc-macro runtime review schema: $absoluteProcMacroReviewPath"
+}
+$requiredProcMacroRuntimeIds = @(
+    "registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.106",
+    "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.45",
+    "registry+https://github.com/rust-lang/crates.io-index#syn@2.0.117",
+    "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24"
+)
+$coreFeaturesById = @{}
+foreach ($profilePackage in $coreArtifactProfiles.packages) {
+    $profileId = [string]$profilePackage.id
+    if (-not $coreFeaturesById.ContainsKey($profileId)) {
+        $coreFeaturesById[$profileId] = @{}
+    }
+    foreach ($feature in $profilePackage.enabled_features) {
+        $coreFeaturesById[$profileId][[string]$feature] = $true
+    }
+}
+$seenProcMacroRuntimeIds = @{}
+$normalizedProcMacroReviews = foreach ($review in $procMacroReviewDocument.reviews) {
+    $reviewId = [string]$review.id
+    if ($reviewId -notin $requiredProcMacroRuntimeIds -or -not $metadataByStableId.ContainsKey($reviewId)) {
+        throw "Proc-macro runtime review is not a required current subject: $reviewId"
+    }
+    if ($seenProcMacroRuntimeIds.ContainsKey($reviewId)) {
+        throw "Duplicate proc-macro runtime review: $reviewId"
+    }
+    $seenProcMacroRuntimeIds[$reviewId] = $true
+    $package = $metadataByStableId[$reviewId]
+    $packageRoot = Split-Path -Parent ([string]$package.manifest_path)
+    $sourceRoot = [IO.Path]::GetFullPath((Join-Path $packageRoot ([string]$review.relative_path)))
+    $files = @(Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -Filter "*.rs")
+    if ($files.Count -ne [int]$review.file_count) {
+        throw "Proc-macro runtime source file count changed for $reviewId"
+    }
+    $lineCount = 0
+    foreach ($file in $files) {
+        $lineCount += @(Get-Content -LiteralPath $file.FullName).Count
+    }
+    if ($lineCount -ne [int]$review.source_line_count) {
+        throw "Proc-macro runtime source line count changed for $reviewId"
+    }
+    $observedHash = Get-SourceTreeHash $packageRoot $files
+    if ($observedHash -ne [string]$review.source_tree_sha256) {
+        throw "Proc-macro runtime source identity changed for $reviewId"
+    }
+    $observedFeatures = @($coreFeaturesById[$reviewId].Keys | Sort-Object)
+    $reviewedFeatures = @($review.selected_features | ForEach-Object { [string]$_ } | Sort-Object -Unique)
+    if (($observedFeatures -join "`n") -ne ($reviewedFeatures -join "`n")) {
+        throw "Proc-macro runtime selected features changed for $reviewId"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$review.finding) -or [string]::IsNullOrWhiteSpace([string]$review.limitations)) {
+        throw "Proc-macro runtime review lacks finding or limitations: $reviewId"
+    }
+    [ordered]@{
+        id = $reviewId
+        relative_path = [string]$review.relative_path
+        file_count = $files.Count
+        source_line_count = $lineCount
+        source_tree_sha256 = $observedHash
+        selected_features = $observedFeatures
+        observed_capabilities = @($review.observed_capabilities | ForEach-Object { [string]$_ } | Sort-Object -Unique)
+        finding = [string]$review.finding
+        limitations = [string]$review.limitations
+    }
+}
+foreach ($requiredId in $requiredProcMacroRuntimeIds) {
+    if (-not $seenProcMacroRuntimeIds.ContainsKey($requiredId)) {
+        throw "Required proc-macro runtime subject lacks review: $requiredId"
+    }
+}
+
 $document = [ordered]@{
     schema = "tosumu-dependency-provenance-baseline"
     schema_version = 1
@@ -666,6 +746,7 @@ $document = [ordered]@{
         risk_classification_sha256 = (Get-FileHash -LiteralPath $absoluteRiskPath -Algorithm SHA256).Hash.ToLowerInvariant()
         build_script_review_sha256 = (Get-FileHash -LiteralPath $absoluteBuildReviewPath -Algorithm SHA256).Hash.ToLowerInvariant()
         executable_input_review_sha256 = (Get-FileHash -LiteralPath $absoluteExecutableReviewPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        proc_macro_runtime_review_sha256 = (Get-FileHash -LiteralPath $absoluteProcMacroReviewPath -Algorithm SHA256).Hash.ToLowerInvariant()
     }
     observation = [ordered]@{
         state = "observed_finding"
@@ -703,6 +784,12 @@ $document = [ordered]@{
         status = [string]$executableReviewDocument.status
         reviewed_subject_count = @($normalizedExecutableReviews).Count
         entries = @($normalizedExecutableReviews | Sort-Object { $_.id })
+    }
+    proc_macro_runtime_review = [ordered]@{
+        status = [string]$procMacroReviewDocument.status
+        method = [string]$procMacroReviewDocument.method
+        reviewed_package_count = @($normalizedProcMacroReviews).Count
+        entries = @($normalizedProcMacroReviews | Sort-Object { $_.id })
     }
 }
 

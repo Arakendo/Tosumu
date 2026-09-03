@@ -20,4 +20,5 @@ Promote a note when its role changes:
   machine-derived Slice 1 Cargo closure, source/checksum identity, selected
   features, build-time surfaces, provisional direct-core risk classifications,
   hash-bound build-script/executable-input review, explicit limitations, and
-  staleness check.
+  staleness check. The evidence includes bounded procedural-macro runtime
+  triage without claiming a complete safety audit.
