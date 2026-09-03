@@ -46,6 +46,12 @@ would retain fragmentation; rewriting them must use fresh page nonces.
   pager open accepts only a guard for the same database path, and tests prove
   the gate remains held when either the maintenance owner or pager owner is
   dropped before the other.
+- Publication implementation evidence: the private Unix helper validates a
+  same-directory pair of regular files, synchronizes staging, opens the parent
+  before the publication point, performs one `rename()`, then synchronizes the
+  directory. Its typed internal result distinguishes a rename failure from a
+  post-rename durability failure; unsupported targets return before inspecting
+  or changing either path.
 - Platform publication evidence: POSIX `rename()` requires atomic replacement
   of an existing non-directory entry, and POSIX explicitly prescribes syncing
   the containing directory when the new name must be durably confirmed.

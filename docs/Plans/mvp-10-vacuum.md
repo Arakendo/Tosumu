@@ -13,7 +13,7 @@ recovery, generation, or encrypted-protector guarantees.
       atomic replacement and durability mechanism.
 - [x] Record why documented Windows replacement mechanisms do not yet establish
       the required old-or-new and durable-publication contract.
-- [ ] Implement the Unix publication helper and its pre/post-publication failure
+- [x] Implement the Unix publication helper and its pre/post-publication failure
       classification.
 - [ ] Refuse Windows and other unsupported targets before checkpointing,
       creating staging artifacts, or mutating the source.

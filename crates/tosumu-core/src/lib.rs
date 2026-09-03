@@ -23,6 +23,8 @@ mod shared_owner;
 mod shared_store;
 #[allow(dead_code)]
 mod snapshot_registry;
+#[allow(dead_code)]
+mod vacuum_publication;
 mod writer_gate;
 
 #[cfg(test)]
