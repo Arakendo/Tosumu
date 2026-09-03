@@ -8,9 +8,9 @@ This page is the public roadmap summary. It is intentionally shorter than the re
   conditional-write contracts through core and SQL-layer caller tests
 - maintain ADR-0008 plain single-column secondary indexes and their atomic
   row/index mutation contract
-- implement MVP+11's admitted private Linux C experiment, keeping unsafe code
-  within reviewed slice/copy helpers and withholding ABI/mobile claims until an
-  independently compiled harness passes
+- complete MVP+11's private C slice by bounding scan/connection observations and
+  deliberately testing panic containment; retain the passing hosted Linux C11
+  caller without treating it as a stable ABI or mobile-support result
 - advance [AR-0015](Architectural%20Reviews/AR-0015-native-replication-scope-authority-and-failure-model.md):
   define concrete failure domains, RPO/RTO hypotheses, authority epochs, and
   fencing requirements before native replication work

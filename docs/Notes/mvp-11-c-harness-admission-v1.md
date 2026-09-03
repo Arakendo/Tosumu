@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implementation admitted for a private Linux experiment; evidence not yet obtained |
+| Status | Private Linux experiment implemented and independently exercised; ABI remains unstable |
 | Reviewed | 2026-09-03 |
 | Owner | AR-0017 / MVP+11 Slice 1 |
 | Depends on | Experimental ABI contract v1, ADR-0003, AR-0010, `SharedKvStore`, `ErrorReport` |
@@ -48,6 +48,33 @@ The current Windows workstation exposes no `cc`, `clang`, `gcc`, or `cl` on
 `PATH`, so no local independent-C result is claimed by this review. Windows,
 macOS, iOS, and Android are separate future profiles. Linux success will prove
 neither mobile qualification nor cross-platform ABI stability.
+
+## Observed Evidence
+
+GitHub Actions run `33817119731`, job `100851610793`, exercised commit
+`63820bf6347370d862b67ed0bbb9b834ebcb4153` on 2026-09-03 and completed
+successfully in 35 seconds. The retained job log identifies:
+
+- GitHub-hosted Ubuntu 24.04.4, `ubuntu-24.04` image
+  `20260831.293.1`;
+- `rustc 1.98.1 (48a229cea 2026-09-01)`, host
+  `x86_64-unknown-linux-gnu`, LLVM 22.1.8;
+- `cargo 1.98.1 (797e8a9bc 2026-08-05)`;
+- GCC/`cc` 13.3.0; and
+- GNU ld 2.42.
+
+The job built the Rust `cdylib`, compiled and dynamically linked the C11
+harness as a separate executable, matched every `tosumu_experimental_v1_*`
+dynamic export against the retained allowlist, and printed `independent C ABI
+harness: ok`. The caller exercised ABI/layout constants, binary keys,
+create/put/get lifecycle, snapshot stability across a later write
+and database-handle close, byte copy/ownership, stale/double close, null input,
+wrong-kind rejection, and owned core error code/status/message/string-detail
+projection.
+
+This is one observed Linux profile. It does not establish MSRV compatibility,
+another native platform, mobile behavior, ABI stability, range/connection
+representation, panic injection, leak freedom, or arbitrary-pointer safety.
 
 ## Provisional Representation
 

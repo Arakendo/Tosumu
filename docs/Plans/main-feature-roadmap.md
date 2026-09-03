@@ -7,7 +7,7 @@
 | Last updated | 2026-09-03 (cluster, assurance, and crypto-agility tracks opened) |
 | Owner | Tosumu maintainers |
 | Authority | Tracking plan; `docs/Specifications/Tosumu Software Design Document.md` remains normative |
-| Current milestone | MVP+11 private Linux C experiment |
+| Current milestone | MVP+11 bounded scan/observation ABI and panic containment |
 
 ## Purpose
 
@@ -834,7 +834,7 @@ partial or stale milestones directly rather than forcing a pass/fail result.
 | +8 | Verified | TUI/view tests and structured inspect contracts | Maintain viewer evidence |
 | +9 | Verified baseline; deferred scope named | `initial-sql-layer.md`; audit and logical scans explicitly moved out | Post-MVP+10 SQL and future audit plans |
 | +10 | Complete | ADR-0005 through ADR-0009; focused MVP+10 plans; shared KV, SQL, VACUUM, Criterion, and native macOS arm64 CI evidence | Maintain contracts and platform evidence |
-| +11 | Slice 0 complete; private Linux experiment admitted | AR-0017, foreign contract/target inventory, experimental ABI contract, C-harness admission, and dedicated mobile plan | Implement the bounded adapter and obtain an independent C run |
+| +11 | Slice 0 complete; Slice 1 independent Linux baseline obtained | AR-0017, experimental ABI records, adapter crate, and hosted C11 harness | Bound scan/connection representations and exercise panic containment before Slice 1 closure |
 | +12 | Not started | Architectural Review required | Unassigned |
 | +13 | Not started | Future dedicated plan and format decision | Unassigned |
 | +14 | Not started | Future dedicated plan and benchmarks | Unassigned |

@@ -305,3 +305,21 @@ claim.
   symbols.
 - Resulting ADR or documentation change: C-harness and unsafe-boundary admission
   record; no ADR, dependency, stable ABI, or platform claim.
+
+### Cycle 5 -- 2026-09-03
+
+- Status entering review: Incubating; private Linux implementation admitted.
+- New evidence: GitHub Actions run `33817119731`, job `100851610793`, built the
+  `cdylib`, compiled and dynamically linked an independent C11 process, matched
+  the Tosumu export allowlist, and exercised binary values, snapshot survival,
+  stale/wrong-kind/null failures, and complete string-detail error projection
+  successfully on Ubuntu 24.04 with Rust 1.98.1, GCC 13.3, and GNU ld 2.42.
+- Findings: the callback-free owner/result shape is viable for this one Linux
+  profile, and the adapter added no third-party dependency. Bounded range and
+  connection-observation representations plus deliberate panic injection are
+  still missing from Slice 1. The result supplies no mobile, MSRV, cross-platform,
+  arbitrary-pointer-safety, or stable-ABI evidence.
+- Disposition: remain Incubating. Retain the independent result and continue the
+  private Slice 1 experiment; do not stabilize or publish the boundary.
+- Resulting ADR or documentation change: observed C-harness evidence and partial
+  MVP+11 Slice 1 credit; no ADR, stable ABI, or mobile claim.

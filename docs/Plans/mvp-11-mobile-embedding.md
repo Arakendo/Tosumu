@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed; Slice 0 complete and experimental ABI schema retained; implementation not admitted |
+| Status | Active; Slice 0 complete and Slice 1 independent Linux baseline obtained |
 | Opened | 2026-09-03 |
 | Owner | Mobile adapters above `tosumu-core` |
 | Target | Callback-free C ABI, independent Swift/Kotlin callers, and named iOS/Android qualification profiles |
@@ -46,15 +46,16 @@ claimed.
 
 ## Slice 1: Private Callback-Free C Experiment
 
-- [ ] Add a dedicated adapter crate; keep all necessary `unsafe` localized and
+- [x] Add a dedicated adapter crate; keep all necessary `unsafe` localized and
       documented there while `tosumu-core` remains `forbid(unsafe_code)`.
-- [ ] Define provisional fixed-width ABI scalars, explicit byte slices, owned
+- [x] Define provisional fixed-width ABI scalars, explicit byte slices, owned
       result/error objects, ABI version query, and kind-specific opaque handles.
-- [ ] Expose create/open/close, put/delete/get, snapshot begin/get/range/close,
-      and bounded connection observations only.
+- [x] Expose create/open/close, put/delete/get, and snapshot begin/get/close.
+- [ ] Admit and expose bounded range and connection-observation representations
+      without JSON, callbacks, or unbounded allocation graphs.
 - [ ] Contain panics at every exported entry point and prove no unwind crosses C.
-- [ ] Use no callbacks. Do not expose multi-call writes until Slice 3.
-- [ ] Build an independently compiled C harness rather than a Rust test calling
+- [x] Use no callbacks. Do not expose multi-call writes until Slice 3.
+- [x] Build an independently compiled C harness rather than a Rust test calling
       `extern "C"` functions directly.
 
 **Exit:** the C harness can exercise the minimal lifecycle and retrieve full
@@ -191,9 +192,9 @@ No rung implies the next.
 
 ## Immediate Next Slice
 
-Implement the admitted private Linux C experiment with no new third-party
-dependency. Keep unsafe operations within the reviewed input-slice and copy-out
-helpers, then obtain an independently compiled C run before crediting Slice 1.
+Review and implement bounded range and connection-observation representations,
+then add deliberate panic injection and prove the C boundary contains it. Keep
+the ABI private and do not credit Slice 1 as complete until both gates pass.
 
 ## References
 
