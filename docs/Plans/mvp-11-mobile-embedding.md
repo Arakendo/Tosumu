@@ -195,13 +195,15 @@ No rung implies the next.
 
 ## Immediate Next Slice
 
-Review a resumable, generation-pinned, pair/byte-bounded core range contract
-under ADR-0006/0007. Require an independent Rust caller before the C adapter;
-do not credit Slice 1 by truncating the existing fully materialized scan.
+Implement AR-0018's private stateless range-page traversal and prove pair,
+payload, oversized-entry, continuation, and complete-scan equivalence bounds.
+Do not publish the core method or add C range symbols until that prototype is
+reviewed.
 
 ## References
 
 - `docs/Architectural Reviews/AR-0017-mobile-embedding-abi-and-hardware-protector-boundary.md`
+- `docs/Architectural Reviews/AR-0018-bounded-snapshot-range-pagination.md`
 - `docs/Architectural Reviews/AR-0016-cryptographic-provider-seam-and-suite-identity.md`
 - `docs/Notes/mvp-11-foreign-contract-and-target-inventory-v1.md`
 - `docs/Notes/mvp-11-experimental-abi-contract-v1.md`

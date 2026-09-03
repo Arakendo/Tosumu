@@ -7,8 +7,8 @@
 | Last reviewed | 2026-09-03 |
 | Scope | Mobile embedding adapter / C ABI / Swift and Kotlin wrappers / hardware-backed protectors |
 | Trigger | MVP+11 is next in the delivery sequence, while the normative mobile design contains unverified and outdated implementation assumptions |
-| Related ADRs | ADR-0001, ADR-0002, ADR-0003, ADR-0004, ADR-0010 |
-| Related reviews | AR-0007, AR-0009, AR-0010, AR-0016 |
+| Related ADRs | ADR-0001, ADR-0002, ADR-0003, ADR-0004, ADR-0006, ADR-0007, ADR-0010 |
+| Related reviews | AR-0007, AR-0009, AR-0010, AR-0016, AR-0018 |
 | Related evidence | SDD section 19, current `SharedKvStore` and inspection boundaries, writer-lock sidecar behavior, format-v3 crypto seam, and C2 independent oracle |
 
 ## Architectural Question

@@ -8,8 +8,8 @@ This page is the public roadmap summary. It is intentionally shorter than the re
   conditional-write contracts through core and SQL-layer caller tests
 - maintain ADR-0008 plain single-column secondary indexes and their atomic
   row/index mutation contract
-- review a resumable, generation-pinned, pair/byte-bounded snapshot scan for
-  MVP+11; the existing scan fully materializes its range and must not be
+- prototype AR-0018's resumable, generation-pinned, pair/payload-bounded
+  snapshot page; the existing scan fully materializes its range and must not be
   post-hoc truncated behind a misleadingly bounded C surface
 - retain the passing hosted Linux C11 lifecycle, structured-error, connection-
   observation, and panic-containment evidence without treating it as a stable

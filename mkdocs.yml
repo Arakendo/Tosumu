@@ -88,6 +88,7 @@ nav:
           - AR-0015 Native Replication Scope Authority And Failure Model: Architectural Reviews/AR-0015-native-replication-scope-authority-and-failure-model.md
           - AR-0016 Cryptographic Provider Seam And Suite Identity: Architectural Reviews/AR-0016-cryptographic-provider-seam-and-suite-identity.md
           - AR-0017 Mobile Embedding ABI And Hardware Protector Boundary: Architectural Reviews/AR-0017-mobile-embedding-abi-and-hardware-protector-boundary.md
+          - AR-0018 Bounded Snapshot Range Pagination: Architectural Reviews/AR-0018-bounded-snapshot-range-pagination.md
           - Template: Architectural Reviews/TEMPLATE.md
       - Implementation Plans:
           - Plans/README.md
