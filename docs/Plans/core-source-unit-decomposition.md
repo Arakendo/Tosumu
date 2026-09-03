@@ -275,6 +275,18 @@ Architectural Review or ADR is updated first.
 
 ## Progress Log
 
+### 2026-09-03 -- Credible-Variation Seam Amendment
+
+- ADR-0003 now treats credible future implementation variation as a valid
+  decomposition trigger before a source unit becomes large or a second
+  implementation is complete.
+- The rule prefers narrow private capability seams with conservation evidence;
+  it does not manufacture public provider APIs or let runtime selection own
+  durable format meaning.
+- AR-0016 is the first active application: crypto-provider pressure justifies
+  early preparation, while exact format-v3 and authenticated-pager constraints
+  remain separately reviewed.
+
 ### 2026-08-27 -- Conservation Baseline And First Extraction
 
 - Baseline page-store evidence discovered 85 focused tests: 82 passed and three

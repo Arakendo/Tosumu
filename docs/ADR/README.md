@@ -23,6 +23,8 @@ remain in history when superseded.
 - [ADR-0001: Storage Engine Layer Boundaries](ADR-0001-storage-engine-layer-boundaries.md)
 - [ADR-0002: Authenticated Pager Trust Boundary](ADR-0002-authenticated-pager-trust-boundary.md)
 - [ADR-0003: Source Unit Cohesion, Size Pressure, And Decomposition](ADR-0003-source-unit-cohesion-size-pressure-and-decomposition.md)
+  -- uses ownership and conservation evidence to guide extraction, including
+  narrow private seams for credible future implementation variation.
 - [ADR-0004: Cooperative Single-Writer Admission](ADR-0004-cooperative-single-writer-admission.md)
 - [ADR-0005: Committed Generation And Retained-WAL Snapshots](ADR-0005-committed-generation-and-retained-wal-snapshots.md)
 - [ADR-0006: Shared KV Store And Snapshot Transactions](ADR-0006-shared-kv-store-and-snapshot-transactions.md)

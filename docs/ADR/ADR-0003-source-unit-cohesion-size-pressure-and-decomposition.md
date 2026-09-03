@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Accepted; amended 2026-09-03 to cover preparatory seams for credible future
+implementation variation.
 
 ## Context
 
@@ -22,6 +23,14 @@ An arbitrary maximum would encourage numbered fragments, weak helper modules,
 or premature public abstractions. Tosumu instead needs a proportional rule that
 uses size to find pressure and responsibility to decide whether decomposition
 is warranted.
+
+The same concern applies before a unit becomes large. When an accepted plan,
+Architectural Review, independent consumer, or concrete deployment requirement
+shows that one mechanism may need another implementation, allowing today's
+concrete choice to spread through its callers makes the eventual change larger
+and riskier. Tosumu should be capable of preparing a narrow internal seam while
+that work is still cheap, without claiming a stable plugin contract or
+inventing variation for its own sake.
 
 ## Decision
 
@@ -99,6 +108,56 @@ Before accepting a proposed seam, the review must be able to state:
 - the responsibilities it explicitly excludes; and
 - its dependency direction relative to sibling modules.
 
+### Prepare narrow seams for credible variation
+
+Decomposition is not limited to reducing the size of an existing source unit.
+When credible evidence identifies a likely axis of variation, active work must
+evaluate whether to establish the smallest private seam before new features
+harden the concrete implementation into every caller. The retained review may
+admit the seam, defer it to a named checkpoint, or reject it with reasons.
+
+Credible evidence includes at least one of:
+
+- an accepted plan or incubating Architectural Review names a concrete future
+  implementation, provider, host, platform, or policy boundary;
+- an independent consumer or deployment supplies a substitution requirement;
+- fault injection requires control of a mechanism that is otherwise fused to
+  orchestration;
+- the same mechanism is reached from multiple lifecycle paths whose ownership
+  should remain consistent; or
+- the next feature would otherwise expose implementation-specific types,
+  failures, configuration, or state across an established boundary.
+
+This is a prompt for explicit judgment, not a requirement to add a trait for
+every function. A preparatory seam must:
+
+- represent one named capability or responsibility rather than a vendor,
+  product, or anticipated feature bundle;
+- keep stable meaning and policy with the owning layer while placing only the
+  replaceable mechanism behind the seam;
+- use the smallest sufficient visibility, normally a private module, private
+  trait, generic parameter, or closed internal dispatch point;
+- preserve the current implementation as the default and retain its exact
+  observable behavior through the conservation requirements below;
+- avoid mutable process-global selection when explicit construction or scoped
+  ownership can express the dependency;
+- avoid promising object safety, dynamic loading, asynchronous execution,
+  thread safety, clonability, raw-handle export, or public extensibility until
+  a real implementation requires those properties; and
+- remain removable or revisable while it is private.
+
+The seam's selection mechanism must not own durable interpretation. In
+particular, a storage or cryptographic provider selected by build or process
+configuration may constrain what a process is willing to create or open, but
+it must not reinterpret existing bytes, change compatibility rules, or
+silently select a different on-disk construction. Durable format identity and
+runtime implementation identity remain separate concerns.
+
+A test double or fault-injection implementation can demonstrate isolation and
+failure behavior. It is not, by itself, evidence that the seam is suitable as
+a stable public provider API. Public stabilization still requires independent
+caller evidence and the responsible Architectural Review or ADR.
+
 ### Successful extraction reduces coupling
 
 Smaller files are not sufficient evidence. A decomposition is unsuccessful if
@@ -143,6 +202,11 @@ When a large unit is under active semantic, recovery, or format work:
 4. rerun the same evidence after each coherent extraction group; and
 5. resume semantic work only after the checkpoint is reproduced.
 
+When credible upcoming variation is the trigger rather than file size, apply
+the same sequence: checkpoint current behavior, establish the private seam as
+a separate conservation change, and only then add the new implementation or
+feature. Semantic repair discovered during preparation remains separate.
+
 The graduated thresholds do not apply directly to generated code, vendored
 source, machine-produced bindings, static lookup tables, exact corpus artifacts,
 or cohesive declarative schemas. A retained exception must identify its
@@ -159,6 +223,10 @@ the plan must distinguish mechanical moves from semantic changes.
   attribution become opaque.
 - Private modules can improve isolation without manufacturing public APIs or
   changing the storage-engine boundary.
+- Credible future provider and mechanism changes can receive a private
+  substitution point before their concrete implementation becomes pervasive.
+- A seam does not establish pluggability, interoperability, format agility, or
+  compliance; those claims require their own evidence and decisions.
 - Storage, format, authentication, and recovery evidence must survive
   structural work unchanged.
 - Some cohesive files will remain large with an explicit reason.
@@ -178,6 +246,11 @@ final module shape or require an unrelated semantic refactor.
   a hard cap encourages arbitrary fragmentation.
 - **A size report without architectural meaning.** Rejected because it locates
   pressure but cannot decide whether a unit should be retained or decomposed.
+- **Defer every seam until a second implementation is complete.** Rejected as
+  a universal rule because accepted plans, consumer pressure, or fault-
+  injection needs can reveal a real axis of variation while a private seam is
+  still inexpensive. The evidence and conservation requirements prevent this
+  from becoming speculative public abstraction.
 - **Graduated cohesion review.** Accepted because it uses size as evidence while
   preserving ownership, compatibility, and behavior as the deciding concerns.
 
@@ -186,7 +259,9 @@ final module shape or require an unrelated semantic refactor.
 Revisit this decision if reviews become ritual, thresholds cause arbitrary
 fragmentation, generated or data-heavy units are repeatedly misclassified,
 private extraction repeatedly requires accidental public APIs, or conservation
-checks fail to protect storage and format behavior.
+checks fail to protect storage and format behavior. Also revisit it if
+preparatory seams routinely remain unused, create indirection without reducing
+coupling, or bias later implementations toward the first mechanism's shape.
 
 ## References
 
@@ -196,3 +271,5 @@ checks fail to protect storage and format behavior.
 - `../Specifications/Tosumu Error Design Document.md`
 - `../Plans/core-source-unit-decomposition.md`
 - `../Plans/documentation-lifecycle-and-design-decomposition.md`
+- `../Architectural Reviews/AR-0016-cryptographic-provider-seam-and-suite-identity.md`
+- `../Plans/cryptographic-provider-seam-and-suite-agility.md`

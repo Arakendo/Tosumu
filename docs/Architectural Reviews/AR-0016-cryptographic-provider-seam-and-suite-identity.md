@@ -224,6 +224,11 @@ and protector boundaries
 ## Findings
 
 - Backend substitution and suite agility are separate architectural changes.
+- ADR-0003 now explicitly encourages a narrow private seam when an accepted
+  plan, review, consumer, or fault-injection need establishes credible future
+  variation. That supports doing the format-v3 preparation before a customer
+  provider arrives, but does not bypass ADR-0002 or this review's conservation
+  gate.
 - A private exact-construction seam is plausible without changing format v3,
   but the seam includes more than `crypto.rs` because entropy and key lifetime
   cross pager and protector paths.
@@ -307,3 +312,17 @@ reinterpretation, or compliance label is accepted by this cycle.
 - Disposition: Incubating; file-level conservation and the proposed private
   contract remain prerequisites to an ADR.
 - Resulting ADR or documentation change: none.
+
+### Cycle 3 -- 2026-09-03
+
+- Status entering review: Incubating
+- New evidence: ADR-0003 was amended to cover preparatory private seams for
+  credible variation, with capability-shaped ownership, minimum visibility,
+  structural selection, conservation, and public-stability guardrails.
+- Findings: the crypto-provider pressure qualifies for early private seam
+  preparation, but authentication-boundary and format consequences still keep
+  AR-0016 and ADR-0002 authoritative for its exact shape.
+- Disposition: Incubating; proceed with file-level conservation and contract
+  definition rather than waiting for a customer-specific provider.
+- Resulting ADR or documentation change: ADR-0003 amended; no crypto seam is
+  admitted yet.
