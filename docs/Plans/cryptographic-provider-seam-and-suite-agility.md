@@ -8,7 +8,7 @@
 | Owner | Tosumu maintainers |
 | Target | `tosumu-core` crypto boundary, future format revision, protector integrations, and assurance profiles |
 | Related ADRs | ADR-0001, ADR-0002, ADR-0003, ADR-0009 |
-| Related reviews | AR-0010 dependency trust and source provenance; new crypto-agility review required |
+| Related reviews | AR-0010 dependency trust and source provenance; AR-0016 cryptographic provider seam and suite identity |
 | Related CRs | None; future regulated or internally controlled provider requirements are expected consumer pressure |
 | Depends on | Existing authenticated pager, format-v3 fixtures, crypto KATs, offline rebuild publication, and assurance evidence model |
 
@@ -249,10 +249,10 @@ accepted APIs.
 **Objective:** Reconcile provider ownership with ADR-0002 and define what must
 be format-stable before code creates a reusable seam.
 
-- [ ] Open an Architectural Review covering suite identity, provider identity,
+- [x] Open an Architectural Review covering suite identity, provider identity,
       key ownership, entropy, protector separation, failure behavior, and
       format compatibility.
-- [ ] Inventory every current crypto operation and pager-held key lifetime.
+- [x] Inventory every current crypto operation and pager-held key lifetime.
 - [ ] Decide whether the first seam is static/generic, dynamic/object-safe, or
       private enum dispatch.
 - [ ] Define exact byte- and error-conservation fixtures.
@@ -580,12 +580,34 @@ provider pressure. Reopen or advance when:
 - Next slice: open the C0 Architectural Review after current MVP+10 closure and
   capture exact format/error conservation fixtures before implementation.
 
+### 2026-09-03 -- Gate C0 Review And Vector Baseline
+
+- Work completed: opened AR-0016; retained the operation, entropy, key-copy,
+  call-path, error, and test-gap inventory; added exact fixed construction
+  vectors without changing production crypto APIs or randomness.
+- Validation: the focused vector test, `cargo fmt --all -- --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace --tests`, `git diff --check`, and
+  `mkdocs build --strict` pass. An `--all-targets` run completed the existing
+  B-tree/SQLite benchmark and part of the concurrency benchmark before that
+  redundant benchmark execution was stopped; it is not recorded as a pass.
+- Findings: entropy is called outside `crypto.rs`; raw keys are copied through
+  pager, snapshots, unlock, and rebuild; most prior `kat_*` tests were
+  behavioral rather than exact vectors; recovery-secret entropy failure still
+  panics and is deliberately not repaired inside the baseline.
+- Plan changes: Gate C0 admits conservation work only. File-level fixtures and
+  a reviewed private contract still precede an ADR or provider seam.
+- Next slice: retain file-level create/mutate/recover/protector/rebuild
+  conservation evidence, then propose the smallest private format-v3 contract.
+
 ## References
 
 - `docs/ADR/ADR-0001-storage-engine-layer-boundaries.md`
 - `docs/ADR/ADR-0002-authenticated-pager-trust-boundary.md`
 - `docs/ADR/ADR-0009-offline-vacuum-rebuild-publication.md`
 - `docs/Architectural Reviews/AR-0010-dependency-trust-and-source-provenance.md`
+- `docs/Architectural Reviews/AR-0016-cryptographic-provider-seam-and-suite-identity.md`
+- `docs/Notes/crypto-boundary-inventory-v1.md`
 - `docs/Plans/high-assurance-engineering-and-evidence-export.md`
 - `docs/Plans/cluster-fault-tolerance-and-replication.md`
 - `docs/Specifications/Tosumu Software Design Document.md`, sections 4-8

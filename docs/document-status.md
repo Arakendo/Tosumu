@@ -95,6 +95,7 @@ architecture by themselves.
 | [AR-0013](Architectural%20Reviews/AR-0013-secondary-index-representation-and-ownership.md) | SQL-owned secondary-index representation and atomic maintenance |
 | [AR-0014](Architectural%20Reviews/AR-0014-vacuum-rebuild-and-publication.md) | Offline VACUUM rebuild and atomic publication |
 | [AR-0015](Architectural%20Reviews/AR-0015-native-replication-scope-authority-and-failure-model.md) | Native replication scope, authority, identity, failure, and fencing boundaries |
+| [AR-0016](Architectural%20Reviews/AR-0016-cryptographic-provider-seam-and-suite-identity.md) | Cryptographic backend, entropy, protector, suite-identity, and conservation boundaries |
 
 ## Implementation Plans
 
@@ -108,7 +109,7 @@ architecture by themselves.
 | [Core Source Unit Decomposition](Plans/core-source-unit-decomposition.md) | Completed | Maintain the behavior-preserving private-module boundaries and conservation evidence |
 | [Cluster Fault Tolerance And Replication](Plans/cluster-fault-tolerance-and-replication.md) | Proposed; admission required | Continue AR-0015 scope and authority evidence before native replication protocol work |
 | [High-Assurance Engineering And Evidence Export](Plans/high-assurance-engineering-and-evidence-export.md) | Slice 1 active; assurance claims not admitted | Classify and audit the initial `tosumu-core` critical dependency closure under AR-0010 |
-| [Cryptographic Provider Seam And Suite Agility](Plans/cryptographic-provider-seam-and-suite-agility.md) | Proposed; architectural admission required | Open Gate C0 review and capture exact format-v3 byte/error conservation evidence |
+| [Cryptographic Provider Seam And Suite Agility](Plans/cryptographic-provider-seam-and-suite-agility.md) | Gate C0 active; architecture not admitted | Complete AR-0016 exact vectors and file-level conservation evidence before admitting the private seam |
 
 ## Change Requests
 

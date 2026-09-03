@@ -711,4 +711,133 @@ mod tests {
             Err(crate::error::TosumuError::WrongKey)
         ));
     }
+
+    #[test]
+    fn gate_c0_fixed_construction_vectors() {
+        use chacha20poly1305::aead::{Aead, Payload};
+        use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
+        use sha2::Digest;
+
+        fn hex(bytes: &[u8]) -> String {
+            bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+        }
+
+        let dek = [0x42; 32];
+        let (page_key, header_key, audit_key) = derive_subkeys(&dek);
+        assert_eq!(
+            hex(&page_key),
+            "6605e5f26a1dc87238f0f0270da9af1c614ef5f461ff566bd9b3279de13e6765"
+        );
+        assert_eq!(
+            hex(&header_key),
+            "394a6b79454183a3eed059e7686998124c99d26844b110c7e776a23d7bb6fa5b"
+        );
+        assert_eq!(
+            hex(&audit_key),
+            "54b26c0bd95a0ac5ba38144fcde53546bad75ef2696a40db886ac13da868f5b1"
+        );
+
+        let kek = [0x77; 32];
+        assert_eq!(
+            hex(&compute_kcv(&kek)),
+            "d8b24e76eb3a4b850ba6fe54ba2fe49cf1adf7e042daedccdecc3b287bebeb4d"
+        );
+
+        let mut page0 = [0u8; PAGE_SIZE];
+        for (index, byte) in page0[..FILE_HEADER_PLAIN_LEN].iter_mut().enumerate() {
+            *byte = (index as u8).wrapping_mul(3).wrapping_add(1);
+        }
+        for (index, byte) in page0[KEYSLOT_REGION_OFFSET..KEYSLOT_REGION_OFFSET + KEYSLOT_SIZE]
+            .iter_mut()
+            .enumerate()
+        {
+            *byte = (index as u8).wrapping_mul(5).wrapping_add(2);
+        }
+        assert_eq!(
+            hex(&compute_header_mac(&header_key, &page0, 1)),
+            "7682b9610be022f0c9bc339d6b6f04a29587054bd611ac07af35376e189853fd"
+        );
+
+        let argon = derive_passphrase_kek("hunter2", &[0xAA; 16], &TEST_ARGON2_PARAMS).unwrap();
+        assert_eq!(
+            hex(&argon),
+            "510177c3c43f9a0795374a46b077df3ec8d20e94a89446e2a2d2c1ab967c207d"
+        );
+        let recovery = derive_recovery_kek("AAAAAAAAAAAAAAAA-AAAAAAAAAAAAAAAA").unwrap();
+        assert_eq!(
+            hex(&recovery),
+            "ac5b927ea6688261b0d4847d391b2cf79c6c46571a42593bbe9d4ac5e7b4fbc3"
+        );
+
+        let wrap_nonce = [0xA5; 12];
+        let wrap_key = [0xAB; 32];
+        let wrapped_dek = [0xCD; 32];
+        let wrap_cipher = ChaCha20Poly1305::new((&wrap_key).into());
+        let wrapped = wrap_cipher
+            .encrypt(
+                wrap_nonce.as_slice().into(),
+                Payload {
+                    msg: &wrapped_dek,
+                    aad: &wrap_aad(3, 0x0102_0304_0506_0708, KEYSLOT_KIND_PASSPHRASE),
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            hex(&wrapped),
+            "9a71ea231aca72517f341077de4c0a8e4ba616202e81bfd74ae748f6b4a556354110a4873006c13a16828a406b604b42"
+        );
+        let wrapped: [u8; 48] = wrapped.try_into().unwrap();
+        assert_eq!(
+            unwrap_dek(
+                &wrap_key,
+                &wrap_nonce,
+                &wrapped,
+                3,
+                0x0102_0304_0506_0708,
+                KEYSLOT_KIND_PASSPHRASE,
+            )
+            .unwrap(),
+            wrapped_dek
+        );
+
+        let nonce = [0x5A; 12];
+        let page_number = 0x0102_0304_0506_0708;
+        let page_version = 0x1112_1314_1516_1718;
+        let page_type = crate::format::PAGE_TYPE_LEAF;
+        let mut plaintext = [0u8; PAGE_PLAINTEXT_SIZE];
+        for (index, byte) in plaintext.iter_mut().enumerate() {
+            *byte = ((index * 31 + 7) % 251) as u8;
+        }
+        let page_cipher = ChaCha20Poly1305::new((&page_key).into());
+        let ciphertext = page_cipher
+            .encrypt(
+                nonce.as_slice().into(),
+                Payload {
+                    msg: &plaintext,
+                    aad: &make_aad(page_number, page_version, page_type),
+                },
+            )
+            .unwrap();
+        let mut frame = [0u8; PAGE_SIZE];
+        frame[..NONCE_SIZE].copy_from_slice(&nonce);
+        frame[PAGE_VERSION_OFFSET..PAGE_VERSION_OFFSET + PAGE_VERSION_SIZE]
+            .copy_from_slice(&page_version.to_le_bytes());
+        frame[PAGE_FRAME_TYPE_OFFSET] = page_type;
+        frame[CIPHERTEXT_OFFSET..].copy_from_slice(&ciphertext);
+        assert_eq!(
+            hex(&Sha256::digest(frame)),
+            "5dbc8c579bb5e1314e900b62900efe147916e20d222b78f2012e0d17c2d8f855"
+        );
+        assert_eq!(
+            hex(&frame[..64]),
+            "5a5a5a5a5a5a5a5a5a5a5a5a181716151413121101000000f6697428dcacf6c053f6772664e7aacbb0afc11977dcd410207fae2581ec5587fc2a531f4d2da9a9"
+        );
+        assert_eq!(
+            hex(&frame[PAGE_SIZE - 32..]),
+            "9efd731b259e95bf64c19b93dcdd6a5526fe594f40ff049bf29815c779f1151d"
+        );
+        let (decrypted, observed_version) = decrypt_page(&page_key, page_number, &frame).unwrap();
+        assert_eq!(decrypted, plaintext);
+        assert_eq!(observed_version, page_version);
+    }
 }

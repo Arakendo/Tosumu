@@ -1,0 +1,309 @@
+# AR-0016: Cryptographic Provider Seam And Suite Identity
+
+| Field | Value |
+| --- | --- |
+| Status | Incubating |
+| Opened | 2026-09-03 |
+| Last reviewed | 2026-09-03 |
+| Scope | Authenticated pager / format-v3 cryptography / protector and entropy boundaries |
+| Trigger | Customer-controlled or validated cryptographic implementations require a substitution boundary without allowing runtime configuration to reinterpret existing databases |
+| Related ADRs | ADR-0001, ADR-0002, ADR-0003, ADR-0009 |
+| Related evidence | `crates/tosumu-core/src/crypto.rs`, pager create/open/protector/rebuild paths, crypto and hostile-input tests, `docs/Notes/crypto-boundary-inventory-v1.md`, and the cryptographic provider and suite-agility plan |
+
+## Architectural Question
+
+Should Tosumu admit a private cryptographic backend seam that exactly preserves
+the current format-v3 construction, and which responsibilities must remain
+separate before any provider contract, opaque key handle, or alternate durable
+suite can be admitted?
+
+## Context
+
+Tosumu has one implemented construction. RustCrypto types are localized in
+`crypto.rs`, but the effective boundary is wider: pager creation obtains
+entropy directly, unlock and protector mutation own raw KEKs and DEKs, the
+pager stores derived raw keys for its lifetime, and VACUUM rebuild copies those
+keys into a staging context.
+
+The `crypto` module is public and exposes concrete byte-array functions. That
+is an existing source API, but it is not a provider SPI: callers cannot select
+an implementation, supply opaque keys, control entropy, or change the durable
+suite. Adding one large public trait now would stabilize the current
+incidental split and make later HSM/KMS or format work harder.
+
+Format v3 has no general cryptographic-suite identifier. Its nonce and tag
+sizes, HKDF labels, Argon2 encoding, page and wrap AAD, KCV construction,
+header MAC, keyslot layout, and structured failures are already durable
+meaning. Process configuration therefore cannot safely select a different
+construction when opening an existing file.
+
+This review addresses Gate C0 only. It does not approve an alternate suite,
+format revision, compliance claim, public provider SPI, dynamic plugin loader,
+or raw-key-export requirement.
+
+## Governing Invariant
+
+> Process configuration selects what may be created; it never changes how
+> existing ciphertext is interpreted.
+
+For format v3, the format version selects the one existing construction. If a
+future authenticated format revision names a suite, that durable identifier
+selects interpretation. Provider and deployment policy may permit or reject
+the selected suite, but may not substitute another one.
+
+## Evidence
+
+### Current operation boundary
+
+- `crypto.rs` directly implements DEK and nonce generation, HKDF-SHA256
+  subkeys, ChaCha20-Poly1305 page protection and DEK wrapping, Argon2id
+  passphrase derivation, the deterministic KCV, HMAC-SHA256 header
+  authentication, and recovery-secret derivation.
+- Pager creation also calls `getrandom` directly for passphrase salts and
+  `dek_id`; protector addition and rekey paths call it for new salts.
+- The pager and snapshot path call page encryption/decryption and header-MAC
+  functions directly. Protector editing calls derivation, KCV, wrap/unwrap,
+  and header-MAC functions directly.
+- WAL stores already encoded page frames. Recovery and retained snapshots use
+  the pager's keys to authenticate frames; WAL does not own plaintext crypto
+  semantics.
+- Offline VACUUM copies the authenticated page-0 protector state plus raw page
+  and header-MAC keys into a crate-private `RebuildContext`, then produces new
+  page frames with fresh nonces.
+
+### Current key and secret lifetime
+
+- `Pager` retains `page_key: [u8; 32]` and optional
+  `header_mac_key: [u8; 32]` for the handle lifetime.
+- DEKs and KEKs are ordinary stack byte arrays in create, unlock, protector,
+  and rekey paths. `RebuildContext` copies active derived keys.
+- Passphrases and recovery strings are borrowed or owned ordinary strings;
+  keyfile reads temporarily allocate a `Vec<u8>` before copying into a KEK.
+- The audit subkey is derived during creation/open-related derivation but is
+  not retained or used by the pager.
+- The direct `zeroize` dependency is not called by Tosumu source. No current
+  evidence establishes reliable erasure of Tosumu-owned secret buffers.
+- Sentinel databases store the DEK in page 0 and provide authentication but no
+  meaningful confidentiality. Provider abstraction cannot strengthen that
+  claim.
+
+### Current behavioral evidence
+
+- Crypto unit tests cover round trips, AAD tampering, wrong keys, keyslot
+  binding, deterministic behavior, header-MAC tampering, Argon2 salt
+  separation, and recovery-secret parsing.
+- Pager tests cover encrypted create/open, protector lifecycle, hostile page-0
+  and page-frame changes, rekey crash behavior, recovery, snapshot use, and
+  VACUUM protector continuity.
+- The functions named `kat_*` mostly assert round trips, difference, or
+  determinism. They are useful behavioral tests, but most do not retain exact
+  expected bytes from a fixed vector.
+- Random page and wrap nonces prevent byte-for-byte encryption assertions
+  through the current public helpers. Fixed-nonce decryption fixtures and
+  deterministic primitive vectors are still required before extraction.
+
+### Existing error behavior
+
+- entropy failure generally maps to `RngFailed`, but
+  `generate_recovery_secret` currently panics if `getrandom` fails;
+- page authentication failure maps to `AuthFailed { pgno: Some(_) }`;
+- header authentication failure maps to `AuthFailed { pgno: None }`;
+- wrap/KCV/recovery-secret rejection maps to `WrongKey`;
+- encryption failure maps to `EncryptFailed`;
+- invalid Argon2 parameters and keyfile length use `InvalidArgument`; and
+- passphrase slot scanning suppresses individual derivation, KCV, and unwrap
+  failures before returning `WrongKey` if no slot succeeds.
+
+The private seam must conserve these outcomes initially, including the known
+recovery-secret RNG inconsistency. Repairing that inconsistency is desirable
+but is separate semantic work.
+
+### Missing evidence
+
+- exact fixed vectors for every deterministic construction and fixed-nonce
+  page/wrap decoding;
+- a complete byte comparison for database creation, page mutation, recovery,
+  protector editing, and rebuild across the seam;
+- an independent backend implementing the exact same format-v3 construction;
+- evidence that a useful opaque-key provider can satisfy pager, snapshot,
+  recovery, backup, and rebuild lifetimes;
+- provider failure taxonomy and retry/cancellation behavior;
+- a durable authenticated suite identifier and downgrade rules; and
+- any independently reviewed provider, module configuration, or deployment
+  profile.
+
+## Ownership And Dependency Analysis
+
+### Format crypto suite
+
+`tosumu-core` owns the exact bytes, authentication domains, sizes, algorithms,
+and error normalization required to interpret a format. A backend may execute
+those operations but cannot redefine them. The pager remains the sole data-
+page plaintext/ciphertext trust boundary under ADR-0002.
+
+### Entropy provider
+
+Entropy supplies unpredictable bytes for purposes and lengths selected by
+Tosumu. It does not choose file formats, algorithms, identifiers, or fallback
+policy. Moving all direct `getrandom` calls behind one private boundary is
+necessary for deterministic conservation evidence and future controlled
+entropy sources, but it need not be the same interface as page cryptography.
+
+### Protector provider
+
+Protector mechanisms obtain or use authority to unwrap the database key. A
+future protector may use a passphrase, keyfile, OS keystore, TPM, HSM, KMS, or
+remote service. Protector identity and lifecycle are not automatically part of
+the data-page suite. A provider-owned handle must not imply that raw export is
+available.
+
+### Policy profile
+
+A process or deployment profile says which providers and suites may create or
+open data. It may refuse a known suite. It cannot supply the interpretation of
+existing ciphertext or turn provider presence into a validation/compliance
+claim.
+
+### Dependency direction
+
+The intended direction is:
+
+```text
+pager / page-0 protector orchestration
+              |
+              v
+format-owned operation contract + error normalization
+              |
+              v
+private backend implementation / entropy / protector adapter
+              |
+              v
+cryptographic library, module, device, or service
+```
+
+Provider-specific errors, handles, module names, and library types must not
+enter the durable format or the existing public pager/storage contracts.
+
+## Alternatives Considered
+
+### Alternative A: One public `CryptoProvider` trait now
+
+- Benefits: immediately visible extension point and simple marketing story.
+- Costs: stabilizes raw byte-array keys, synchronous local execution, current
+  protector coupling, and one construction before an independent caller has
+  exercised the boundary.
+- Failure mode: a nominally generic trait cannot represent real provider-owned
+  keys or changes file interpretation according to runtime choice.
+
+### Alternative B: Private exact-construction backend plus separate entropy
+and protector boundaries
+
+- Benefits: permits behavior-preserving extraction and independent backend
+  evidence while keeping durable format meaning under Tosumu ownership.
+- Costs: initially provides no customer-facing extension API and requires
+  careful conservation fixtures.
+- Failure mode: the private interface merely mirrors every free function and
+  becomes a public compatibility boundary without independent pressure.
+
+### Alternative C: Cargo feature selects the cryptographic implementation
+
+- Benefits: small runtime surface and familiar Rust configuration.
+- Costs: build configuration becomes implicit deployment policy; artifacts may
+  differ without carrying usable evidence.
+- Failure mode: a feature such as `fips` is mistaken for format compatibility,
+  module validation, or compliant operation.
+
+### Alternative D: Defer all seam work until an alternate provider exists
+
+- Benefits: no speculative abstraction.
+- Costs: provider requirements arrive while randomness, raw keys, protector
+  policy, and pager calls remain intertwined.
+- Failure mode: customer integration pressure forces a public seam before
+  exact behavior has been captured.
+
+## Findings
+
+- Backend substitution and suite agility are separate architectural changes.
+- A private exact-construction seam is plausible without changing format v3,
+  but the seam includes more than `crypto.rs` because entropy and key lifetime
+  cross pager and protector paths.
+- The smallest useful first boundary is private and format-v3-specific. It
+  should accept or obtain typed key capabilities internally and normalize all
+  results into existing Tosumu errors.
+- Entropy and protector mechanisms remain separate responsibilities even if
+  the initial RustCrypto implementation wires them together.
+- Existing test breadth is good, but exact conservation evidence is too weak
+  to approve extraction yet.
+- Opaque key handles cannot be honestly designed until an independent provider
+  exercises clone, thread, lifetime, recovery, rebuild, and failure behavior.
+- Alternate suites require authenticated durable identity and a new format
+  decision. They cannot be smuggled into format-v3 reserved bytes.
+
+## Disposition
+
+**Incubating.** Admit the conservation-baseline work but not the provider seam
+yet. The next cycle must add exact deterministic/fixed-nonce vectors, inventory
+all entropy calls and key copies, and define the proposed private contract
+against those fixtures. If that evidence holds, record the exact private seam
+and conservation obligations in an ADR before implementation.
+
+No public provider API, alternate suite, format identifier, feature-selected
+reinterpretation, or compliance label is accepted by this cycle.
+
+## Required Follow-Up
+
+- [x] Inventory current crypto operations, entropy call sites, key lifetimes,
+      durable construction inputs, and normalized failures.
+- [x] Add exact fixed vectors for deterministic constructions and fixed-nonce
+      page/wrap inputs without changing production randomness.
+- [ ] Retain file-level conservation fixtures spanning create, mutation,
+      recovery, protector editing, snapshot reads, and VACUUM rebuild.
+- [ ] Propose the smallest private format-v3 backend and separate entropy
+      boundary against the executable baseline.
+- [ ] Decide whether current public free functions remain supported wrappers,
+      become crate-private in a breaking pre-alpha revision, or form a distinct
+      low-level API.
+- [ ] Review the `generate_recovery_secret` entropy panic as separate error-
+      contract work; do not repair it during mechanical extraction.
+- [ ] Create or revise an ADR before implementing the seam.
+- [ ] Reopen separately for opaque key handles, public provider SPI, durable
+      suite identity, format migration, or a named deployment profile.
+
+## Reopening Triggers
+
+- exact vectors and file-level conservation fixtures are retained;
+- an independent exact-format backend prototype exposes a missing operation;
+- an HSM, KMS, TPM, keystore, or validated module supplies a concrete opaque-
+  handle and failure contract;
+- a dependency or primitive becomes unavailable or unsuitable;
+- a format revision creates a suite-identity opportunity; or
+- replication/backup requirements make provider portability concrete.
+
+## Review History
+
+### Cycle 1 -- 2026-09-03
+
+- Status entering review: Proposed
+- New evidence: current operation, entropy, key-lifetime, error, and test
+  inventory retained in this review and its companion note.
+- Findings: a private format-v3 seam is plausible, but exact-byte conservation
+  and independent-provider evidence are incomplete; entropy and protector
+  ownership must remain separate.
+- Disposition: Incubating; admit baseline work only.
+- Resulting ADR or documentation change: none; ADR required after conservation
+  evidence and private-contract review.
+
+### Cycle 2 -- 2026-09-03
+
+- Status entering review: Incubating
+- New evidence: `gate_c0_fixed_construction_vectors` retains exact outputs for
+  the three HKDF labels, KCV, header MAC, reduced-cost Argon2id fixture,
+  recovery KEK, fixed-nonce DEK wrap, and a full fixed-nonce page frame hash,
+  prefix, suffix, and successful decode.
+- Findings: deterministic suite meaning can be pinned without injecting test
+  entropy into production APIs. These are regression/conservation vectors
+  generated from the current implementation, not an independent cryptographic
+  validation or provider-interoperability result.
+- Disposition: Incubating; file-level conservation and the proposed private
+  contract remain prerequisites to an ADR.
+- Resulting ADR or documentation change: none.

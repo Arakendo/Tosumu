@@ -85,6 +85,10 @@ numbering. Copy `TEMPLATE.md` and add the record to this index.
   -- incubating whether Tosumu should admit single-leader native replication,
   and defining the scope, identity, failure, and fencing gates that precede a
   protocol decision.
+- [AR-0016: Cryptographic Provider Seam And Suite Identity](AR-0016-cryptographic-provider-seam-and-suite-identity.md)
+  -- incubating an exact format-v3 backend seam while keeping entropy,
+  protectors, durable suite identity, provider identity, and deployment claims
+  distinct.
 
 AR-0009, AR-0011, AR-0012, AR-0013, and AR-0014 are **Accepted** through their related ADRs.
 Other indexed reviews are currently **Incubating**; none are rejected,

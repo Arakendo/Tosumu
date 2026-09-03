@@ -495,7 +495,8 @@ It does not change format v3 or establish a FIPS or other compliance claim.
 
 - [x] Open the gated plan and record current algorithm, key-lifecycle, format,
       and pager coupling.
-- [ ] Complete Gate C0 Architectural Review before introducing a reusable seam.
+- [ ] Complete [AR-0016](../Architectural%20Reviews/AR-0016-cryptographic-provider-seam-and-suite-identity.md)
+      and its exact conservation baseline before introducing a reusable seam.
 - [ ] Insert a private backend seam that preserves exact format-v3 bytes,
       errors, public APIs, and authenticated-pager behavior.
 - [ ] Demonstrate provider independence before stabilizing a public SPI.
@@ -862,9 +863,11 @@ Before implementation moves beyond the completed MVP+9 baseline:
       generated closure baseline with completed assessment.
 - [x] Create the cryptographic provider and suite-agility plan without changing
       format v3 or making a provider/compliance claim.
-- [ ] Open Gate C0 Architectural Review and capture exact crypto operation,
-      key-lifetime, byte-fixture, and error-conservation baselines before the
-      private provider seam is implemented.
+- [x] Open Gate C0 [AR-0016](../Architectural%20Reviews/AR-0016-cryptographic-provider-seam-and-suite-identity.md)
+      and inventory current crypto operations, entropy calls, key lifetimes,
+      and error behavior.
+- [ ] Add exact deterministic and fixed-nonce vectors plus file-level
+      conservation fixtures before the private provider seam is implemented.
 
 ## Completion Rules
 
