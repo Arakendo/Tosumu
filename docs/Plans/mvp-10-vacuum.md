@@ -26,7 +26,7 @@ recovery, generation, or encrypted-protector guarantees.
       an already acquired `WriterGuard`.
 - [x] Retain the source sidecar gate across source close, staging verification,
       atomic replacement, and directory synchronization.
-- [ ] Prove a competing writer receives `FileBusy` throughout the operation.
+- [x] Prove a competing writer receives `FileBusy` throughout the operation.
 
 ### 3. Rebuild State Transfer
 
@@ -52,7 +52,7 @@ recovery, generation, or encrypted-protector guarantees.
       replacement, and during directory synchronization.
 - [ ] Prove pre-publication failures retain the old source and clean recognized
       staging files.
-- [ ] Prove post-publication uncertainty never restores an older source.
+- [x] Prove post-publication uncertainty never restores an older source.
 - [ ] Cover unencrypted and every supported protector unlock path.
 - [ ] Run formatting, strict clippy, all-target tests, and strict docs.
 - [ ] Update ADR/AR history and advance MVP+10 to benchmark closure.

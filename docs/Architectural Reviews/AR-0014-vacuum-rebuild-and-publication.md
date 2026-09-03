@@ -76,6 +76,13 @@ would retain fragmentation; rewriting them must use fresh page nonces.
   `VACUUM_DURABILITY_UNCERTAIN` without rollback. The Windows test proves
   `VACUUM_PLATFORM_UNSUPPORTED` leaves source, WAL, and lock bytes unchanged
   and creates no staging artifact.
+- Failure-boundary implementation evidence: an injected replacement failure
+  observes the source gate still held, leaves the old logical source
+  authoritative, and removes only owned staging artifacts. An injected
+  directory-sync failure first replaces the source, returns
+  `VACUUM_DURABILITY_UNCERTAIN`, and proves cleanup does not restore the old
+  file. Staging cleanup is armed only after create-new succeeds, so a name
+  collision is refused without deleting the pre-existing path.
 - Platform publication evidence: POSIX `rename()` requires atomic replacement
   of an existing non-directory entry, and POSIX explicitly prescribes syncing
   the containing directory when the new name must be durably confirmed.

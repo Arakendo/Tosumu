@@ -51,6 +51,14 @@ fn vacuum_inner(source: &Path, unlock: VacuumUnlock<'_>) -> Result<VacuumReport>
 }
 
 fn vacuum_supported(source: &Path, unlock: VacuumUnlock<'_>) -> Result<VacuumReport> {
+    vacuum_supported_with_publisher(source, unlock, replace_database)
+}
+
+fn vacuum_supported_with_publisher(
+    source: &Path,
+    unlock: VacuumUnlock<'_>,
+    publish: impl FnOnce(&Path, &Path) -> std::result::Result<PublicationDurability, PublicationError>,
+) -> Result<VacuumReport> {
     let staging = staging_path(source);
     let staging_wal = wal_path(&staging);
     let staging_lock = writer_lock_path(&staging);
@@ -76,7 +84,7 @@ fn vacuum_supported(source: &Path, unlock: VacuumUnlock<'_>) -> Result<VacuumRep
         remove_file_if_present(&staging_wal)?;
         remove_file_if_present(&staging_lock)?;
 
-        let durability = replace_database(&staging, source).map_err(map_publication_error)?;
+        let durability = publish(&staging, source).map_err(map_publication_error)?;
         drop(writer_guard);
 
         Ok(VacuumReport {
@@ -147,12 +155,107 @@ fn map_publication_error(error: PublicationError) -> TosumuError {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(not(unix))]
-    use super::vacuum;
-    #[cfg(not(unix))]
     use crate::error::TosumuError;
-    #[cfg(not(unix))]
     use crate::page_store::PageStore;
+    use std::cell::Cell;
+    use std::io;
+    use std::path::Path;
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn replacement_failure_keeps_source_authoritative_cleans_staging_and_retains_gate() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source.tsm");
+        let mut store = PageStore::create(&source).unwrap();
+        store.put(b"key", b"old value").unwrap();
+        drop(store);
+        let gate_observed = Cell::new(false);
+
+        let error = super::vacuum_supported_with_publisher(
+            &source,
+            crate::vacuum_rebuild::VacuumUnlock::Sentinel,
+            |_, destination| {
+                assert!(matches!(
+                    crate::writer_gate::WriterGuard::acquire(destination),
+                    Err(TosumuError::FileBusy { .. })
+                ));
+                gate_observed.set(true);
+                Err(
+                    crate::vacuum_publication::PublicationError::PrePublication {
+                        operation: "injected replacement failure",
+                        source: io::Error::new(io::ErrorKind::PermissionDenied, "injected"),
+                    },
+                )
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, TosumuError::Io(_)));
+        assert!(gate_observed.get());
+        assert_eq!(
+            PageStore::open_readonly(&source)
+                .unwrap()
+                .get(b"key")
+                .unwrap(),
+            Some(b"old value".to_vec())
+        );
+        assert!(vacuum_staging_entries(directory.path()).is_empty());
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn post_replacement_uncertainty_never_restores_the_old_source() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source.tsm");
+        let mut store = PageStore::create(&source).unwrap();
+        for index in 0..40u32 {
+            store
+                .put(
+                    format!("key-{index:04}").as_bytes(),
+                    &vec![index as u8; 700],
+                )
+                .unwrap();
+        }
+        for index in 0..30u32 {
+            store.delete(format!("key-{index:04}").as_bytes()).unwrap();
+        }
+        let expected = store.scan().unwrap();
+        drop(store);
+
+        let error = super::vacuum_supported_with_publisher(
+            &source,
+            crate::vacuum_rebuild::VacuumUnlock::Sentinel,
+            |staging, destination| {
+                std::fs::rename(staging, destination).unwrap();
+                Err(
+                    crate::vacuum_publication::PublicationError::DurabilityUncertain {
+                        destination: destination.to_path_buf(),
+                        source: io::Error::other("injected directory sync failure"),
+                    },
+                )
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            TosumuError::VacuumDurabilityUncertain { .. }
+        ));
+        assert_eq!(
+            PageStore::open_readonly(&source).unwrap().scan().unwrap(),
+            expected
+        );
+        assert!(vacuum_staging_entries(directory.path()).is_empty());
+    }
+
+    #[cfg(any(unix, windows))]
+    fn vacuum_staging_entries(directory: &Path) -> Vec<std::fs::DirEntry> {
+        std::fs::read_dir(directory)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_name().to_string_lossy().contains("vacuum.tmp"))
+            .collect()
+    }
 
     #[cfg(not(unix))]
     #[test]
@@ -168,7 +271,7 @@ mod tests {
         let lock = crate::writer_gate::writer_lock_path(&source);
         let lock_before = std::fs::read(&lock).unwrap();
 
-        let error = vacuum(&source).unwrap_err();
+        let error = super::vacuum(&source).unwrap_err();
 
         assert!(matches!(
             error,
