@@ -4,10 +4,10 @@
 | --- | --- |
 | Status | Active |
 | Opened | 2026-08-03 |
-| Last updated | 2026-09-02 (plain secondary indexes) |
+| Last updated | 2026-09-02 (benchmark closure opened) |
 | Owner | Tosumu maintainers |
 | Authority | Tracking plan; `docs/Specifications/Tosumu Software Design Document.md` remains normative |
-| Current milestone | MVP+10 `VACUUM` admission |
+| Current milestone | MVP+10 benchmark closure |
 
 ## Purpose
 
