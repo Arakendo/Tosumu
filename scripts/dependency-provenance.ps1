@@ -714,7 +714,9 @@ $normalizedProcMacroReviews = foreach ($review in $procMacroReviewDocument.revie
     $observedFeatures = @($coreFeaturesById[$reviewId].Keys | Sort-Object)
     $reviewedFeatures = @($review.selected_features | ForEach-Object { [string]$_ } | Sort-Object -Unique)
     if (($observedFeatures -join "`n") -ne ($reviewedFeatures -join "`n")) {
-        throw "Proc-macro runtime selected features changed for $reviewId"
+        $observedDisplay = $observedFeatures -join ", "
+        $reviewedDisplay = $reviewedFeatures -join ", "
+        throw "Proc-macro runtime selected features changed for ${reviewId}: observed [$observedDisplay], reviewed [$reviewedDisplay]"
     }
     if ([string]::IsNullOrWhiteSpace([string]$review.finding) -or [string]::IsNullOrWhiteSpace([string]$review.limitations)) {
         throw "Proc-macro runtime review lacks finding or limitations: $reviewId"

@@ -13,6 +13,7 @@ pub(crate) enum PublicationDurability {
 /// older source after `DurabilityUncertain`.
 #[derive(Debug, Error)]
 pub(crate) enum PublicationError {
+    #[cfg(not(unix))]
     #[error("atomic VACUUM publication is unsupported on {platform}")]
     UnsupportedPlatform { platform: &'static str },
 
@@ -158,7 +159,9 @@ fn pre_publication(operation: &'static str, source: io::Error) -> PublicationErr
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_supported, finish_publication, replace_database, PublicationError};
+    #[cfg(not(unix))]
+    use super::ensure_supported;
+    use super::{finish_publication, replace_database, PublicationError};
     use std::cell::Cell;
     use std::io;
     use std::path::Path;

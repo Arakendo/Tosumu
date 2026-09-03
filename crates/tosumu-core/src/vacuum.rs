@@ -146,6 +146,7 @@ fn staging_path(source: &Path) -> PathBuf {
 
 fn map_publication_error(error: PublicationError) -> TosumuError {
     match error {
+        #[cfg(not(unix))]
         PublicationError::UnsupportedPlatform { platform } => {
             TosumuError::VacuumPlatformUnsupported { platform }
         }
