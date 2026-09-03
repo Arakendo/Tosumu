@@ -59,6 +59,12 @@ would retain fragmentation; rewriting them must use fresh page nonces.
   and uses the ordinary encrypted page writer. A focused encrypted test proves
   the passphrase still unlocks, keyslot bytes remain identical, generation does
   not move backward, and identical page plaintext receives a different frame.
+- Copy/verification implementation evidence: the rebuild copies each logical
+  record in its own bounded transaction, then drops and reopens staging through
+  the source unlock path. It requires an empty staging WAL, matching logical
+  count and length-framed SHA-256 digest, and a clean structured page/B-tree
+  verification report. Tests cover reclaimed sentinel data, encrypted data,
+  refusal to overwrite staging, and writer exclusion throughout rebuild work.
 - Platform publication evidence: POSIX `rename()` requires atomic replacement
   of an existing non-directory entry, and POSIX explicitly prescribes syncing
   the containing directory when the new name must be durably confirmed.

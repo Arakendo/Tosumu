@@ -36,7 +36,8 @@ use std::path::Path;
 
 use crate::error::{Result, TosumuError};
 use crate::format::*;
-use crate::pager::Pager;
+use crate::pager::{OpenUnlock, Pager, RebuildContext};
+use crate::writer_gate::WriterGuard;
 
 #[path = "btree/read.rs"]
 mod read;
@@ -65,7 +66,7 @@ pub struct BTree {
 }
 
 impl BTree {
-    fn from_open_pager(pager: Pager) -> Result<Self> {
+    pub(crate) fn from_open_pager(pager: Pager) -> Result<Self> {
         if pager.root_page() == 0 {
             return Err(TosumuError::Corrupt {
                 pgno: 0,
@@ -73,6 +74,29 @@ impl BTree {
             });
         }
         Ok(BTree { pager })
+    }
+
+    pub(crate) fn open_with_writer_guard(
+        path: &Path,
+        unlock: OpenUnlock<'_>,
+        writer_guard: &WriterGuard,
+    ) -> Result<Self> {
+        Self::from_open_pager(Pager::open_with_writer_guard_and_unlock(
+            path,
+            unlock,
+            writer_guard,
+        )?)
+    }
+
+    pub(crate) fn create_rebuild_staging(path: &Path, context: &RebuildContext) -> Result<Self> {
+        let mut pager = Pager::create_rebuild_staging(path, context)?;
+        let root_pgno = pager.allocate(PAGE_TYPE_LEAF)?;
+        pager.set_root_page(root_pgno)?;
+        Ok(Self { pager })
+    }
+
+    pub(crate) fn rebuild_context(&mut self) -> Result<RebuildContext> {
+        self.pager.rebuild_context()
     }
 
     // ── Construction ─────────────────────────────────────────────────────────

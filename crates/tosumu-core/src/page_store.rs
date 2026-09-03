@@ -33,7 +33,8 @@ use std::path::Path;
 
 use crate::btree::BTree;
 use crate::error::{Result, TosumuError};
-use crate::pager::Pager;
+use crate::pager::{OpenUnlock, Pager, RebuildContext};
+use crate::writer_gate::WriterGuard;
 
 /// High-level key-value store backed by the B+ tree.
 pub struct PageStore {
@@ -56,6 +57,26 @@ impl PageStore {
         Ok(PageStore {
             tree: BTree::create(path)?,
         })
+    }
+
+    pub(crate) fn open_with_writer_guard(
+        path: &Path,
+        unlock: OpenUnlock<'_>,
+        writer_guard: &WriterGuard,
+    ) -> Result<Self> {
+        Ok(Self {
+            tree: BTree::open_with_writer_guard(path, unlock, writer_guard)?,
+        })
+    }
+
+    pub(crate) fn create_rebuild_staging(path: &Path, context: &RebuildContext) -> Result<Self> {
+        Ok(Self {
+            tree: BTree::create_rebuild_staging(path, context)?,
+        })
+    }
+
+    pub(crate) fn rebuild_context(&mut self) -> Result<RebuildContext> {
+        self.tree.rebuild_context()
     }
 
     /// Open an existing `.tsm` file.

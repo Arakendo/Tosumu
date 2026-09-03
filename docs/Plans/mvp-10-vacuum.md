@@ -34,14 +34,14 @@ recovery, generation, or encrypted-protector guarantees.
       generation through a private typed rebuild context.
 - [x] Create a sibling staging database with the preserved context and fresh
       page nonces/authentication.
-- [ ] Copy every live logical key/value pair in bounded transactions while
+- [x] Copy every live logical key/value pair in bounded transactions while
       preserving generation monotonicity.
 - [ ] Reject invalid source structure or insufficient staging space explicitly.
 
 ### 4. Verification And Publication
 
-- [ ] Compare source and staging logical counts/digests without exposing values.
-- [ ] Require complete structured verification and no staging WAL.
+- [x] Compare source and staging logical counts/digests without exposing values.
+- [x] Require complete structured verification and no staging WAL.
 - [ ] Atomically replace the source; never replace the writer sidecar.
 - [ ] Return a typed report with byte/page/count observations and durability
       confirmation.

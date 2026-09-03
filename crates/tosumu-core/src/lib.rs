@@ -25,6 +25,8 @@ mod shared_store;
 mod snapshot_registry;
 #[allow(dead_code)]
 mod vacuum_publication;
+#[allow(dead_code)]
+mod vacuum_rebuild;
 mod writer_gate;
 
 #[cfg(test)]

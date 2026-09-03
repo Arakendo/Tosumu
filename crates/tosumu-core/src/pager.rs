@@ -139,7 +139,7 @@ impl PagerPhaseTwoFile for crate::test_helpers::CrashFile {
     }
 }
 
-enum OpenUnlock<'a> {
+pub(crate) enum OpenUnlock<'a> {
     Sentinel,
     Passphrase(&'a str),
     RecoveryKey(&'a str),
@@ -227,12 +227,20 @@ impl Pager {
     /// ordinary writer admission.
     #[allow(dead_code)]
     pub(crate) fn open_with_writer_guard(path: &Path, writer_guard: &WriterGuard) -> Result<Self> {
+        Self::open_with_writer_guard_and_unlock(path, OpenUnlock::Sentinel, writer_guard)
+    }
+
+    pub(crate) fn open_with_writer_guard_and_unlock(
+        path: &Path,
+        unlock: OpenUnlock<'_>,
+        writer_guard: &WriterGuard,
+    ) -> Result<Self> {
         if !writer_guard.authorizes(path) {
             return Err(TosumuError::InvalidArgument(
                 "writer guard does not authorize this database path",
             ));
         }
-        Self::open_inner_with_writer_guard(path, OpenUnlock::Sentinel, writer_guard.clone())
+        Self::open_inner_with_writer_guard(path, unlock, writer_guard.clone())
     }
 
     /// Capture the authenticated header and active derived keys after writable
