@@ -58,11 +58,11 @@ full-text, fuzzy, vector, and spatial indexes are deferred.
 
 ### 5. Planning And Snapshot Execution
 
-- [ ] Select an equality index only when the predicate and catalog match.
-- [ ] Scan the exact secondary-value key interval and fetch primary rows through
+- [x] Select an equality index only when the predicate and catalog match.
+- [x] Scan the exact secondary-value key interval and fetch primary rows through
       the same `KvReadTransaction`.
-- [ ] Expose the selected index name in explain output.
-- [ ] Preserve explicit unsupported diagnostics for unadmitted query shapes.
+- [x] Expose the selected index name in explain output.
+- [x] Preserve explicit unsupported diagnostics for unadmitted query shapes.
 
 ### 6. Recovery And Closure
 

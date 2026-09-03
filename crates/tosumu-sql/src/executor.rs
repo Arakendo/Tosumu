@@ -8,7 +8,7 @@ use crate::catalog::{
     serialize_table_def, table_key, IndexDef, TableDef,
 };
 use crate::error::{SqlError, SqlResult};
-use crate::index_codec::index_entry_key;
+use crate::index_codec::{decode_index_entry, index_entry_bounds, index_entry_key};
 use crate::planner::{PlanNode, PlanWarning};
 use crate::row_codec::{decode_row_values, encode_row_values, row_key, table_row_bounds};
 use std::cmp::Ordering;
@@ -84,6 +84,20 @@ impl Executor {
             } => Self::exec_select_many(
                 &table,
                 &pk_exprs,
+                &projection,
+                bindings,
+                store,
+                catalog_context,
+            ),
+            PlanNode::SecondaryIndexLookup {
+                table,
+                index,
+                secondary_expr,
+                projection,
+            } => Self::exec_secondary_index_lookup(
+                &table,
+                &index,
+                &secondary_expr,
                 &projection,
                 bindings,
                 store,
@@ -362,6 +376,64 @@ impl Executor {
                     decoded.get(index).cloned().ok_or_else(|| {
                         SqlError::RowEncoding(format!(
                             "decoded row missing value for projected column index {index}"
+                        ))
+                    })
+                })
+                .collect::<SqlResult<Vec<_>>>()?;
+            rows.push(row);
+        }
+
+        Ok(ExecutionOutcome {
+            result: QueryResult::Select { columns, rows },
+            warnings: vec![],
+        })
+    }
+
+    fn exec_secondary_index_lookup(
+        table: &str,
+        index: &str,
+        secondary_expr: &Expr,
+        projection: &Projection,
+        bindings: &[Value],
+        store: &SharedKvStore,
+        catalog_context: Option<&TableDef>,
+    ) -> SqlResult<ExecutionOutcome> {
+        let table_def = catalog_context.ok_or_else(|| SqlError::table_not_found(table))?;
+        let secondary = resolve_expr(secondary_expr, bindings, &mut 0)?;
+        let (columns, projected_indexes) = projection_layout(projection, table_def)?;
+        let (start, end) = index_entry_bounds(table, index, &secondary)?;
+        let snapshot = store.snapshot()?;
+        let entries = snapshot.scan(&start, &end)?;
+        let mut rows = Vec::with_capacity(entries.len());
+
+        for (entry_key, value) in entries {
+            if !value.is_empty() {
+                return Err(SqlError::RowEncoding(format!(
+                    "secondary index '{index}' contains a non-empty value"
+                )));
+            }
+            let (entry_table, entry_index, entry_secondary, primary) =
+                decode_index_entry(&entry_key)?;
+            if entry_table != table || entry_index != index || entry_secondary != secondary {
+                return Err(SqlError::RowEncoding(format!(
+                    "secondary index '{index}' contains an out-of-range entry"
+                )));
+            }
+            let primary_key = row_key(table, &primary);
+            let payload = snapshot.get(primary_key.as_bytes())?.ok_or_else(|| {
+                SqlError::RowEncoding(format!(
+                    "secondary index '{index}' references a missing primary row"
+                ))
+            })?;
+            let decoded = decode_row_values(&payload).map_err(|error| {
+                SqlError::RowEncoding(format!("indexed SELECT row decoding failed: {error}"))
+            })?;
+            let row = projected_indexes
+                .iter()
+                .map(|&column_index| {
+                    decoded.get(column_index).cloned().ok_or_else(|| {
+                        SqlError::RowEncoding(format!(
+                            "decoded row missing projected column {column_index}"
                         ))
                     })
                 })

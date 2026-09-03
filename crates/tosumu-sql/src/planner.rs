@@ -4,7 +4,7 @@
 //! Uses catalog-aware PK resolution instead of string heuristics.
 
 use crate::ast::{Expr, Projection, Stmt};
-use crate::catalog::TableDef;
+use crate::catalog::{IndexDef, TableDef};
 use crate::error::{SqlError, SqlResult};
 
 /// Plan nodes that the baseline executor can execute.
@@ -32,6 +32,13 @@ pub enum PlanNode {
         pk_exprs: Vec<Expr>,
         projection: Projection,
     },
+    /// Equality lookup through one named secondary index.
+    SecondaryIndexLookup {
+        table: String,
+        index: String,
+        secondary_expr: Expr,
+        projection: Projection,
+    },
     /// DELETE by primary key expression.
     DeleteByPk {
         table: String,
@@ -55,6 +62,9 @@ impl PlanNode {
             Self::InsertRow { table, .. } => format!("INSERT_ROW table={table}"),
             Self::PkLookup { table, .. } => format!("PK_LOOKUP table={table}"),
             Self::PkLookupMany { table, .. } => format!("PK_LOOKUP_OR table={table}"),
+            Self::SecondaryIndexLookup { table, index, .. } => {
+                format!("SECONDARY_INDEX_LOOKUP table={table} index={index}")
+            }
             Self::DeleteByPk { table, .. } => format!("DELETE_BY_PK table={table}"),
             Self::DeleteByPkMany { table, .. } => format!("DELETE_BY_PK_OR table={table}"),
         }
@@ -99,6 +109,16 @@ impl Planner {
         &self,
         stmt: &Stmt,
         catalog: Option<&TableDef>,
+    ) -> SqlResult<PlanOutput> {
+        self.plan_with_catalog_and_indexes(stmt, catalog, &[])
+    }
+
+    /// Plan with table and secondary-index catalog context.
+    pub fn plan_with_catalog_and_indexes(
+        &self,
+        stmt: &Stmt,
+        catalog: Option<&TableDef>,
+        indexes: &[IndexDef],
     ) -> SqlResult<PlanOutput> {
         match stmt {
             Stmt::CreateTable { name, .. } => Ok(PlanOutput {
@@ -163,6 +183,20 @@ impl Planner {
                     ));
                 }
 
+                if let Some((index, secondary_expr)) =
+                    Self::resolve_secondary_equality(predicate, indexes)
+                {
+                    return Ok(PlanOutput {
+                        plan: PlanNode::SecondaryIndexLookup {
+                            table: table.clone(),
+                            index: index.name.clone(),
+                            secondary_expr,
+                            projection: columns.clone(),
+                        },
+                        warnings,
+                    });
+                }
+
                 if matches!(predicate, Some(Expr::Or(_, _))) {
                     let pk_exprs = Self::resolve_or_pk_predicate(predicate, catalog, "SELECT")?;
                     return Ok(PlanOutput {
@@ -219,6 +253,26 @@ impl Planner {
                 })
             }
         }
+    }
+
+    fn resolve_secondary_equality(
+        predicate: &Option<Expr>,
+        indexes: &[IndexDef],
+    ) -> Option<(IndexDef, Expr)> {
+        let Expr::Eq(left, right) = predicate.as_ref()? else {
+            return None;
+        };
+        let Expr::Column(column) = left.as_ref() else {
+            return None;
+        };
+        if !matches!(right.as_ref(), Expr::Literal(_) | Expr::Parameter(_)) {
+            return None;
+        }
+        indexes
+            .iter()
+            .find(|index| index.column == *column)
+            .cloned()
+            .map(|index| (index, right.as_ref().clone()))
     }
 
     /// Resolve the primary key value from a predicate, using catalog if available.

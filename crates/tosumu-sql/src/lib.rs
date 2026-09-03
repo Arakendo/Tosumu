@@ -27,7 +27,6 @@ pub mod ast;
 pub mod catalog;
 pub mod error;
 pub mod executor;
-#[allow(dead_code, reason = "used by the next secondary-index execution slice")]
 mod index_codec;
 pub mod lexer;
 pub mod parser;
@@ -105,9 +104,13 @@ impl SqlDatabase {
         }
 
         let table_catalog = self.catalog_for_statement(&stmt.stmt)?;
+        let indexes = match table_catalog.as_ref() {
+            Some(table) => self.load_indexes_for_table(&table.name)?,
+            None => vec![],
+        };
 
         // Plan (with catalog context for PK-aware predicate validation)
-        let plan_output = Self::plan_statement(&stmt.stmt, table_catalog.as_ref())?;
+        let plan_output = Self::plan_statement(&stmt.stmt, table_catalog.as_ref(), &indexes)?;
 
         // Execute (executor handles catalog write for CreateTable)
         let executor = Executor::new();
@@ -125,7 +128,11 @@ impl SqlDatabase {
     pub fn explain(&self, sql: &str) -> SqlResult<ExplainOutcome> {
         let stmt = self.prepare(sql)?;
         let table_catalog = self.catalog_for_statement(&stmt.stmt)?;
-        let plan_output = Self::plan_statement(&stmt.stmt, table_catalog.as_ref())?;
+        let indexes = match table_catalog.as_ref() {
+            Some(table) => self.load_indexes_for_table(&table.name)?,
+            None => vec![],
+        };
+        let plan_output = Self::plan_statement(&stmt.stmt, table_catalog.as_ref(), &indexes)?;
 
         Ok(ExplainOutcome {
             plan: plan_output.plan.describe(),
@@ -193,9 +200,10 @@ impl SqlDatabase {
     fn plan_statement(
         stmt: &Stmt,
         table_catalog: Option<&catalog::TableDef>,
+        indexes: &[catalog::IndexDef],
     ) -> SqlResult<crate::planner::PlanOutput> {
         let planner = Planner::new();
-        planner.plan_with_catalog(stmt, table_catalog)
+        planner.plan_with_catalog_and_indexes(stmt, table_catalog, indexes)
     }
 
     /// Load a catalog entry from the store.
@@ -215,6 +223,21 @@ impl SqlDatabase {
             .ok()
             .flatten()
             .and_then(|data| catalog::deserialize_index_def(&data).ok())
+    }
+
+    fn load_indexes_for_table(&self, table_name: &str) -> SqlResult<Vec<catalog::IndexDef>> {
+        let (start, end) = catalog::index_catalog_bounds();
+        self.store
+            .snapshot()?
+            .scan(&start, &end)?
+            .into_iter()
+            .map(|(_, payload)| catalog::deserialize_index_def(&payload))
+            .filter_map(|result| match result {
+                Ok(index) if index.table == table_name => Some(Ok(index)),
+                Ok(_) => None,
+                Err(error) => Some(Err(error)),
+            })
+            .collect()
     }
 
     /// Execute a SQL statement directly (parse + plan + execute).
@@ -452,6 +475,57 @@ mod tests {
         db.execute("DELETE FROM users WHERE id = 1 OR id = 3")
             .unwrap();
         assert!(indexed_primary_keys(&db, "bob").is_empty());
+    }
+
+    #[test]
+    fn secondary_equality_lookup_returns_duplicates_and_names_index_in_explain() {
+        let (path, _dir) = test_db_path();
+        let mut db = SqlDatabase::create(&path).unwrap();
+        db.execute("CREATE TABLE users ( id INTEGER PRIMARY KEY, name TEXT )")
+            .unwrap();
+        db.execute("INSERT INTO users VALUES ( 1, 'alice' )")
+            .unwrap();
+        db.execute("INSERT INTO users VALUES ( 2, 'alice' )")
+            .unwrap();
+        db.execute("INSERT INTO users VALUES ( 3, 'bob' )").unwrap();
+        db.execute("CREATE INDEX users_by_name ON users ( name )")
+            .unwrap();
+
+        let explain = db
+            .explain("SELECT id FROM users WHERE name = 'alice'")
+            .unwrap();
+        assert_eq!(
+            explain.plan,
+            "SECONDARY_INDEX_LOOKUP table=users index=users_by_name"
+        );
+        let prepared = db
+            .prepare("SELECT id, name FROM users WHERE name = ?")
+            .unwrap();
+        let outcome = db
+            .execute_prepared(&prepared, &[Value::Text("alice".to_string())])
+            .unwrap();
+        assert_eq!(
+            outcome.result,
+            QueryResult::Select {
+                columns: vec!["id".to_string(), "name".to_string()],
+                rows: vec![
+                    vec![Value::Integer(1), Value::Text("alice".to_string())],
+                    vec![Value::Integer(2), Value::Text("alice".to_string())],
+                ],
+            }
+        );
+
+        db.execute("INSERT INTO users VALUES ( 2, 'bob' )").unwrap();
+        let outcome = db
+            .execute("SELECT id FROM users WHERE name = 'alice'")
+            .unwrap();
+        assert_eq!(
+            outcome.result,
+            QueryResult::Select {
+                columns: vec!["id".to_string()],
+                rows: vec![vec![Value::Integer(1)]],
+            }
+        );
     }
 
     fn indexed_primary_keys(db: &SqlDatabase, secondary: &str) -> Vec<Value> {
