@@ -1,7 +1,7 @@
 //! `tosumu-sql` — initial SQL query layer for the tosumu embedded database (MVP+9).
 //!
-//! This crate implements a minimal SQL surface over `tosumu_core::page_store::PageStore`.
-//! It does not depend on CLI, TUI, or any storage internals below `PageStore`.
+//! This crate implements a minimal SQL surface over `tosumu_core::SharedKvStore`.
+//! It does not depend on CLI, TUI, or physical storage internals.
 //!
 //! # Supported statements (baseline)
 //!
@@ -53,28 +53,28 @@ pub struct ExplainOutcome {
     pub warnings: Vec<PlanWarning>,
 }
 
-// ── Public API (Phase 5/6 — wired over PageStore) ─────────────────────────────
+// ── Public API (wired over the shared KV owner) ───────────────────────────────
 
 use crate::executor::Executor;
 use crate::planner::Planner;
 use crate::semantic::SemanticChecker;
-use tosumu_core::page_store::PageStore;
+use tosumu_core::SharedKvStore;
 
 /// Opaque database handle for SQL operations.
 pub struct SqlDatabase {
-    store: PageStore,
+    store: SharedKvStore,
 }
 
 impl SqlDatabase {
     /// Open an existing database file at the given path.
     pub fn open(path: &std::path::Path) -> SqlResult<Self> {
-        let store = PageStore::open(path).map_err(SqlError::CatalogStorage)?;
+        let store = SharedKvStore::open(path).map_err(SqlError::CatalogStorage)?;
         Ok(SqlDatabase { store })
     }
 
     /// Create a new database file at the given path (fails if exists).
     pub fn create(path: &std::path::Path) -> SqlResult<Self> {
-        let store = PageStore::create(path).map_err(SqlError::CatalogStorage)?;
+        let store = SharedKvStore::create(path).map_err(SqlError::CatalogStorage)?;
         Ok(SqlDatabase { store })
     }
 
@@ -114,7 +114,7 @@ impl SqlDatabase {
         let mut outcome = executor.execute(
             plan_output.plan,
             bindings,
-            &mut self.store,
+            &self.store,
             table_catalog.as_ref(),
         )?;
         outcome.warnings = plan_output.warnings;
@@ -295,6 +295,28 @@ mod tests {
         } else {
             panic!("expected Select result");
         }
+    }
+
+    #[test]
+    fn shared_owner_sql_database_reopens_existing_rows() {
+        let (path, _dir) = test_db_path();
+        {
+            let mut db = SqlDatabase::create(&path).unwrap();
+            db.execute("CREATE TABLE users ( id INTEGER PRIMARY KEY, name TEXT )")
+                .unwrap();
+            db.execute("INSERT INTO users VALUES ( 1, 'alice' )")
+                .unwrap();
+        }
+
+        let mut reopened = SqlDatabase::open(&path).unwrap();
+        let outcome = reopened
+            .execute("SELECT * FROM users WHERE id = 1")
+            .unwrap();
+        assert!(matches!(
+            outcome.result,
+            QueryResult::Select { rows, .. }
+                if rows == vec![vec![Value::Integer(1), Value::Text("alice".to_string())]]
+        ));
     }
 
     #[test]

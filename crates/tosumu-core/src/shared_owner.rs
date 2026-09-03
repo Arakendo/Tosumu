@@ -85,12 +85,20 @@ impl SharedBTreeOwner {
     where
         F: FnOnce(&mut BTree) -> Result<T>,
     {
-        let mut tree = self.lock()?;
-        tree.begin_txn()?;
+        self.try_write(operation)
+    }
+
+    pub(crate) fn try_write<F, T, E>(&self, operation: F) -> std::result::Result<T, E>
+    where
+        F: FnOnce(&mut BTree) -> std::result::Result<T, E>,
+        E: From<TosumuError>,
+    {
+        let mut tree = self.lock().map_err(E::from)?;
+        tree.begin_txn().map_err(E::from)?;
         let _scope = self.enter_write_callback();
         match operation(&mut tree) {
             Ok(value) => {
-                tree.commit_txn()?;
+                tree.commit_txn().map_err(E::from)?;
                 Ok(value)
             }
             Err(error) => {

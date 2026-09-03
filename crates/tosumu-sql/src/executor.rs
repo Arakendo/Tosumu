@@ -1,6 +1,6 @@
 //! Executor for the tosumu initial SQL layer (MVP+9).
 //!
-//! Executes plan nodes through PageStore. Catalog writes for CreateTable are owned here.
+//! Executes plan nodes through the shared KV owner. Catalog writes are owned here.
 
 use crate::ast::{Expr, Projection, Value};
 use crate::catalog::{serialize_table_def, table_key, TableDef};
@@ -9,7 +9,7 @@ use crate::planner::{PlanNode, PlanWarning};
 use crate::row_codec::{decode_row_values, encode_row_values, row_key};
 use std::cmp::Ordering;
 use std::collections::HashSet;
-use tosumu_core::page_store::PageStore;
+use tosumu_core::SharedKvStore;
 
 /// Query result from executing a statement.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,7 +30,7 @@ pub struct ExecutionOutcome {
     pub warnings: Vec<PlanWarning>,
 }
 
-/// Executor that runs plans through PageStore.
+/// Executor that runs plans through the shared KV owner.
 pub struct Executor;
 
 impl Executor {
@@ -39,12 +39,12 @@ impl Executor {
         Executor
     }
 
-    /// Execute a plan node against the given PageStore.
+    /// Execute a plan node against the given shared KV owner.
     pub fn execute(
         &self,
         plan: PlanNode,
         bindings: &[Value],
-        store: &mut PageStore,
+        store: &SharedKvStore,
         catalog_context: Option<&TableDef>,
     ) -> SqlResult<ExecutionOutcome> {
         match plan {
@@ -100,7 +100,7 @@ impl Executor {
 
     fn exec_create_table(
         table_name: String,
-        store: &mut PageStore,
+        store: &SharedKvStore,
         catalog_context: Option<&TableDef>,
     ) -> SqlResult<ExecutionOutcome> {
         // CreateTable execution: write catalog entry (executor owns this).
@@ -119,7 +119,7 @@ impl Executor {
         table: &str,
         values: &[Expr],
         bindings: &[Value],
-        store: &mut PageStore,
+        store: &SharedKvStore,
         catalog_context: Option<&TableDef>,
     ) -> SqlResult<ExecutionOutcome> {
         let table_def = catalog_context.ok_or_else(|| SqlError::table_not_found(table))?;
@@ -154,14 +154,15 @@ impl Executor {
         filter: Option<&Expr>,
         projection: &Projection,
         bindings: &[Value],
-        store: &mut PageStore,
+        store: &SharedKvStore,
         catalog_context: Option<&TableDef>,
     ) -> SqlResult<ExecutionOutcome> {
         let table_def = catalog_context.ok_or_else(|| SqlError::table_not_found(table))?;
         let pk = resolve_expr(pk_expr, bindings, &mut 0)?;
         let (columns, projected_indexes) = projection_layout(projection, table_def)?;
         let key_str = row_key(table, &pk);
-        let data = match store.get(key_str.as_bytes())? {
+        let snapshot = store.snapshot()?;
+        let data = match snapshot.get(key_str.as_bytes())? {
             Some(data) => data,
             None => {
                 return Ok(ExecutionOutcome {
@@ -216,42 +217,44 @@ impl Executor {
         pk_expr: &Expr,
         filter: Option<&Expr>,
         bindings: &[Value],
-        store: &mut PageStore,
+        store: &SharedKvStore,
         catalog_context: Option<&TableDef>,
     ) -> SqlResult<ExecutionOutcome> {
         let pk = resolve_expr(pk_expr, bindings, &mut 0)?;
         let row_key_str = row_key(table, &pk);
-        match store.get(row_key_str.as_bytes())? {
-            Some(data) => {
-                if let (Some(filter), Some(table_def)) = (filter, catalog_context) {
-                    let decoded = decode_row_values(&data).map_err(|e| {
-                        SqlError::RowEncoding(format!("DELETE row decoding failed: {e}"))
-                    })?;
-                    let mut binding_index = 1;
-                    if !evaluate_predicate(
-                        filter,
-                        &decoded,
-                        table_def,
-                        bindings,
-                        &mut binding_index,
-                    )? {
-                        return Ok(ExecutionOutcome {
-                            result: QueryResult::Affected { rows: 0 },
-                            warnings: vec![],
-                        });
+        store.try_write(
+            |transaction| match transaction.get(row_key_str.as_bytes())? {
+                Some(data) => {
+                    if let (Some(filter), Some(table_def)) = (filter, catalog_context) {
+                        let decoded = decode_row_values(&data).map_err(|e| {
+                            SqlError::RowEncoding(format!("DELETE row decoding failed: {e}"))
+                        })?;
+                        let mut binding_index = 1;
+                        if !evaluate_predicate(
+                            filter,
+                            &decoded,
+                            table_def,
+                            bindings,
+                            &mut binding_index,
+                        )? {
+                            return Ok(ExecutionOutcome {
+                                result: QueryResult::Affected { rows: 0 },
+                                warnings: vec![],
+                            });
+                        }
                     }
+                    transaction.delete(row_key_str.as_bytes())?;
+                    Ok(ExecutionOutcome {
+                        result: QueryResult::Affected { rows: 1 },
+                        warnings: vec![],
+                    })
                 }
-                store.delete(row_key_str.as_bytes())?;
-                Ok(ExecutionOutcome {
-                    result: QueryResult::Affected { rows: 1 },
+                None => Ok(ExecutionOutcome {
+                    result: QueryResult::Affected { rows: 0 },
                     warnings: vec![],
-                })
-            }
-            None => Ok(ExecutionOutcome {
-                result: QueryResult::Affected { rows: 0 },
-                warnings: vec![],
-            }),
-        }
+                }),
+            },
+        )
     }
 
     fn exec_select_many(
@@ -259,7 +262,7 @@ impl Executor {
         pk_exprs: &[Expr],
         projection: &Projection,
         bindings: &[Value],
-        store: &mut PageStore,
+        store: &SharedKvStore,
         catalog_context: Option<&TableDef>,
     ) -> SqlResult<ExecutionOutcome> {
         let table_def = catalog_context.ok_or_else(|| SqlError::table_not_found(table))?;
@@ -267,6 +270,7 @@ impl Executor {
         let mut binding_index = 0;
         let mut seen_keys = HashSet::new();
         let mut rows = Vec::new();
+        let snapshot = store.snapshot()?;
 
         for pk_expr in pk_exprs {
             let pk = resolve_expr(pk_expr, bindings, &mut binding_index)?;
@@ -274,7 +278,7 @@ impl Executor {
             if !seen_keys.insert(key_str.clone()) {
                 continue;
             }
-            let Some(data) = store.get(key_str.as_bytes())? else {
+            let Some(data) = snapshot.get(key_str.as_bytes())? else {
                 continue;
             };
             let decoded = decode_row_values(&data)
@@ -302,27 +306,28 @@ impl Executor {
         table: &str,
         pk_exprs: &[Expr],
         bindings: &[Value],
-        store: &mut PageStore,
+        store: &SharedKvStore,
     ) -> SqlResult<ExecutionOutcome> {
         let mut binding_index = 0;
         let mut seen_keys = HashSet::new();
-        let mut affected = 0;
-
-        for pk_expr in pk_exprs {
-            let pk = resolve_expr(pk_expr, bindings, &mut binding_index)?;
-            let key_str = row_key(table, &pk);
-            if !seen_keys.insert(key_str.clone()) {
-                continue;
+        store.try_write(|transaction| {
+            let mut affected = 0;
+            for pk_expr in pk_exprs {
+                let pk = resolve_expr(pk_expr, bindings, &mut binding_index)?;
+                let key_str = row_key(table, &pk);
+                if !seen_keys.insert(key_str.clone()) {
+                    continue;
+                }
+                if transaction.get(key_str.as_bytes())?.is_some() {
+                    transaction.delete(key_str.as_bytes())?;
+                    affected += 1;
+                }
             }
-            if store.get(key_str.as_bytes())?.is_some() {
-                store.delete(key_str.as_bytes())?;
-                affected += 1;
-            }
-        }
 
-        Ok(ExecutionOutcome {
-            result: QueryResult::Affected { rows: affected },
-            warnings: vec![],
+            Ok(ExecutionOutcome {
+                result: QueryResult::Affected { rows: affected },
+                warnings: vec![],
+            })
         })
     }
 }
@@ -520,6 +525,7 @@ mod tests {
     use super::*;
     use crate::catalog::deserialize_table_def;
     use tempfile::TempDir;
+    use tosumu_core::page_store::PageStore;
 
     fn test_db_path() -> (std::path::PathBuf, TempDir) {
         let dir = TempDir::new().unwrap();

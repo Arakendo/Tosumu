@@ -151,6 +151,25 @@ impl SharedKvStore {
         })
     }
 
+    /// Execute multiple mutations atomically while preserving a caller error.
+    ///
+    /// This is equivalent to [`SharedKvStore::write`], but permits the callback
+    /// to return a domain error that implements `From<TosumuError>`. Storage and
+    /// commit failures are converted into that error; a callback error rolls
+    /// back the staged transaction unchanged.
+    pub fn try_write<F, T, E>(&self, operation: F) -> std::result::Result<T, E>
+    where
+        F: FnOnce(&mut KvWriteTransaction<'_>) -> std::result::Result<T, E>,
+        E: From<TosumuError>,
+    {
+        self.owner.try_write(|tree| {
+            operation(&mut KvWriteTransaction {
+                tree,
+                _not_send_or_sync: PhantomData,
+            })
+        })
+    }
+
     /// Read the latest committed logical value.
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         self.owner.get(key)

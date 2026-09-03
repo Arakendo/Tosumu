@@ -3,6 +3,18 @@ use tosumu_core::{KvConditionalResult, KvReadTransaction, KvVersion, SharedKvSto
 fn assert_send<T: Send>() {}
 fn assert_send_sync<T: Send + Sync>() {}
 
+#[derive(Debug, PartialEq, Eq)]
+enum CallerError {
+    Storage,
+    Rejected(&'static str),
+}
+
+impl From<TosumuError> for CallerError {
+    fn from(_error: TosumuError) -> Self {
+        Self::Storage
+    }
+}
+
 #[test]
 fn conditional_writes_report_versions_and_reject_stale_or_wrong_values() {
     assert_send_sync::<KvVersion>();
@@ -252,6 +264,30 @@ fn write_transaction_scan_observes_its_staged_ordered_view() {
     assert_eq!(
         database.snapshot().unwrap().scan(b"a", b"z").unwrap(),
         observed
+    );
+}
+
+#[test]
+fn try_write_preserves_caller_error_and_rolls_back() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("shared-kv-domain-error.tsm");
+    let database = SharedKvStore::create(&path).unwrap();
+    database.put(b"key", b"committed").unwrap();
+    let generation = database.connection_info().unwrap().latest_generation;
+
+    let result: Result<(), CallerError> = database.try_write(|transaction| {
+        transaction.put(b"key", b"staged")?;
+        Err(CallerError::Rejected("domain validation failed"))
+    });
+
+    assert_eq!(
+        result,
+        Err(CallerError::Rejected("domain validation failed"))
+    );
+    assert_eq!(database.get(b"key").unwrap(), Some(b"committed".to_vec()));
+    assert_eq!(
+        database.connection_info().unwrap().latest_generation,
+        generation
     );
 }
 
