@@ -4,7 +4,8 @@
 
 use crate::ast::{Expr, Projection, Value};
 use crate::catalog::{
-    index_key, serialize_index_def, serialize_table_def, table_key, IndexDef, TableDef,
+    deserialize_index_def, index_catalog_bounds, index_key, serialize_index_def,
+    serialize_table_def, table_key, IndexDef, TableDef,
 };
 use crate::error::{SqlError, SqlResult};
 use crate::index_codec::index_entry_key;
@@ -12,7 +13,7 @@ use crate::planner::{PlanNode, PlanWarning};
 use crate::row_codec::{decode_row_values, encode_row_values, row_key, table_row_bounds};
 use std::cmp::Ordering;
 use std::collections::HashSet;
-use tosumu_core::SharedKvStore;
+use tosumu_core::{KvWriteTransaction, SharedKvStore};
 
 /// Query result from executing a statement.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,7 +102,7 @@ impl Executor {
                 catalog_context,
             ),
             PlanNode::DeleteByPkMany { table, pk_exprs } => {
-                Self::exec_delete_many(&table, &pk_exprs, bindings, store)
+                Self::exec_delete_many(&table, &pk_exprs, bindings, store, catalog_context)
             }
         }
     }
@@ -200,10 +201,20 @@ impl Executor {
         let payload = encode_row_values(&column_names, &column_types, &resolved_values)
             .map_err(|e| SqlError::RowEncoding(format!("INSERT row encoding failed: {e}")))?;
 
-        store.put(row_key_str.as_bytes(), &payload)?;
-        Ok(ExecutionOutcome {
-            result: QueryResult::Affected { rows: 1 },
-            warnings: vec![],
+        store.try_write(|transaction| {
+            let indexes = load_table_indexes(transaction, table)?;
+            if let Some(old_payload) = transaction.get(row_key_str.as_bytes())? {
+                let old_values = decode_row_values(&old_payload).map_err(|error| {
+                    SqlError::RowEncoding(format!("INSERT old row decoding failed: {error}"))
+                })?;
+                remove_index_entries(transaction, table_def, &indexes, &old_values)?;
+            }
+            add_index_entries(transaction, table_def, &indexes, &resolved_values)?;
+            transaction.put(row_key_str.as_bytes(), &payload)?;
+            Ok(ExecutionOutcome {
+                result: QueryResult::Affected { rows: 1 },
+                warnings: vec![],
+            })
         })
     }
 
@@ -279,15 +290,16 @@ impl Executor {
         store: &SharedKvStore,
         catalog_context: Option<&TableDef>,
     ) -> SqlResult<ExecutionOutcome> {
+        let table_def = catalog_context.ok_or_else(|| SqlError::table_not_found(table))?;
         let pk = resolve_expr(pk_expr, bindings, &mut 0)?;
         let row_key_str = row_key(table, &pk);
         store.try_write(
             |transaction| match transaction.get(row_key_str.as_bytes())? {
                 Some(data) => {
-                    if let (Some(filter), Some(table_def)) = (filter, catalog_context) {
-                        let decoded = decode_row_values(&data).map_err(|e| {
-                            SqlError::RowEncoding(format!("DELETE row decoding failed: {e}"))
-                        })?;
+                    let decoded = decode_row_values(&data).map_err(|e| {
+                        SqlError::RowEncoding(format!("DELETE row decoding failed: {e}"))
+                    })?;
+                    if let Some(filter) = filter {
                         let mut binding_index = 1;
                         if !evaluate_predicate(
                             filter,
@@ -302,6 +314,8 @@ impl Executor {
                             });
                         }
                     }
+                    let indexes = load_table_indexes(transaction, table)?;
+                    remove_index_entries(transaction, table_def, &indexes, &decoded)?;
                     transaction.delete(row_key_str.as_bytes())?;
                     Ok(ExecutionOutcome {
                         result: QueryResult::Affected { rows: 1 },
@@ -366,10 +380,13 @@ impl Executor {
         pk_exprs: &[Expr],
         bindings: &[Value],
         store: &SharedKvStore,
+        catalog_context: Option<&TableDef>,
     ) -> SqlResult<ExecutionOutcome> {
+        let table_def = catalog_context.ok_or_else(|| SqlError::table_not_found(table))?;
         let mut binding_index = 0;
         let mut seen_keys = HashSet::new();
         store.try_write(|transaction| {
+            let indexes = load_table_indexes(transaction, table)?;
             let mut affected = 0;
             for pk_expr in pk_exprs {
                 let pk = resolve_expr(pk_expr, bindings, &mut binding_index)?;
@@ -377,7 +394,11 @@ impl Executor {
                 if !seen_keys.insert(key_str.clone()) {
                     continue;
                 }
-                if transaction.get(key_str.as_bytes())?.is_some() {
+                if let Some(payload) = transaction.get(key_str.as_bytes())? {
+                    let values = decode_row_values(&payload).map_err(|error| {
+                        SqlError::RowEncoding(format!("DELETE row decoding failed: {error}"))
+                    })?;
+                    remove_index_entries(transaction, table_def, &indexes, &values)?;
                     transaction.delete(key_str.as_bytes())?;
                     affected += 1;
                 }
@@ -389,6 +410,68 @@ impl Executor {
             })
         })
     }
+}
+
+fn load_table_indexes(
+    transaction: &KvWriteTransaction<'_>,
+    table: &str,
+) -> SqlResult<Vec<IndexDef>> {
+    let (start, end) = index_catalog_bounds();
+    transaction
+        .scan(&start, &end)?
+        .into_iter()
+        .map(|(_, payload)| deserialize_index_def(&payload))
+        .filter_map(|result| match result {
+            Ok(index) if index.table == table => Some(Ok(index)),
+            Ok(_) => None,
+            Err(error) => Some(Err(error)),
+        })
+        .collect()
+}
+
+fn remove_index_entries(
+    transaction: &mut KvWriteTransaction<'_>,
+    table_def: &TableDef,
+    indexes: &[IndexDef],
+    values: &[Value],
+) -> SqlResult<()> {
+    for index in indexes {
+        let key = index_key_for_row(table_def, index, values)?;
+        transaction.delete(&key)?;
+    }
+    Ok(())
+}
+
+fn add_index_entries(
+    transaction: &mut KvWriteTransaction<'_>,
+    table_def: &TableDef,
+    indexes: &[IndexDef],
+    values: &[Value],
+) -> SqlResult<()> {
+    for index in indexes {
+        let key = index_key_for_row(table_def, index, values)?;
+        transaction.put(&key, &[])?;
+    }
+    Ok(())
+}
+
+fn index_key_for_row(
+    table_def: &TableDef,
+    index: &IndexDef,
+    values: &[Value],
+) -> SqlResult<Vec<u8>> {
+    let column_index = table_def
+        .columns
+        .iter()
+        .position(|column| column.name == index.column)
+        .ok_or_else(|| SqlError::column_not_found(&table_def.name, &index.column))?;
+    let secondary = values.get(column_index).ok_or_else(|| {
+        SqlError::RowEncoding(format!("decoded row missing indexed column {column_index}"))
+    })?;
+    let primary = values
+        .get(table_def.primary_key_index)
+        .ok_or_else(|| SqlError::RowEncoding("decoded row missing primary key".to_string()))?;
+    index_entry_key(&table_def.name, &index.name, secondary, primary)
 }
 
 impl Default for Executor {

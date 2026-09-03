@@ -51,10 +51,10 @@ full-text, fuzzy, vector, and spatial indexes are deferred.
 
 ### 4. Mutation Maintenance
 
-- [ ] On INSERT, read any old row in the write transaction, remove stale entries,
+- [x] On INSERT, read any old row in the write transaction, remove stale entries,
       add new entries, and replace the row atomically.
-- [ ] On DELETE, remove index entries and the primary row atomically.
-- [ ] Cover repeated secondary values and unchanged indexed values.
+- [x] On DELETE, remove index entries and the primary row atomically.
+- [x] Cover repeated secondary values and unchanged indexed values.
 
 ### 5. Planning And Snapshot Execution
 

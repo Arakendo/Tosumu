@@ -426,6 +426,52 @@ mod tests {
     }
 
     #[test]
+    fn insert_replacement_and_delete_maintain_secondary_entries() {
+        let (path, _dir) = test_db_path();
+        let mut db = SqlDatabase::create(&path).unwrap();
+        db.execute("CREATE TABLE users ( id INTEGER PRIMARY KEY, name TEXT )")
+            .unwrap();
+        db.execute("INSERT INTO users VALUES ( 1, 'alice' )")
+            .unwrap();
+        db.execute("INSERT INTO users VALUES ( 2, 'alice' )")
+            .unwrap();
+        db.execute("INSERT INTO users VALUES ( 3, 'bob' )").unwrap();
+        db.execute("CREATE INDEX users_by_name ON users ( name )")
+            .unwrap();
+
+        db.execute("INSERT INTO users VALUES ( 1, 'bob' )").unwrap();
+        db.execute("INSERT INTO users VALUES ( 3, 'bob' )").unwrap();
+        assert_eq!(indexed_primary_keys(&db, "alice"), vec![Value::Integer(2)]);
+        assert_eq!(
+            indexed_primary_keys(&db, "bob"),
+            vec![Value::Integer(1), Value::Integer(3)]
+        );
+
+        db.execute("DELETE FROM users WHERE id = 2").unwrap();
+        assert!(indexed_primary_keys(&db, "alice").is_empty());
+        db.execute("DELETE FROM users WHERE id = 1 OR id = 3")
+            .unwrap();
+        assert!(indexed_primary_keys(&db, "bob").is_empty());
+    }
+
+    fn indexed_primary_keys(db: &SqlDatabase, secondary: &str) -> Vec<Value> {
+        let (start, end) = index_entry_bounds(
+            "users",
+            "users_by_name",
+            &Value::Text(secondary.to_string()),
+        )
+        .unwrap();
+        db.store
+            .snapshot()
+            .unwrap()
+            .scan(&start, &end)
+            .unwrap()
+            .into_iter()
+            .map(|(key, _)| decode_index_entry(&key).unwrap().3)
+            .collect()
+    }
+
+    #[test]
     fn duplicate_table_creation_is_rejected() {
         let (path, _dir) = test_db_path();
         let mut db = SqlDatabase::create(&path).unwrap();
