@@ -36,3 +36,7 @@ cc = "1"
 [[bench]]
 name = "btree_vs_sqlite"
 harness = false
+
+[[bench]]
+name = "mvp10_concurrency"
+harness = false
