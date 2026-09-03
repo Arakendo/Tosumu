@@ -14,6 +14,7 @@ use super::{
 };
 
 #[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug)]
 pub(crate) struct BoundedScanPage {
     pub(crate) pairs: Vec<(Vec<u8>, Vec<u8>)>,
     pub(crate) next_start_inclusive: Option<Vec<u8>>,
@@ -143,6 +144,23 @@ pub(super) fn find_leaf(pager: &Pager, key: &[u8]) -> Result<u64> {
 
 pub(super) fn scan(pager: &Pager, start: &[u8], end: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
     scan_from(&CurrentReadSource { pager }, start, end)
+}
+
+#[cfg(test)]
+pub(super) fn scan_page(
+    pager: &Pager,
+    start: &[u8],
+    end: &[u8],
+    maximum_pairs: usize,
+    maximum_payload_bytes: u64,
+) -> Result<BoundedScanPage> {
+    scan_page_from(
+        &CurrentReadSource { pager },
+        start,
+        end,
+        maximum_pairs,
+        maximum_payload_bytes,
+    )
 }
 
 pub(super) fn read_overflow_chain(pager: &Pager, head: u64, length: u64) -> Result<Vec<u8>> {

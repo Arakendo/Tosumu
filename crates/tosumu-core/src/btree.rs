@@ -1657,6 +1657,111 @@ mod tests {
     }
 
     #[test]
+    fn bounded_scan_continues_at_the_first_key_of_the_next_leaf() {
+        let p = tmp("bounded_scan_leaf_boundary");
+        let _ = std::fs::remove_file(&p);
+
+        let mut tree = BTree::create(&p).unwrap();
+        for i in 0u32..300 {
+            let key = format!("key{i:04}");
+            tree.put(key.as_bytes(), b"value").unwrap();
+        }
+        let first_leaf = tree.find_leaf(b"key0000").unwrap();
+        let (first_pairs, next_leaf) = tree
+            .pager
+            .with_page(first_leaf, |page| {
+                Ok((leaf_read_all_refs(page), read_u64(page, HDR_LEFTMOST)))
+            })
+            .unwrap();
+        assert_ne!(next_leaf, 0, "fixture must span more than one leaf");
+        let next_key = tree
+            .pager
+            .with_page(next_leaf, |page| Ok(leaf_read_all_refs(page)[0].0.clone()))
+            .unwrap();
+        let exact_payload = first_pairs
+            .iter()
+            .map(|(key, value)| match value {
+                LeafValue::Inline(value) => (key.len() + value.len()) as u64,
+                LeafValue::Overflow { .. } => unreachable!("fixture values are inline"),
+            })
+            .sum();
+        let pin = tree.pin_snapshot().unwrap();
+        let page = tree
+            .scan_page_at_snapshot(
+                &pin,
+                b"key0000",
+                b"key0299",
+                first_pairs.len(),
+                exact_payload,
+            )
+            .unwrap();
+
+        assert_eq!(page.pairs.len(), first_pairs.len());
+        assert_eq!(page.next_start_inclusive, Some(next_key));
+        assert_eq!(page.blocked_entry_payload_bytes, None);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn bounded_scan_validates_metadata_before_skipping_overflow_materialization() {
+        let p = tmp("bounded_scan_corruption");
+        let _ = std::fs::remove_file(&p);
+
+        let mut tree = BTree::create(&p).unwrap();
+        let value = vec![0x77; OVERFLOW_PAYLOAD_SIZE * 2];
+        tree.put(b"large", &value).unwrap();
+        let root = tree.pager.root_page();
+        let head = tree
+            .pager
+            .with_page(root, |page| match &leaf_read_all_refs(page)[0].1 {
+                LeafValue::Overflow { head, .. } => Ok(*head),
+                LeafValue::Inline(_) => unreachable!("fixture must use overflow storage"),
+            })
+            .unwrap();
+
+        tree.pager
+            .with_page_mut(head, |page| {
+                write_u64(page, HDR_LEFTMOST, head);
+                Ok(())
+            })
+            .unwrap();
+        let blocked = read::scan_page(&tree.pager, b"large", b"large", 1, 64).unwrap();
+        assert!(blocked.pairs.is_empty());
+        assert_eq!(blocked.next_start_inclusive, Some(b"large".to_vec()));
+        assert_eq!(
+            blocked.blocked_entry_payload_bytes,
+            Some((b"large".len() + value.len()) as u64)
+        );
+        let admitted = read::scan_page(
+            &tree.pager,
+            b"large",
+            b"large",
+            1,
+            (b"large".len() + value.len()) as u64,
+        )
+        .unwrap_err();
+        assert!(matches!(admitted, TosumuError::OverflowChainCorrupt { .. }));
+
+        tree.pager
+            .with_page_mut(root, |page| {
+                let record_offset = read_u16(page, PAGE_HEADER_SIZE) as usize;
+                page[record_offset + 3..record_offset + 11]
+                    .copy_from_slice(&((MAX_VALUE_SIZE as u64) + 1).to_le_bytes());
+                Ok(())
+            })
+            .unwrap();
+        let malformed = read::scan_page(&tree.pager, b"large", b"large", 1, 64).unwrap_err();
+        assert!(matches!(
+            malformed,
+            TosumuError::OverflowChainCorrupt {
+                reason: "overflow logical length exceeds maximum",
+                ..
+            }
+        ));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
     fn btree_splits_on_many_inserts() {
         let p = tmp("splits");
         let _ = std::fs::remove_file(&p);
