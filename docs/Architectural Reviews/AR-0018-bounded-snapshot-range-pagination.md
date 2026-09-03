@@ -47,6 +47,10 @@ physical pages or a foreign encoding.
   excluded overflow value is read or allocated.
 - Logical payload bytes mean `key.len() + value.len()`. Adapter framing and copy
   budgets are separate, derived bounds.
+- The payload limit does not bound every byte owned by the result: a blocked
+  page returns one continuation key from the excluded entry. That additive
+  allocation is independently bounded by Tosumu's `MAX_KEY_SIZE`; adapters must
+  include one maximum-sized key plus representation overhead in their envelope.
 - Zero limits and inconsistent bounds fail before traversal with a typed
   invalid-argument result.
 - Corruption, authentication, and snapshot-residence failures retain their
@@ -84,6 +88,11 @@ ordinary pair-limit pagination from a page size too small for one entry without
 reading or returning that entry's overflow value. If no pair has yet been
 returned, the caller must increase its admitted byte limit or stop; retrying the
 same page unchanged makes no progress.
+
+Discovering that result may decode the containing leaf and copy the
+continuation key, but it must not read, authenticate, or allocate the excluded
+overflow value. The leaf page and continuation key have independent fixed
+bounds; neither is charged to the admitted logical payload.
 
 The exact Rust type names, field visibility, maximum accepted limits, and error
 vocabulary remain provisional. A prototype must prove that continuation at leaf
@@ -162,6 +171,25 @@ callers establish the contract.
 - Disposition: Incubating. Admit a private traversal prototype and focused
   equivalence/resource-bound tests; withhold public core and C APIs.
 - Resulting ADR or documentation change: AR-0018 opened; no ADR or API change.
+
+### Cycle 2 -- 2026-09-03
+
+- Status entering review: Incubating; private traversal prototype admitted.
+- New evidence: the private snapshot traversal enforces pair/payload limits
+  before overflow materialization. Focused tests concatenate 160 rows across
+  multiple leaf/page limits exactly to the complete scan, report an excluded
+  multi-page overflow value by declared logical size, and exercise a 1,000-byte
+  continuation key whose key alone exceeds the page budget. A 24-case property
+  varies bounds and limits and reproduces the existing complete snapshot scan.
+- Findings: first-unconsumed inclusive continuation is workable without
+  physical state. The logical payload budget is not a total-memory budget: one
+  continuation key is an explicit additive allocation bounded by
+  `MAX_KEY_SIZE`. Excluded overflow bytes need not be materialized.
+- Disposition: remain Incubating. Add malformed-length/corruption and exact
+  leaf-boundary falsifications, then review the public result vocabulary and
+  independent Rust caller before amending ADR-0006.
+- Resulting ADR or documentation change: private prototype and conservation
+  properties only; no public method or C range export.
 
 ## References
 

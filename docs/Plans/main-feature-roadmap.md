@@ -7,7 +7,7 @@
 | Last updated | 2026-09-03 (cluster, assurance, and crypto-agility tracks opened) |
 | Owner | Tosumu maintainers |
 | Authority | Tracking plan; `docs/Specifications/Tosumu Software Design Document.md` remains normative |
-| Current milestone | MVP+11 private bounded snapshot-scan prototype |
+| Current milestone | MVP+11 bounded snapshot-scan falsification and public-contract review |
 
 ## Purpose
 
@@ -834,7 +834,7 @@ partial or stale milestones directly rather than forcing a pass/fail result.
 | +8 | Verified | TUI/view tests and structured inspect contracts | Maintain viewer evidence |
 | +9 | Verified baseline; deferred scope named | `initial-sql-layer.md`; audit and logical scans explicitly moved out | Post-MVP+10 SQL and future audit plans |
 | +10 | Complete | ADR-0005 through ADR-0009; focused MVP+10 plans; shared KV, SQL, VACUUM, Criterion, and native macOS arm64 CI evidence | Maintain contracts and platform evidence |
-| +11 | Slice 0 complete; Slice 1 waiting on bounded range evidence | AR-0017/0018, adapter crate, and hosted C11 lifecycle/error/observation/panic evidence | Prototype and falsify stateless pair/payload-bounded snapshot pages before public or C exposure |
+| +11 | Slice 0 complete; Slice 1 waiting on bounded range admission | AR-0017/0018, hosted C11 evidence, private scan prototype, and randomized complete-scan equivalence | Add corruption/leaf-boundary falsifications, then review public core result vocabulary |
 | +12 | Not started | Architectural Review required | Unassigned |
 | +13 | Not started | Future dedicated plan and format decision | Unassigned |
 | +14 | Not started | Future dedicated plan and benchmarks | Unassigned |

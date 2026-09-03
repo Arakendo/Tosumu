@@ -100,7 +100,7 @@ bound only the returned encoding, not the work or memory already consumed.
 Do not expose that operation as a bounded C scan. The next admission review
 must define a resumable core scan page/cursor that:
 
-- applies pair and encoded-byte limits while traversing leaves;
+- applies pair and logical-payload-byte limits while traversing leaves;
 - does not read an overflow value after its declared length exceeds the
   remaining page budget;
 - distinguishes exhausted range from a resumable continuation;
@@ -108,6 +108,10 @@ must define a resumable core scan page/cursor that:
 - remains pinned to the snapshot generation; and
 - returns a typed outcome when one entry cannot fit the caller's admitted
   maximum.
+
+The continuation itself owns one copy of the first excluded key. That memory is
+outside the logical payload limit but bounded independently by `MAX_KEY_SIZE`;
+an adapter envelope must budget for it explicitly.
 
 That change extends the public `KvReadTransaction` contract governed by
 ADR-0006/0007. It requires review and an independent Rust caller in addition to

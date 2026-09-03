@@ -195,10 +195,10 @@ No rung implies the next.
 
 ## Immediate Next Slice
 
-Implement AR-0018's private stateless range-page traversal and prove pair,
-payload, oversized-entry, continuation, and complete-scan equivalence bounds.
-Do not publish the core method or add C range symbols until that prototype is
-reviewed.
+Extend AR-0018's passing private prototype with malformed-length/corruption and
+exact leaf-boundary falsifications. Then review the public result vocabulary
+and require an external core integration test before amending ADR-0006 or
+adding C range symbols.
 
 ## References
 
