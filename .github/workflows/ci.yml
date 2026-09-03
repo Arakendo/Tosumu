@@ -31,6 +31,19 @@ env:
   RUSTFLAGS: "-D warnings"
 
 jobs:
+  crypto-oracle:
+    name: independent format-v3 crypto oracle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: tools/crypto-oracle/go.mod
+          cache-dependency-path: tools/crypto-oracle/go.sum
+      - name: Verify independent format-v3 corpus
+        working-directory: tools/crypto-oracle
+        run: go test ./...
+
   dependency-provenance:
     name: dependency provenance baseline
     runs-on: ubuntu-latest

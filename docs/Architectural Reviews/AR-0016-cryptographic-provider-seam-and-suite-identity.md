@@ -473,4 +473,24 @@ reinterpretation, or compliance label is accepted by this cycle.
   independent evidence until C2b executes it through a separately implemented
   oracle.
 - Resulting ADR or documentation change: retain
-  `crypto-format-v3-oracle-corpus-v1.json`; no dependency or ADR admitted.
+  `tools/crypto-oracle/testdata/format-v3-v1.json`; no dependency or ADR
+  admitted.
+
+### Cycle 10 -- 2026-09-03
+
+- Status entering review: C2a complete; C2b executor unadmitted.
+- New evidence: a separately built Go executor independently matches all seven
+  positive corpus cases and rejects all seven negative mutations. Its exact
+  toolchain, two-module closure, module sums, and seven non-standard compiled
+  packages are retained under AR-0010 Cycle 11.
+- Findings: the corpus contract was sufficient without changing Tosumu's
+  production facade or introducing a trait, provider state, runtime dispatch,
+  or product dependency. Independent execution therefore falsifies the concern
+  that the vectors only restate RustCrypto output, but does not qualify either
+  implementation or prove arbitrary-provider substitutability.
+- Disposition: C2b implementation and CI wiring complete; the first retained
+  Linux CI result and explicit target-support record remain open. Do not add a
+  production private trait merely to mirror the oracle; reopen contract shape
+  only when a runtime provider or opaque-key requirement exercises it.
+- Resulting ADR or documentation change: evidence-only Go oracle and provenance
+  note; no public SPI, format change, or new ADR.

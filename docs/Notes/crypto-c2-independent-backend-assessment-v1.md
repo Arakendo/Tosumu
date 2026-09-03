@@ -72,7 +72,7 @@ Split C2 into two bounded slices:
 
 ### C2a corpus contract
 
-`crypto-format-v3-oracle-corpus-v1.json` is the first corpus instance. It uses
+`tools/crypto-oracle/testdata/format-v3-v1.json` is the first corpus instance. It uses
 lowercase hexadecimal bytes, decimal JSON integers whose field names identify
 little-endian encoding, and compact deterministic recipes for the 4,056-byte
 page plaintext and page-zero MAC regions. An executor must reject an unknown

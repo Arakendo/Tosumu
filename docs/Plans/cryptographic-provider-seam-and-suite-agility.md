@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Gate C1 implemented; Gate C2 evidence and all public SPI or format changes remain unadmitted |
+| Status | Gate C1 implemented; Gate C2 oracle implemented with Linux execution pending; all public SPI and format changes remain unadmitted |
 | Opened | 2026-09-03 |
 | Last updated | 2026-09-03 |
 | Owner | Tosumu maintainers |
@@ -289,14 +289,14 @@ and rebuild tests are unchanged in meaning.
 **Objective:** Demonstrate that the seam describes Tosumu's construction rather
 than merely renaming RustCrypto calls.
 
-- [ ] Add an independent backend implementing the exact current suite, or a
+- [x] Add an independent backend implementing the exact current suite, or a
       narrowly limited deterministic test backend where a second real
       implementation is unavailable.
-- [ ] If deterministic testing is used, forbid it from production construction
+- [x] If deterministic testing is used, forbid it from production construction
       and document why its nonce/key behavior is not a valid real suite.
-- [ ] Run cross-backend known-answer, encrypt/decrypt, wrap/unwrap, header-MAC,
+- [x] Run cross-backend known-answer, encrypt/decrypt, wrap/unwrap, header-MAC,
       wrong-key, tamper, and error-equivalence tests.
-- [ ] Prove cross-provider interoperability for identical suite bytes.
+- [x] Prove cross-provider interoperability for identical suite bytes.
 - [ ] Record unsupported target/provider combinations explicitly.
 
 **Exit gate:** independent pressure has revealed enough contract shape to decide
@@ -308,9 +308,9 @@ whether a public provider SPI is justified.
       adding them to the product dependency graph.
 - [x] C2a: define a versioned deterministic oracle corpus covering every
       format-v3 construction and normalized negative outcome.
-- [ ] Admit the independent oracle toolchain and pinned dependency closure
+- [x] Admit the independent oracle toolchain and pinned dependency closure
       through AR-0010.
-- [ ] C2b: implement the oracle outside `tosumu-core` and compare both
+- [x] C2b: implement the oracle outside `tosumu-core` and compare both
       executors over the retained corpus.
 
 ### Phase 2 / Slice C3: Provider-Owned Key Lifecycle
@@ -711,6 +711,25 @@ provider pressure. Reopen or advance when:
 - Next slice: admit a pinned Go toolchain and `golang.org/x/crypto` module
   closure through AR-0010 before implementing C2b.
 
+### 2026-09-03 -- C2b Independent Go Executor
+
+- Work completed: added a separately built Go command that consumes the shared
+  corpus and independently implements every positive and negative case using
+  standard-library SHA-256/HMAC/HKDF plus pinned `x/crypto` Argon2id and
+  ChaCha20-Poly1305. It is outside the Cargo workspace and release artifacts.
+- Provenance: Go 1.26.8, `x/crypto` 0.56.0, and transitive `x/sys` 0.47.0 are
+  exact; module sums and the seven-package non-standard compile closure are
+  retained in `crypto-c2-oracle-provenance-v1.md`.
+- Validation: the official Windows amd64 Go archive matched its published
+  SHA-256; `go test ./...` passed; the command independently reported seven
+  positive and seven negative cases passed without emitting vector material.
+  A Linux amd64 test binary cross-compiled successfully but was not executed.
+- Claim boundary: this is cross-implementation corpus evidence, not a runtime
+  provider, complete source audit, platform qualification, or compliance claim.
+- Next slice: obtain the first Linux CI execution, record supported oracle
+  targets, then use the pressure it revealed to decide whether any production
+  private trait is justified. The current evidence does not require one.
+
 ## References
 
 - `docs/ADR/ADR-0001-storage-engine-layer-boundaries.md`
@@ -721,7 +740,8 @@ provider pressure. Reopen or advance when:
 - `docs/Architectural Reviews/AR-0016-cryptographic-provider-seam-and-suite-identity.md`
 - `docs/Notes/crypto-boundary-inventory-v1.md`
 - `docs/Notes/crypto-c2-independent-backend-assessment-v1.md`
-- `docs/Notes/crypto-format-v3-oracle-corpus-v1.json`
+- `docs/Notes/crypto-c2-oracle-provenance-v1.md`
+- `tools/crypto-oracle/testdata/format-v3-v1.json`
 - `docs/Notes/crypto-file-conservation-matrix-v1.md`
 - `docs/Plans/high-assurance-engineering-and-evidence-export.md`
 - `docs/Plans/cluster-fault-tolerance-and-replication.md`

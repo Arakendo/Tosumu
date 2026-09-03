@@ -327,3 +327,21 @@ AR-0010 remains Incubating for the repository's broader dependency policy.
   controlled-build execution and select unsafe surfaces for focused review.
 - Resulting ADR or documentation change: add
   `dependency-proc-macro-runtime-review-v1.json`; no policy acceptance.
+
+### Cycle 11 -- 2026-09-03
+
+- Status entering review: Incubating; C2 oracle toolchain unadmitted.
+- New evidence: the offline crypto oracle pins Go 1.26.8, `x/crypto` 0.56.0,
+  and transitive `x/sys` 0.47.0. Go module sums cover both modules, and the
+  compiled non-standard closure is seven packages. The checksum-verified local
+  toolchain builds and passes the 14-case corpus.
+- Findings: the oracle is outside the Cargo workspace, performs no database I/O,
+  ships in no release artifact, and exposes no runtime provider surface. This
+  sharply bounds its role, but module checksums and package reachability are not
+  complete source review or compiler/platform qualification.
+- Disposition: admit the exact toolchain and module versions for this
+  evidence-only oracle. Any version, closure, execution-role, or artifact-
+  inclusion change reopens review. General dependency policy remains
+  Incubating.
+- Resulting ADR or documentation change: retain
+  `crypto-c2-oracle-provenance-v1.md`; no product dependency or ADR.
