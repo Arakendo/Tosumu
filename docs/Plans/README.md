@@ -19,6 +19,9 @@ validation, and exit states.
 - [MVP+10 Multiple Readers And Coordination](mvp-10-multiple-readers.md) --
   **Proposed; baseline recorded** for current handle, visibility, writer, and
   checkpoint behavior under AR-0009.
+- [MVP+10 Secondary Indexes](mvp-10-secondary-indexes.md) -- implements the
+  ADR-0008 SQL-owned ordered index representation after reader visibility and
+  conditional writes.
 - [Initial SQL Layer](initial-sql-layer.md) -- MVP+9 baseline complete; retained
   as **Completed baseline** implementation history and a source for deferred
   SQL work.

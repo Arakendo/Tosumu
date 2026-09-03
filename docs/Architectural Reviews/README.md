@@ -75,7 +75,10 @@ numbering. Copy `TEMPLATE.md` and add the record to this index.
 - [AR-0012: Conditional Write And Version Token Semantics](AR-0012-conditional-write-and-version-token-semantics.md)
   -- accepted through ADR-0007; defines the database-generation token and
   conditional-write outcome boundary.
+- [AR-0013: Secondary Index Representation And Ownership](AR-0013-secondary-index-representation-and-ownership.md)
+  -- accepted through ADR-0008; assigns logical index representation and
+  maintenance to SQL without adding physical B+ tree roots.
 
-AR-0009, AR-0011, and AR-0012 are **Accepted** through their related ADRs.
+AR-0009, AR-0011, AR-0012, and AR-0013 are **Accepted** through their related ADRs.
 Other indexed reviews are currently **Incubating**; none are rejected,
 deferred, or superseded.

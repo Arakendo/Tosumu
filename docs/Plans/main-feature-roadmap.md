@@ -257,7 +257,7 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
       partial commits, including one atomic multi-mutation write closure.
 - [x] Version-observing reads and conditional-write helpers (`put_if_absent`
       and compare-and-set/version operations).
-- [ ] Plain single-column secondary B+ tree indexes.
+- [ ] Plain single-column SQL-owned ordered secondary indexes (ADR-0008).
 - [ ] `VACUUM` with explicit reclamation, interruption, and publication rules.
 - [ ] Representative concurrency and SQLite comparison benchmarks.
 

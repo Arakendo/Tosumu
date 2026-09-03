@@ -1571,7 +1571,10 @@ Multi-reader concurrency without blocking writes.
 - MVCC snapshot by LSN (read transactions see a fixed point-in-time view).
 - Single writer, multiple concurrent readers.
 - Conditional-write helpers: `get_with_version()`, `put_if_absent()`, and `put_if_version()` / compare-and-set semantics built on stable version visibility.
-- Secondary indexes (additional B+ trees mapping `(secondary_key, primary_key)`).
+- Secondary indexes (ordered mappings from `(secondary_key, primary_key)` to an
+  empty value). The initial MVP+10 representation uses SQL-owned reserved
+  keyspaces in the authenticated KV B+ tree; independent physical roots remain
+  a later storage optimization (ADR-0008).
 - `VACUUM` command — reclaim space from deleted records.
 - Benchmarks vs SQLite on small representative workloads (§11.11).
 
@@ -1996,7 +1999,11 @@ The detailed design lives in the [Tosumu Command Language](../Tosumu%20Command%2
 
 ### Stage 6 — Stretch
 - Multi-reader concurrency (MVCC snapshot by LSN).
-- **Secondary indexes** — additional B+ trees mapping `(secondary_key, primary_key)`. Think `CREATE INDEX idx ON users(email)` for relational-style lookups. Not full-text, not fuzzy, not vectors (see §18).
+- **Secondary indexes** — ordered mappings from `(secondary_key, primary_key)`
+  for relational-style lookups such as `CREATE INDEX idx ON users(email)`. The
+  initial representation is a reserved SQL keyspace in the authenticated KV
+  tree (ADR-0008), not a new physical root. Not full-text, fuzzy, or vector
+  indexing (see §18).
 - `VACUUM` — reclaim space from deleted records and rebuild indexes.
 - Benchmarks vs SQLite on small representative workloads, purely for humility.
 - Explicit non-goals for Stage 6: no FSTs, no full-text search, no vector search, no spatial indexes. See §18 for why.
@@ -2338,7 +2345,11 @@ This section explicitly addresses indexing features beyond a basic B+ tree, so t
 ### 18.1 What tosumu *does* support (Stages 1–6)
 
 - **Primary key index** (Stage 2): B+ tree over the primary key. Supports point lookups (`get(key)`) and range scans (`scan(start_key..end_key)`).
-- **Secondary indexes** (Stage 6, stretch): Additional B+ trees mapping `(secondary_key, primary_key)`. Standard relational DB feature. Supports lookups like `SELECT * FROM users WHERE email = ?`.
+- **Secondary indexes** (Stage 6, stretch): Ordered mappings from
+  `(secondary_key, primary_key)` to an empty value in SQL-owned reserved
+  keyspaces. This standard relational feature supports lookups such as
+  `SELECT * FROM users WHERE email = ?`; independent physical roots are not
+  required by the initial contract (ADR-0008).
 
 That's it. That's the entire indexing story for tosumu as designed.
 
