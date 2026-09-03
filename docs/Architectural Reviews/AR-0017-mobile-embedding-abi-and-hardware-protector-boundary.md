@@ -201,7 +201,7 @@ claim.
 
 ## Required Follow-Up
 
-- [ ] Reconcile SDD section 19's obsolete claims and distinguish design intent,
+- [x] Reconcile SDD section 19's obsolete claims and distinguish design intent,
       hypotheses, and accepted requirements.
 - [x] Create a sliced MVP+11 plan: contract baseline, C harness, hostile-handle
       corpus, target builds, language consumers, platform protector prototype,
@@ -264,3 +264,23 @@ claim.
   functions yet.
 - Resulting ADR or documentation change: MVP+11 plan and contract/target
   inventory retained; no ADR, dependency, stable ABI, or platform claim.
+
+### Cycle 3 -- 2026-09-03
+
+- Status entering review: Incubating; Slice 0 inventory complete.
+- New evidence: SDD section 19 now gives current ADRs and AR-0017 precedence
+  over its historical mobile sketches, removes implicit protector fallback,
+  and classifies old estimates and precedents as non-evidence. The experimental
+  ABI contract defines a callback-free outcome algebra, owned structured errors
+  and byte results, provisional kind/generation-checked handles, explicit state
+  transitions, conservative thread affinity, panic containment, and snapshot
+  independence from parent-handle close.
+- Findings: the schema is narrow enough to design an independent C harness
+  without inventing multi-call transaction semantics. Its registry, numeric
+  layout, symbols, unsafe implementation, and boundary-error vocabulary still
+  require conservation and hostile-caller evidence.
+- Disposition: remain Incubating. Admit review of the C harness, narrow unsafe
+  boundary, and build inputs; do not implement exports until that review is
+  retained.
+- Resulting ADR or documentation change: normative SDD reconciliation and
+  experimental ABI contract note; no ADR, dependency, or public ABI.

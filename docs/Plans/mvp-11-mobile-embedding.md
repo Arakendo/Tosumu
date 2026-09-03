@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed; AR-0017 contract baseline recorded, implementation not admitted |
+| Status | Proposed; Slice 0 complete and experimental ABI schema retained; implementation not admitted |
 | Opened | 2026-09-03 |
 | Owner | Mobile adapters above `tosumu-core` |
 | Target | Callback-free C ABI, independent Swift/Kotlin callers, and named iOS/Android qualification profiles |
@@ -36,8 +36,10 @@ protector policy, or turning cross-compilation into a mobile-support claim.
 - [x] Record handle subjects, result/buffer ownership questions, hostile inputs,
       and a callback-free initial policy.
 - [x] Separate protector capabilities and mobile qualification evidence levels.
-- [ ] Reconcile normative SDD section 19 using this evidence without replacing
+- [x] Reconcile normative SDD section 19 using this evidence without replacing
       unresolved questions with implementation promises.
+- [x] Define the experimental callback-free request/result algebra and handle
+      state machine without reserving ABI layouts, symbols, or compatibility.
 
 **Exit:** the first experiment has a bounded question set and no stable ABI is
 claimed.
@@ -189,15 +191,17 @@ No rung implies the next.
 
 ## Immediate Next Slice
 
-Reconcile SDD section 19 and define the Slice 1 experimental ABI request/result
-schema plus handle state machine. Do not implement exported functions until
-that conservation review is retained.
+Review the retained Slice 1 experimental ABI request/result schema and handle
+state machine against an independently compiled C harness design. Define the
+narrow unsafe-code exception, build/dependency inputs, and conservation corpus
+before implementing exported functions.
 
 ## References
 
 - `docs/Architectural Reviews/AR-0017-mobile-embedding-abi-and-hardware-protector-boundary.md`
 - `docs/Architectural Reviews/AR-0016-cryptographic-provider-seam-and-suite-identity.md`
 - `docs/Notes/mvp-11-foreign-contract-and-target-inventory-v1.md`
+- `docs/Notes/mvp-11-experimental-abi-contract-v1.md`
 - `docs/Specifications/Tosumu Error Design Document.md`
 - `docs/Specifications/Tosumu Inspect API Specification.md`
 - `docs/Specifications/Tosumu Software Design Document.md`

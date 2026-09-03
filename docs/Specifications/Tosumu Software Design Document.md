@@ -2601,7 +2601,37 @@ Otherwise                       → reject with descriptive error
 
 ## 19. Platform support and mobile deployment
 
-tosumu's embedded architecture (single-file, single-process, no server) makes it naturally suitable for mobile platforms. This section documents the plan for iOS and Android support, targeted for Stage 7+.
+Tosumu's embedded architecture makes mobile deployment a credible target, but
+mobile support is not currently established. A database is an operational
+artifact set whose main file, WAL, and persistent writer-lock sidecar have
+different lifecycle rules; it must not be described as universally
+"single-file" for backup, transfer, or process coordination.
+
+### 19.0 Current normative status
+
+[AR-0017](../Architectural%20Reviews/AR-0017-mobile-embedding-abi-and-hardware-protector-boundary.md)
+and the [MVP+11 plan](../Plans/mvp-11-mobile-embedding.md) govern admission of
+mobile embedding work. Until that review produces accepted decisions:
+
+- the C, Swift, Kotlin, Keychain, and Keystore code below is a historical design
+  sketch, not an accepted ABI, provider contract, or implementation recipe;
+- no mobile target, minimum OS version, package format, binary size, schedule,
+  filesystem behavior, or hardware-protection property is claimed;
+- cross-compilation is distinct from simulator/emulator execution, physical-
+  device behavior, lifecycle/filesystem qualification, and hardware evidence;
+- the first C experiment is callback-free, contains all panics, and gives every
+  handle, allocation, result, and error an explicit owner and state;
+- `tosumu-core` remains free of FFI concerns and continues to forbid unsafe
+  code; a dedicated adapter owns the necessary foreign-boundary mechanics;
+- hardware backing, key exportability, device binding, biometric or user-
+  presence authorization, backup eligibility, and invalidation are separate
+  observations rather than one boolean capability; and
+- protector failure never causes implicit fallback to a weaker authority.
+
+Subsections 19.1 through 19.9 retain earlier intent and candidate examples.
+Where their wording conflicts with this status, current ADRs, specifications,
+or AR-0017, the current decisions and this subsection take precedence. Their
+checkmarks, product precedents, and effort estimates are not evidence.
 
 ### 19.1 Why mobile is viable
 
@@ -2763,7 +2793,7 @@ impl KeyProtector for IosKeychainProtector {
     {
         // kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         // Retrieve 32-byte KEK from Keychain
-        // Falls back to passphrase if Keychain unavailable
+        // No implicit fallback: return a typed unavailable/denied outcome.
     }
 }
 ```
@@ -2978,13 +3008,14 @@ Argon2id { m: 64_000, t: 4, p: 2 }
 - **1Password** (password manager): Rust security components
 - **Mullvad VPN**: Rust client on mobile
 
-**If SQLite can do it, tosumu can do it.** Same architecture, same constraints, same capabilities.
+These precedents motivate investigation; they do not establish that Tosumu has
+the same architecture, constraints, capabilities, or platform qualification.
 
 ### 19.9 Timeline and staging
 
 **Not before Stage 6 complete.** Mobile support is an extension, not a core goal. Desktop platforms (Linux/macOS/Windows) must be stable first.
 
-**Estimated effort:**
+**Historical estimate only; not a delivery commitment or current evidence:**
 - Stage 7a (FFI layer): 1 week
 - Stage 7b (iOS): 2 weeks
 - Stage 7c (Android): 2 weeks

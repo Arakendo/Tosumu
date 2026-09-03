@@ -8,10 +8,9 @@ This page is the public roadmap summary. It is intentionally shorter than the re
   conditional-write contracts through core and SQL-layer caller tests
 - maintain ADR-0008 plain single-column secondary indexes and their atomic
   row/index mutation contract
-- reconcile MVP+11's mobile SDD assumptions through AR-0017 and the retained
-  foreign-contract/target inventory before exporting an ABI
-- define a callback-free experimental C request/result schema and handle state
-  machine without claiming stable Swift/Kotlin or mobile support
+- review MVP+11's retained callback-free ABI schema against an independent C
+  harness design, narrow unsafe-code boundary, build inputs, and conservation
+  corpus before exporting functions
 - advance [AR-0015](Architectural%20Reviews/AR-0015-native-replication-scope-authority-and-failure-model.md):
   define concrete failure domains, RPO/RTO hypotheses, authority epochs, and
   fencing requirements before native replication work
