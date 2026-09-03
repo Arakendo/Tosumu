@@ -63,7 +63,7 @@ or execution role reopens this evidence-only admission under AR-0010.
 | Target | Observation | Qualification boundary |
 | --- | --- | --- |
 | Windows amd64 | Built and executed all positive, negative, fail-closed schema, and mutation tests with Go 1.26.8 | Local evidence-only oracle target |
-| Linux amd64 | `go test -c` cross-compilation succeeded; GitHub Actions job is wired but has no retained result in this change | Compile evidence only until CI executes |
+| Linux amd64 | `go test -c` cross-compilation succeeded locally; hosted Ubuntu `go test ./...` passed at commit `abdc241` in [CI run 33812169906, job 100836236809](https://github.com/Arakendo/Tosumu/actions/runs/33812169906/job/100836236809) | Evidence-only oracle target; this is not product platform qualification |
 | Other Go targets | Not exercised | Unqualified, not silently supported |
 | Browser WASM | Not required or exercised | The oracle is offline evidence tooling and is not part of Tosumu's browser artifact |
 
@@ -73,4 +73,7 @@ On 2026-09-03, the checksum-verified Windows amd64 Go 1.26.8 archive built the
 tool with workspace-local build and module caches. `go test ./...` passed, and
 the command reported seven positive and seven negative format-v3 cases passed.
 The same source cross-compiled its test binary for Linux amd64; that binary was
-not executed locally.
+not executed locally. GitHub Actions then executed `go test ./...` successfully
+on its hosted Ubuntu runner at commit `abdc241`. The Windows local and hosted
+Linux observations qualify only those two oracle execution environments; all
+other Go targets remain explicitly unqualified.

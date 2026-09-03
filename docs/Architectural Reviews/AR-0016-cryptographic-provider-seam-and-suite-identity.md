@@ -494,3 +494,20 @@ reinterpretation, or compliance label is accepted by this cycle.
   only when a runtime provider or opaque-key requirement exercises it.
 - Resulting ADR or documentation change: evidence-only Go oracle and provenance
   note; no public SPI, format change, or new ADR.
+
+### Cycle 11 -- 2026-09-03
+
+- Status entering review: C2b implemented with hosted execution pending.
+- New evidence: the independent oracle's `go test ./...` passed on a GitHub-
+  hosted Ubuntu runner at commit `abdc241` in CI run `33812169906`, job
+  `100836236809`. The retained target record now distinguishes local Windows
+  execution, hosted Linux execution, cross-compilation, and unqualified targets.
+- Findings: independent Linux execution required no production provider trait,
+  pager-held provider state, raw-key contract change, alternate suite, or format
+  change. The current facade is therefore an adequate private preparatory seam;
+  abstracting it further now would stabilize conjecture rather than evidence.
+- Disposition: C2 complete. Keep C3 incubating until a concrete opaque-key
+  provider or independent runtime consumer exercises lifecycle and failure
+  semantics. C4 and later gates remain unadmitted.
+- Resulting ADR or documentation change: target/evidence records and roadmap
+  status updated; no new ADR.

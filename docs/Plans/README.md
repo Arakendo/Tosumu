@@ -56,10 +56,9 @@ validation, and exit states.
   export, platform qualification, key/privilege boundaries, and independent
   profile review.
 - [Cryptographic Provider Seam And Suite Agility](cryptographic-provider-seam-and-suite-agility.md)
-  -- **Proposed; architectural admission required** phased path from a private
-  byte-preserving backend seam through opaque key ownership, authenticated
-  suite identity, full-rewrite migration, and named reviewed deployment
-  profiles.
+  -- **Gates C1-C2 complete; later architecture unadmitted** private
+  byte-preserving format seam plus independent oracle evidence, with opaque key
+  ownership, suite identity, migration, and reviewed profiles still gated.
 
 ## Plan Requirements
 

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Gate C1 implemented; Gate C2 oracle implemented with Linux execution pending; all public SPI and format changes remain unadmitted |
+| Status | Gates C1 and C2 complete; Gate C3 awaits a concrete opaque-key consumer; all public SPI and format changes remain unadmitted |
 | Opened | 2026-09-03 |
 | Last updated | 2026-09-03 |
 | Owner | Tosumu maintainers |
@@ -297,7 +297,7 @@ than merely renaming RustCrypto calls.
 - [x] Run cross-backend known-answer, encrypt/decrypt, wrap/unwrap, header-MAC,
       wrong-key, tamper, and error-equivalence tests.
 - [x] Prove cross-provider interoperability for identical suite bytes.
-- [ ] Record unsupported target/provider combinations explicitly.
+- [x] Record unsupported target/provider combinations explicitly.
 
 **Exit gate:** independent pressure has revealed enough contract shape to decide
 whether a public provider SPI is justified.
@@ -729,6 +729,21 @@ provider pressure. Reopen or advance when:
 - Next slice: obtain the first Linux CI execution, record supported oracle
   targets, then use the pressure it revealed to decide whether any production
   private trait is justified. The current evidence does not require one.
+
+### 2026-09-03 -- C2 Hosted Linux Closure
+
+- Evidence: hosted Ubuntu `go test ./...` passed at commit `abdc241` in
+  [CI run 33812169906, job 100836236809](https://github.com/Arakendo/Tosumu/actions/runs/33812169906/job/100836236809).
+  The job used the retained `go.mod` toolchain directive and pinned `go.sum`.
+- Target record: Windows amd64 local execution and hosted Linux amd64 execution
+  are observed for the evidence-only oracle. Other Go targets are unqualified;
+  browser WASM is outside the oracle's role.
+- Finding: the independent executor required no change to Tosumu's production
+  facade, errors, format, or key representation. C2 therefore does not justify
+  manufacturing a private trait or public provider SPI.
+- Disposition: C2 complete. Park C3 until an HSM, KMS, TPM, keystore, validated
+  module, or independent consumer supplies a concrete opaque-handle and failure
+  contract. C4 remains blocked on an explicit authenticated format decision.
 
 ## References
 
