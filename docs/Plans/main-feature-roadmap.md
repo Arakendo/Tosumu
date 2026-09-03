@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Active |
 | Opened | 2026-08-03 |
-| Last updated | 2026-09-02 (benchmark closure recorded) |
+| Last updated | 2026-09-03 (cluster and assurance long-term tracks opened) |
 | Owner | Tosumu maintainers |
 | Authority | Tracking plan; `docs/Specifications/Tosumu Software Design Document.md` remains normative |
 | Current milestone | MVP+10 native Unix VACUUM CI confirmation |
@@ -33,6 +33,13 @@ beyond the normative specifications.
 - [x] Close remaining MVP+9 audit and logical-scan decisions explicitly.
 - [x] Open a focused MVP+10 plan before implementing MVCC, conditional writes,
       secondary indexes, or `VACUUM`.
+- [x] Open a long-term cluster fault-tolerance and replication plan with
+      separate recovery, freshness, standby, failover, and consensus gates.
+- [x] Open a cross-cutting high-assurance engineering and evidence-export plan
+      spanning provenance, inspection, qualification, keys, and review.
+- [ ] Reconcile the normative distributed-storage non-goal through
+      [AR-0015](../Architectural%20Reviews/AR-0015-native-replication-scope-authority-and-failure-model.md)
+      before implementing native replication.
 
 ## MVP Delivery And Acceptance Checklist
 
@@ -294,20 +301,34 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
 - [ ] App suspend/resume and process restart preserve committed state.
 - [ ] iOS and Android device-level encrypted round trips pass.
 
-### MVP+12: It Runs With Witnesses And Observers
+### MVP+12: It Runs With Recovery Evidence, Witnesses, And Observers
+
+The staged work and stronger-level exclusions are retained in
+[Cluster Fault Tolerance And Replication](cluster-fault-tolerance-and-replication.md).
 
 **Build**
 
-- [ ] Architectural Review for server, witness, observer, and freshness
-      ownership before implementation.
+- [ ] Close the first service-authority review cycle with one bounded host
+      experiment before stabilizing a remote contract.
+- [ ] **MVP+12a:** one writable K3s host with an exclusive PVC, bounded probes,
+      verified offsite backup publication, and a rehearsed cold restore.
+- [ ] Record pod-restart, node-loss, volume-loss, and restore RPO/RTO evidence
+      for each named storage topology.
+- [ ] **MVP+12b:** Architectural Review closure for witness, observer, and
+      freshness ownership before stabilizing their contracts.
 - [ ] Transport-neutral signed receipt and observer contracts above core.
 - [ ] `tosumu-server`, witness quorum service, and local observer process.
-- [ ] K3s reference deployment with PVCs, health probes, and reproducible
-      manifests or chart.
+- [ ] Reproducible K3s manifests or chart that keep witnesses in independent
+      failure domains and never share one writable database file across pods.
 - [ ] Rollback/freshness disagreement injection and operational diagnostics.
 
 **Acceptance Criteria**
 
+- [ ] Pod replacement and operator-driven restore produce a verified database
+      or a structured unavailable outcome; storage-provider replication is not
+      mislabeled as Tosumu replication.
+- [ ] Node-loss support is claimed only for an explicitly tested CSI or block-
+      storage provider; local-path remains a single-node development profile.
 - [ ] Restoring a stale database snapshot produces a structured rollback or
       freshness warning backed by witness evidence.
 - [ ] Witnesses audit identity/freshness and do not become database replicas or
@@ -369,6 +390,139 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
 - [ ] Benchmarks demonstrate the intended query-pattern benefit and report
       storage/write amplification without converting observations into
       unsupported guarantees.
+
+### MVP+15: It Maintains An Asynchronous Warm Standby
+
+This milestone covers Levels 3 and 4 of the cluster plan. Native replication
+does not begin until its architecture is accepted.
+
+**Build**
+
+- [ ] Reconcile the SDD distributed-storage non-goal and admit or park a
+      single-leader replication architecture through an ADR.
+- [ ] Decide byte-identical standby replication versus normalized committed-
+      effect replication without exposing the recovery WAL as public meaning.
+- [ ] Define database, replica, transaction, replication-position, and
+      authority-epoch identities.
+- [ ] Verified snapshot bootstrap, gap-free incremental catch-up, durable
+      received/applied watermarks, and explicit reseeding.
+- [ ] Bounded async stream with duplicate, reorder, gap, corruption, lag,
+      retention, and wrong-identity handling.
+- [ ] Passive standby that rejects writes and exposes structured replication
+      health and promotion eligibility.
+- [ ] Manual promotion requiring positive external fencing evidence.
+
+**Acceptance Criteria**
+
+- [ ] Snapshot plus increments reproduces the leader's committed logical state
+      without publishing a partial transaction.
+- [ ] Replication gaps and retained-history overruns never skip silently.
+- [ ] Lag and the potential promotion data-loss window are measurable and
+      visible.
+- [ ] Manual promotion cannot proceed without fencing evidence and a selected
+      recovery position.
+- [ ] Physical WAL offsets, page numbers, and checkpoint truncation do not enter
+      the stable replication contract.
+- [ ] Format, key/protector, compatibility, and security consequences are
+      accepted and tested before support is claimed.
+
+### MVP+16: It Transfers Authority Automatically
+
+**Build**
+
+- [ ] Monotonic authority epochs and stale-primary write rejection.
+- [ ] Positive fencing independent of pod reachability or process-liveness
+      guesses.
+- [ ] Automated replica eligibility, promotion, service routing, and readiness.
+- [ ] Explicit demotion, failback, rejoin, and divergent-history behavior.
+- [ ] Multi-process and multi-node partition, pause, crash, stale-PVC, rolling-
+      upgrade, and simultaneous-restart fault corpus.
+- [ ] Retained manual recovery path for every case automation cannot prove safe.
+
+**Acceptance Criteria**
+
+- [ ] At most one eligible authority acknowledges writes in every supported
+      fault schedule.
+- [ ] A partitioned or delayed former leader cannot publish under a superseded
+      epoch.
+- [ ] Failover occurs only after fencing and only to an eligible replica.
+- [ ] Ambiguous authority remains unavailable with structured diagnostics.
+- [ ] The async replication lag remains an explicit possible data-loss window;
+      automatic failover does not imply zero RPO.
+
+### MVP+17: It Survives Acknowledged Writes Through Quorum
+
+This milestone begins only when retained consumer evidence shows that the
+MVP+16 bounded-RPO profile is insufficient and the project explicitly accepts
+distributed-state-machine responsibilities.
+
+**Build**
+
+- [ ] Accepted replicated-log or consensus design and fully reviewed dependency
+      closure.
+- [ ] Synchronous durability class bound to a durable data quorum and authority
+      epoch.
+- [ ] Membership changes, learner/bootstrap, removal, quorum-loss, and
+      divergent-rejoin semantics.
+- [ ] Deterministic protocol simulation or model checking for election,
+      replication, commit, fencing, and membership invariants.
+- [ ] Black-box multi-node network, process, disk, and control-plane fault
+      campaign.
+- [ ] Mixed-version and rolling-upgrade compatibility matrix.
+
+**Acceptance Criteria**
+
+- [ ] A quorum-class acknowledged commit survives every failure set promised by
+      the named quorum model.
+- [ ] A minority cannot acknowledge writes or advance committed authority.
+- [ ] Membership changes cannot create two valid write quorums.
+- [ ] Rejoining nodes verify identity and history before serving or voting.
+- [ ] Local, async, one-remote-copy, and quorum durability outcomes remain
+      distinguishable at every public boundary.
+- [ ] Fencing remains required; consensus does not silently replace the MVP+16
+      authority-transfer rules.
+
+## Cross-Cutting Long-Term Assurance Track
+
+The feature milestones are necessary but insufficient for a high-assurance
+deployment claim. [High-Assurance Engineering And Evidence Export](high-assurance-engineering-and-evidence-export.md)
+tracks evidence maturity across every milestone rather than pretending it is a
+feature added after MVP+17.
+
+**Build**
+
+- [x] Open the assurance-level and evidence-export plan without changing the
+      repository's current pre-audit security posture.
+- [ ] Inventory current integrity, durability, recovery, freshness, authority,
+      provenance, platform, and unsupported claims.
+- [ ] Advance AR-0010 into a risk-tiered dependency/source provenance policy
+      backed by generated closure inventories.
+- [ ] Produce pinned, SBOM-described, checksummed, and provenance-attested
+      release artifacts; test independent-build reproducibility.
+- [ ] Admit a bounded machine-readable evidence bundle only after AR-0002
+      reviews composition, redaction, and compatibility.
+- [ ] Qualify named operating-system, filesystem, storage, host, and cluster
+      profiles with long-duration, fault, restore, and upgrade evidence.
+- [ ] Define privilege, secret, key/protector, revocation, backup, replica, and
+      secure-deletion limitations per profile.
+- [ ] Obtain independent cryptographic, storage, protocol, and operational
+      review before graduating any assurance claim.
+
+**Acceptance Criteria**
+
+- [ ] Every supported claim names its owner, evidence, profile, version, and
+      unsupported boundary.
+- [ ] An authorized operator can obtain bounded evidence for implemented
+      identity, generation, integrity, recovery, freshness, authority, backup,
+      durability, and build-provenance dimensions.
+- [ ] Missing, stale, incomplete, unconfigured, unsupported, and unverifiable
+      evidence never defaults to `ok`.
+- [ ] Build provenance, test success, external freshness, and independent review
+      remain separate claims.
+- [ ] Assurance language applies only to the named reviewed deployment profile;
+      it does not become a generic certification or defense-suitability claim.
+- [ ] `SECURITY.md`, the specifications, profile manifests, and public guidance
+      agree on the strongest supported posture.
 
 ## Criterion-Level Audit
 
@@ -499,7 +653,8 @@ No implementation or executable evidence was found.
 
 ### MVP+12 Audit
 
-All five criteria are `OPEN / NOT STARTED`: witness-backed rollback/freshness
+All seven criteria are `OPEN / NOT STARTED`: verified pod replacement and cold
+restore; provider-scoped node-loss evidence; witness-backed rollback/freshness
 warnings; witness role boundaries; bounded observer/server failures; readiness
 for unhealthy trust state without automatic failover; and core independence
 from Kubernetes/transport. No implementation or executable evidence was found.
@@ -518,6 +673,39 @@ recovery; semantics-preserving explain-visible planning; Bloom-filter safety;
 zone-map safety; composite/covering index correctness; bitmap cardinality and
 atomicity; and query-benefit/amplification benchmarks. No implementation or
 executable evidence was found.
+
+### MVP+15 Audit
+
+All six criteria are `OPEN / NOT STARTED`: accepted replication architecture;
+gap-free bootstrap and catch-up; atomic replica apply; bounded and visible lag;
+manual promotion with fencing evidence; and explicit format, protector,
+compatibility, and security behavior. Format-3 generations, backup, export, and
+verification are foundations, not replication evidence.
+
+### MVP+16 Audit
+
+All five criteria are `OPEN / NOT STARTED`: single eligible authority under
+fault injection; stale-primary rejection; fenced eligible promotion; explicit
+unavailability under ambiguity; and honest non-zero-RPO reporting for async
+failover. No election, fencing, authority-epoch, or promotion implementation
+exists.
+
+### MVP+17 Audit
+
+All six criteria are `OPEN / NOT STARTED`: evidence requiring synchronous
+quorum; acknowledged-write survival; minority write rejection; safe membership
+changes; verified replica rejoin; and distinct durability classes. No consensus
+or replicated-state-machine implementation exists.
+
+### Long-Term Assurance Track Audit
+
+The planning document is present; all capability criteria are `OPEN / NOT
+STARTED`: repository-wide claim inventory; generated critical dependency
+closure; reproducible and attested artifacts; admitted bounded evidence export;
+qualified platform profiles; reviewed privilege/key/destruction boundaries;
+and independent profile review. Existing tests and AR-0010's focused `fs4`
+review are useful inputs but do not establish an assurance level beyond the
+current experimental baseline.
 
 ## Cross-Cutting Delivered Work
 
@@ -595,6 +783,10 @@ partial or stale milestones directly rather than forcing a pass/fail result.
 | +12 | Not started | Architectural Review required | Unassigned |
 | +13 | Not started | Future dedicated plan and format decision | Unassigned |
 | +14 | Not started | Future dedicated plan and benchmarks | Unassigned |
+| +15 | Planned; architecture not admitted | Cluster fault-tolerance and replication plan | Replication AR, then MVP+15 slices |
+| +16 | Planned; depends on +15 | Cluster fault-tolerance and replication plan | Fencing and automatic-transfer slices |
+| +17 | Conditional long-term target | Consumer near-zero-RPO evidence required | Consensus admission and quorum slices |
+| Assurance | Proposed cross-cutting track | High-assurance engineering and evidence-export plan | Claim inventory and AR-0010 closure baseline |
 
 ## Next Planning Gate
 
@@ -613,6 +805,16 @@ Before implementation moves beyond the completed MVP+9 baseline:
       atomic write callback, and bounded diagnostics contract.
 - [x] Keep secondary indexes subordinate to the MVCC/storage plan rather than
       teaching `tosumu-core` SQL semantics.
+- [x] Create the cluster fault-tolerance and replication plan with a claim
+      ladder from pod restart through synchronous acknowledged-write survival.
+- [x] Open the replication/failover Architectural Review. Continue
+      [AR-0015](../Architectural%20Reviews/AR-0015-native-replication-scope-authority-and-failure-model.md)
+      until it accepts or parks the SDD scope change before native replication
+      implementation.
+- [ ] Define the initial K3s failure-domain, RPO/RTO, storage-provider, and
+      fencing hypotheses before stabilizing deployment claims.
+- [ ] Inventory current public assurance claims and generate the first complete
+      dependency-closure baseline under AR-0010.
 
 ## Completion Rules
 

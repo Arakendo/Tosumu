@@ -84,6 +84,7 @@ nav:
           - AR-0012 Conditional Write And Version Token Semantics: Architectural Reviews/AR-0012-conditional-write-and-version-token-semantics.md
           - AR-0013 Secondary Index Representation And Ownership: Architectural Reviews/AR-0013-secondary-index-representation-and-ownership.md
           - AR-0014 VACUUM Rebuild And Publication: Architectural Reviews/AR-0014-vacuum-rebuild-and-publication.md
+          - AR-0015 Native Replication Scope Authority And Failure Model: Architectural Reviews/AR-0015-native-replication-scope-authority-and-failure-model.md
           - Template: Architectural Reviews/TEMPLATE.md
       - Implementation Plans:
           - Plans/README.md
@@ -99,6 +100,8 @@ nav:
           - Public Website And Repository Records: Plans/public-website-and-repository-records.md
           - Documentation Lifecycle And Design Decomposition: Plans/documentation-lifecycle-and-design-decomposition.md
           - Core Source Unit Decomposition: Plans/core-source-unit-decomposition.md
+          - Cluster Fault Tolerance And Replication: Plans/cluster-fault-tolerance-and-replication.md
+          - High-Assurance Engineering And Evidence Export: Plans/high-assurance-engineering-and-evidence-export.md
           - Template: Plans/TEMPLATE.md
       - Change Requests:
           - CRs/README.md
@@ -113,6 +116,7 @@ nav:
         - Notes:
           - Notes/README.md
           - Architecture Governance Extraction Audit: Notes/architecture-governance-extraction-audit.md
+          - Assurance Claim Inventory v1: Notes/assurance-claim-inventory-v1.md
         - Conversations: Conversations/README.md
         - Archive: Archive/README.md
 

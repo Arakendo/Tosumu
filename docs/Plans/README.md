@@ -46,6 +46,15 @@ validation, and exit states.
 - [Core Source Unit Decomposition](core-source-unit-decomposition.md) --
   **Complete** behavior-preserving test and private-module decomposition
   triggered by ADR-0003's initial core inventory.
+- [Cluster Fault Tolerance And Replication](cluster-fault-tolerance-and-replication.md)
+  -- **Proposed; architectural admission required** long-term claim ladder and
+  gated path from single-authority K3s recovery through async standby, fenced
+  automatic authority transfer, and conditional synchronous consensus.
+- [High-Assurance Engineering And Evidence Export](high-assurance-engineering-and-evidence-export.md)
+  -- **Proposed; assurance claims not yet admitted** cross-cutting levels for
+  dependency/source provenance, reproducible artifacts, bounded evidence
+  export, platform qualification, key/privilege boundaries, and independent
+  profile review.
 
 ## Plan Requirements
 

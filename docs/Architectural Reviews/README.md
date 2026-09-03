@@ -81,6 +81,10 @@ numbering. Copy `TEMPLATE.md` and add the record to this index.
 - [AR-0014: VACUUM Rebuild And Publication](AR-0014-vacuum-rebuild-and-publication.md)
   -- accepted through ADR-0009; defines offline rebuild, retained writer
   admission, protector continuity, verification, and atomic publication.
+- [AR-0015: Native Replication Scope, Authority, And Failure Model](AR-0015-native-replication-scope-authority-and-failure-model.md)
+  -- incubating whether Tosumu should admit single-leader native replication,
+  and defining the scope, identity, failure, and fencing gates that precede a
+  protocol decision.
 
 AR-0009, AR-0011, AR-0012, AR-0013, and AR-0014 are **Accepted** through their related ADRs.
 Other indexed reviews are currently **Incubating**; none are rejected,

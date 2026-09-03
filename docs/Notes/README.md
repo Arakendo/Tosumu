@@ -13,3 +13,6 @@ Promote a note when its role changes:
 ## Index
 
 - [Architecture Governance Extraction Audit](architecture-governance-extraction-audit.md)
+- [Assurance Claim Inventory v1](assurance-claim-inventory-v1.md) -- Slice 0
+  baseline mapping principal current and future claims to authority, executable
+  evidence, limitations, drift findings, and an operator questionnaire.

@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Incubating |
 | Opened | 2026-08-27 |
-| Last reviewed | 2026-08-27 |
+| Last reviewed | 2026-09-03 |
 | Scope | Core storage / adapters / cross-cutting engineering evidence |
 | Trigger | Storage, recovery, integrity, and adapter changes currently rely on several distributed validation rules without one proportional admission boundary |
 | Related ADRs | ADR-0001, ADR-0002, ADR-0003 |
@@ -104,6 +104,13 @@ should remain maintainable engineering guidance.
   and recovery specifications.
 - There is not yet enough Tosumu-specific review history to accept a permanent
   exhaustive checklist or a new architectural classification vocabulary.
+- The first assurance claim inventory applied the proportional discipline
+  outside one source directory and found material gaps: declared MSRV is not a
+  general CI gate, eight fuzz targets exist while two are scheduled, build
+  compatibility is not platform qualification, backup existence is not restore
+  evidence, and cryptographic `dek_id` is not a complete operational database
+  identity. This is useful evidence for the discipline, not proof that its full
+  checklist or A0-A6 vocabulary should be permanent.
 
 ## Disposition
 
@@ -145,3 +152,17 @@ recovery guarantee.
 - Disposition: Incubating
 - Resulting ADR or documentation change: none
 
+### Cycle 2 -- 2026-09-03
+
+- Status entering review: Incubating
+- New evidence: the high-assurance plan and `Assurance Claim Inventory v1`
+  applied a bounded claim-to-authority/evidence/limitation gate across storage,
+  recovery, crypto, inspection, cluster, CI, fuzz, build, and review claims.
+- Findings: the gate materially distinguished several mechanisms from broader
+  assurance claims and exposed actionable gaps. One planning inventory is not
+  enough to accept an exhaustive permanent checklist or certification-like
+  level vocabulary.
+- Disposition: remain Incubating; retain A0-A6 as provisional plan vocabulary
+  and expand the inventory before choosing a permanent policy location.
+- Resulting ADR or documentation change: none; the inventory remains an
+  evidence note and the assurance document remains a non-authoritative plan.

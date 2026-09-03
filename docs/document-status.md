@@ -73,9 +73,10 @@ specifications and accepted ADRs.
 ## Architectural Reviews
 
 AR-0009 is **Accepted** through ADR-0004, ADR-0005, and ADR-0006. AR-0011 is
-**Accepted** through ADR-0005, and AR-0012 is **Accepted** through ADR-0007.
-Other current reviews are **Incubating** and do not change accepted architecture
-by themselves.
+**Accepted** through ADR-0005, AR-0012 through ADR-0007, AR-0013 through
+ADR-0008, and AR-0014 through ADR-0009. Other current reviews, including the
+new replication scope review, are **Incubating** and do not change accepted
+architecture by themselves.
 
 | Record | Question |
 | --- | --- |
@@ -91,6 +92,9 @@ by themselves.
 | [AR-0010](Architectural%20Reviews/AR-0010-dependency-trust-and-source-provenance.md) | Dependency trust, exact source identity, and release provenance |
 | [AR-0011](Architectural%20Reviews/AR-0011-committed-generation-and-version-residence.md) | Accepted committed-generation, retained-WAL, checkpoint, and format-v3 evidence |
 | [AR-0012](Architectural%20Reviews/AR-0012-conditional-write-and-version-token-semantics.md) | Database-generation tokens and conditional-write outcomes |
+| [AR-0013](Architectural%20Reviews/AR-0013-secondary-index-representation-and-ownership.md) | SQL-owned secondary-index representation and atomic maintenance |
+| [AR-0014](Architectural%20Reviews/AR-0014-vacuum-rebuild-and-publication.md) | Offline VACUUM rebuild and atomic publication |
+| [AR-0015](Architectural%20Reviews/AR-0015-native-replication-scope-authority-and-failure-model.md) | Native replication scope, authority, identity, failure, and fencing boundaries |
 
 ## Implementation Plans
 
@@ -101,7 +105,9 @@ by themselves.
 | [Tosumu Command Language](Plans/tosumu-command-language.md) | Proposed | Complete Slice 0 evidence and retain AR-0001 ownership review |
 | [Documentation Lifecycle And Design Decomposition](Plans/documentation-lifecycle-and-design-decomposition.md) | Active | Apply metadata and separate current design from future proposals incrementally |
 | [Public Website And Repository Records](Plans/public-website-and-repository-records.md) | Proposed | Validate indexed navigation, then curate the public reader path separately from GitHub work records |
-| [Core Source Unit Decomposition](Plans/core-source-unit-decomposition.md) | Proposed | Capture conservation baselines, then split page-store/WAL test families and validated pager-private responsibilities |
+| [Core Source Unit Decomposition](Plans/core-source-unit-decomposition.md) | Completed | Maintain the behavior-preserving private-module boundaries and conservation evidence |
+| [Cluster Fault Tolerance And Replication](Plans/cluster-fault-tolerance-and-replication.md) | Proposed; admission required | Continue AR-0015 scope and authority evidence before native replication protocol work |
+| [High-Assurance Engineering And Evidence Export](Plans/high-assurance-engineering-and-evidence-export.md) | Proposed; assurance claims not admitted | Inventory current claims and generate the first repository-wide dependency closure under AR-0010 |
 
 ## Change Requests
 
