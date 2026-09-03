@@ -9,6 +9,10 @@ use crate::error::{SqlError, SqlResult};
 pub enum TokenKind {
     /// CREATE keyword
     Create,
+    /// INDEX keyword
+    Index,
+    /// ON keyword
+    On,
     /// TABLE keyword
     Table,
     /// INSERT keyword
@@ -334,6 +338,8 @@ impl Lexer {
 
         let kind = match s.to_uppercase().as_str() {
             "CREATE" => TokenKind::Create,
+            "INDEX" => TokenKind::Index,
+            "ON" => TokenKind::On,
             "TABLE" => TokenKind::Table,
             "INSERT" => TokenKind::Insert,
             "INTO" => TokenKind::Into,
@@ -375,6 +381,17 @@ mod tests {
         assert_eq!(tokens[9].kind, TokenKind::Text);
         assert_eq!(tokens[10].kind, TokenKind::RParen);
         assert_eq!(tokens[11].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn tokenize_create_index() {
+        let tokens = Lexer::new("CREATE INDEX users_by_name ON users ( name )")
+            .tokenize()
+            .unwrap();
+        assert_eq!(tokens[0].kind, TokenKind::Create);
+        assert_eq!(tokens[1].kind, TokenKind::Index);
+        assert_eq!(tokens[3].kind, TokenKind::On);
+        assert_eq!(tokens[4].kind, TokenKind::Ident("users".to_string()));
     }
 
     #[test]

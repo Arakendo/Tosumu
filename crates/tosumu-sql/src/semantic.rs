@@ -53,6 +53,24 @@ impl<C: Catalog> SemanticChecker<C> {
         Ok(())
     }
 
+    /// Validate a secondary index against its table definition.
+    pub fn check_create_index(&self, stmt: &Stmt, table_def: &TableDef) -> SqlResult<()> {
+        if let Stmt::CreateIndex { table, column, .. } = stmt {
+            let column_index = table_def
+                .columns
+                .iter()
+                .position(|candidate| candidate.name == *column)
+                .ok_or_else(|| SqlError::column_not_found(table, column))?;
+            if column_index == table_def.primary_key_index {
+                return Err(SqlError::IndexOnPrimaryKey {
+                    table: table.clone(),
+                    column: column.clone(),
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// Validate an INSERT statement.
     pub fn check_insert(&self, stmt: &Stmt) -> SqlResult<()> {
         if let Stmt::Insert { values, .. } = stmt {

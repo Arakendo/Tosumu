@@ -153,6 +153,18 @@ impl SqlDatabase {
                 };
                 Ok(Some(table_def))
             }
+            Stmt::CreateIndex { name, table, .. } => {
+                if self.load_index_entry(name).is_some() {
+                    return Err(SqlError::IndexAlreadyExists {
+                        index: name.clone(),
+                    });
+                }
+                let table_def = self
+                    .load_catalog_entry(table)
+                    .ok_or_else(|| SqlError::table_not_found(table))?;
+                checker.check_create_index(stmt, &table_def)?;
+                Ok(Some(table_def))
+            }
             Stmt::Insert { table, .. } => {
                 checker.check_insert(stmt)?;
                 let table_def = self
@@ -194,6 +206,15 @@ impl SqlDatabase {
         } else {
             None
         }
+    }
+
+    fn load_index_entry(&self, index_name: &str) -> Option<catalog::IndexDef> {
+        let key = catalog::index_key(index_name);
+        self.store
+            .get(key.as_bytes())
+            .ok()
+            .flatten()
+            .and_then(|data| catalog::deserialize_index_def(&data).ok())
     }
 
     /// Execute a SQL statement directly (parse + plan + execute).
@@ -244,6 +265,7 @@ impl PreparedStatement {
 mod tests {
     use super::*;
     use crate::executor::QueryResult;
+    use crate::index_codec::{decode_index_entry, index_entry_bounds};
 
     fn test_db_path() -> (std::path::PathBuf, tempfile::TempDir) {
         let dir = tempfile::TempDir::new().unwrap();
@@ -317,6 +339,90 @@ mod tests {
             QueryResult::Select { rows, .. }
                 if rows == vec![vec![Value::Integer(1), Value::Text("alice".to_string())]]
         ));
+    }
+
+    #[test]
+    fn create_index_atomically_backfills_duplicate_secondary_values() {
+        let (path, _dir) = test_db_path();
+        let mut db = SqlDatabase::create(&path).unwrap();
+        db.execute("CREATE TABLE users ( id INTEGER PRIMARY KEY, name TEXT )")
+            .unwrap();
+        db.execute("INSERT INTO users VALUES ( 1, 'alice' )")
+            .unwrap();
+        db.execute("INSERT INTO users VALUES ( 2, 'alice' )")
+            .unwrap();
+        db.execute("INSERT INTO users VALUES ( 3, 'bob' )").unwrap();
+
+        db.execute("CREATE INDEX users_by_name ON users ( name )")
+            .unwrap();
+
+        let snapshot = db.store.snapshot().unwrap();
+        let (start, end) =
+            index_entry_bounds("users", "users_by_name", &Value::Text("alice".to_string()))
+                .unwrap();
+        let entries = snapshot.scan(&start, &end).unwrap();
+        let primary_keys: Vec<_> = entries
+            .iter()
+            .map(|(key, value)| {
+                assert!(value.is_empty());
+                decode_index_entry(key).unwrap().3
+            })
+            .collect();
+        assert_eq!(primary_keys, [Value::Integer(1), Value::Integer(2)]);
+        assert!(snapshot
+            .get(catalog::index_key("users_by_name").as_bytes())
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn create_index_validates_name_table_column_and_primary_key() {
+        let (path, _dir) = test_db_path();
+        let mut db = SqlDatabase::create(&path).unwrap();
+        db.execute("CREATE TABLE users ( id INTEGER PRIMARY KEY, name TEXT )")
+            .unwrap();
+        assert!(matches!(
+            db.execute("CREATE INDEX missing_table ON ghosts ( name )"),
+            Err(SqlError::TableNotFound { .. })
+        ));
+        assert!(matches!(
+            db.execute("CREATE INDEX missing_column ON users ( email )"),
+            Err(SqlError::ColumnNotFound { .. })
+        ));
+        assert!(matches!(
+            db.execute("CREATE INDEX redundant_pk ON users ( id )"),
+            Err(SqlError::IndexOnPrimaryKey { .. })
+        ));
+        db.execute("CREATE INDEX users_by_name ON users ( name )")
+            .unwrap();
+        assert!(matches!(
+            db.execute("CREATE INDEX users_by_name ON users ( name )"),
+            Err(SqlError::IndexAlreadyExists { .. })
+        ));
+    }
+
+    #[test]
+    fn failed_index_backfill_publishes_neither_catalog_nor_entries() {
+        let (path, _dir) = test_db_path();
+        let mut db = SqlDatabase::create(&path).unwrap();
+        db.execute("CREATE TABLE users ( id INTEGER PRIMARY KEY, name TEXT )")
+            .unwrap();
+        let key = row_codec::row_key("users", &Value::Integer(1));
+        db.store.put(key.as_bytes(), b"malformed-row").unwrap();
+
+        assert!(matches!(
+            db.execute("CREATE INDEX users_by_name ON users ( name )"),
+            Err(SqlError::RowEncoding(_))
+        ));
+        let snapshot = db.store.snapshot().unwrap();
+        assert!(snapshot
+            .get(catalog::index_key("users_by_name").as_bytes())
+            .unwrap()
+            .is_none());
+        let (start, end) =
+            index_entry_bounds("users", "users_by_name", &Value::Text("alice".to_string()))
+                .unwrap();
+        assert!(snapshot.scan(&start, &end).unwrap().is_empty());
     }
 
     #[test]

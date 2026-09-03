@@ -42,12 +42,12 @@ full-text, fuzzy, vector, and spatial indexes are deferred.
 
 ### 3. DDL And Atomic Backfill
 
-- [ ] Parse and semantically validate `CREATE INDEX`.
-- [ ] Reject duplicate index names, missing tables, missing columns, and primary-
+- [x] Parse and semantically validate `CREATE INDEX`.
+- [x] Reject duplicate index names, missing tables, missing columns, and primary-
       key targets with typed SQL diagnostics.
-- [ ] Scan existing table rows and publish the definition plus all entries in
+- [x] Scan existing table rows and publish the definition plus all entries in
       one transaction.
-- [ ] Prove a failed backfill publishes neither catalog nor entries.
+- [x] Prove a failed backfill publishes neither catalog nor entries.
 
 ### 4. Mutation Maintenance
 

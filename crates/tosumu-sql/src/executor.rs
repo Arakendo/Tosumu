@@ -3,10 +3,13 @@
 //! Executes plan nodes through the shared KV owner. Catalog writes are owned here.
 
 use crate::ast::{Expr, Projection, Value};
-use crate::catalog::{serialize_table_def, table_key, TableDef};
+use crate::catalog::{
+    index_key, serialize_index_def, serialize_table_def, table_key, IndexDef, TableDef,
+};
 use crate::error::{SqlError, SqlResult};
+use crate::index_codec::index_entry_key;
 use crate::planner::{PlanNode, PlanWarning};
-use crate::row_codec::{decode_row_values, encode_row_values, row_key};
+use crate::row_codec::{decode_row_values, encode_row_values, row_key, table_row_bounds};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use tosumu_core::SharedKvStore;
@@ -51,6 +54,11 @@ impl Executor {
             PlanNode::CreateTable { table } => {
                 Self::exec_create_table(table, store, catalog_context)
             }
+            PlanNode::CreateIndex {
+                index,
+                table,
+                column,
+            } => Self::exec_create_index(&index, &table, &column, store, catalog_context),
             PlanNode::InsertRow { table, values } => {
                 Self::exec_insert(&table, &values, bindings, store, catalog_context)
             }
@@ -112,6 +120,57 @@ impl Executor {
         Ok(ExecutionOutcome {
             result: QueryResult::Affected { rows: 0 },
             warnings: vec![],
+        })
+    }
+
+    fn exec_create_index(
+        index: &str,
+        table: &str,
+        column: &str,
+        store: &SharedKvStore,
+        catalog_context: Option<&TableDef>,
+    ) -> SqlResult<ExecutionOutcome> {
+        let table_def = catalog_context.ok_or_else(|| SqlError::table_not_found(table))?;
+        let column_index = table_def
+            .columns
+            .iter()
+            .position(|candidate| candidate.name == column)
+            .ok_or_else(|| SqlError::column_not_found(table, column))?;
+        let catalog_key = index_key(index);
+        let definition = IndexDef {
+            name: index.to_string(),
+            table: table.to_string(),
+            column: column.to_string(),
+        };
+        let catalog_payload = serialize_index_def(&definition)?;
+        let (row_start, row_end) = table_row_bounds(table);
+
+        store.try_write(|transaction| {
+            if transaction.get(catalog_key.as_bytes())?.is_some() {
+                return Err(SqlError::IndexAlreadyExists {
+                    index: index.to_string(),
+                });
+            }
+            for (_, payload) in transaction.scan(&row_start, &row_end)? {
+                let values = decode_row_values(&payload).map_err(|error| {
+                    SqlError::RowEncoding(format!("CREATE INDEX row decoding failed: {error}"))
+                })?;
+                let secondary = values.get(column_index).ok_or_else(|| {
+                    SqlError::RowEncoding(format!(
+                        "decoded row missing indexed column {column_index}"
+                    ))
+                })?;
+                let primary = values.get(table_def.primary_key_index).ok_or_else(|| {
+                    SqlError::RowEncoding("decoded row missing primary key".to_string())
+                })?;
+                let entry_key = index_entry_key(table, index, secondary, primary)?;
+                transaction.put(&entry_key, &[])?;
+            }
+            transaction.put(catalog_key.as_bytes(), &catalog_payload)?;
+            Ok(ExecutionOutcome {
+                result: QueryResult::Affected { rows: 0 },
+                warnings: vec![],
+            })
         })
     }
 

@@ -17,6 +17,14 @@ pub enum SqlError {
     #[error("table '{table}' already exists")]
     TableAlreadyExists { table: String },
 
+    /// An index with this database-global name already exists.
+    #[error("index '{index}' already exists")]
+    IndexAlreadyExists { index: String },
+
+    /// The baseline refuses a redundant secondary index on the primary key.
+    #[error("column '{column}' in table '{table}' is already the primary key")]
+    IndexOnPrimaryKey { table: String, column: String },
+
     /// The requested column does not exist in the table's schema.
     #[error("column '{column}' not found in table '{table}'")]
     ColumnNotFound { table: String, column: String },

@@ -11,6 +11,12 @@ use crate::error::{SqlError, SqlResult};
 pub enum PlanNode {
     /// CREATE TABLE — catalog write only
     CreateTable { table: String },
+    /// CREATE INDEX with atomic backfill.
+    CreateIndex {
+        index: String,
+        table: String,
+        column: String,
+    },
     /// INSERT row values in declaration order.
     InsertRow { table: String, values: Vec<Expr> },
     /// Point lookup by primary key expression.
@@ -41,6 +47,11 @@ impl PlanNode {
     pub fn describe(&self) -> String {
         match self {
             Self::CreateTable { table } => format!("CREATE_TABLE table={table}"),
+            Self::CreateIndex {
+                index,
+                table,
+                column,
+            } => format!("CREATE_INDEX index={index} table={table} column={column}"),
             Self::InsertRow { table, .. } => format!("INSERT_ROW table={table}"),
             Self::PkLookup { table, .. } => format!("PK_LOOKUP table={table}"),
             Self::PkLookupMany { table, .. } => format!("PK_LOOKUP_OR table={table}"),
@@ -93,6 +104,18 @@ impl Planner {
             Stmt::CreateTable { name, .. } => Ok(PlanOutput {
                 plan: PlanNode::CreateTable {
                     table: name.clone(),
+                },
+                warnings: vec![],
+            }),
+            Stmt::CreateIndex {
+                name,
+                table,
+                column,
+            } => Ok(PlanOutput {
+                plan: PlanNode::CreateIndex {
+                    index: name.clone(),
+                    table: table.clone(),
+                    column: column.clone(),
                 },
                 warnings: vec![],
             }),

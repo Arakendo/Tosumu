@@ -64,7 +64,7 @@ impl ParserInner {
 
     fn parse_statement(&mut self) -> SqlResult<Stmt> {
         match self.peek_kind()? {
-            TokenKind::Create => self.parse_create_table(),
+            TokenKind::Create => self.parse_create(),
             TokenKind::Insert => self.parse_insert(),
             TokenKind::Select => self.parse_select_stmt(),
             TokenKind::Delete => self.parse_delete_stmt(),
@@ -76,6 +76,18 @@ impl ParserInner {
                 let msg = format!("unexpected token: {:?}", self.peek_kind()?);
                 Err(SqlError::parse_error(msg, 0, 0))
             }
+        }
+    }
+
+    fn parse_create(&mut self) -> SqlResult<Stmt> {
+        match self.tokens.get(self.pos + 1).map(|token| &token.kind) {
+            Some(TokenKind::Table) => self.parse_create_table(),
+            Some(TokenKind::Index) => self.parse_create_index(),
+            _ => Err(SqlError::parse_error(
+                "expected TABLE or INDEX after CREATE".to_string(),
+                0,
+                0,
+            )),
         }
     }
 
@@ -110,6 +122,36 @@ impl ParserInner {
         self.expect_kind(TokenKind::RParen)?;
 
         Ok(Stmt::CreateTable { name, columns })
+    }
+
+    fn parse_create_index(&mut self) -> SqlResult<Stmt> {
+        self.expect_kind(TokenKind::Create)?;
+        self.expect_kind(TokenKind::Index)?;
+        let name = self.parse_identifier("index name")?;
+        self.expect_kind(TokenKind::On)?;
+        let table = self.parse_identifier("table name")?;
+        self.expect_kind(TokenKind::LParen)?;
+        let column = self.parse_identifier("column name")?;
+        self.expect_kind(TokenKind::RParen)?;
+        Ok(Stmt::CreateIndex {
+            name,
+            table,
+            column,
+        })
+    }
+
+    fn parse_identifier(&mut self, description: &str) -> SqlResult<String> {
+        match self.peek_kind()? {
+            TokenKind::Ident(identifier) => {
+                self.advance();
+                Ok(identifier)
+            }
+            _ => Err(SqlError::parse_error(
+                format!("expected {description}"),
+                0,
+                0,
+            )),
+        }
     }
 
     fn parse_column_def(&mut self) -> SqlResult<ColumnDef> {
@@ -408,6 +450,8 @@ impl ParserInner {
 fn format_token_kind(kind: &TokenKind) -> String {
     match kind {
         TokenKind::Create => "CREATE".to_string(),
+        TokenKind::Index => "INDEX".to_string(),
+        TokenKind::On => "ON".to_string(),
         TokenKind::Table => "TABLE".to_string(),
         TokenKind::Insert => "INSERT".to_string(),
         TokenKind::Into => "INTO".to_string(),
@@ -458,6 +502,18 @@ mod tests {
             }
             _ => panic!("expected CreateTable"),
         }
+    }
+
+    #[test]
+    fn parse_create_index_basic() {
+        assert_eq!(
+            parse("CREATE INDEX users_by_name ON users ( name )").unwrap(),
+            Stmt::CreateIndex {
+                name: "users_by_name".to_string(),
+                table: "users".to_string(),
+                column: "name".to_string(),
+            }
+        );
     }
 
     #[test]

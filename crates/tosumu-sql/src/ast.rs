@@ -89,6 +89,15 @@ pub enum Stmt {
         /// Column definitions.
         columns: Vec<ColumnDef>,
     },
+    /// CREATE INDEX <name> ON <table> ( <column> )
+    CreateIndex {
+        /// Globally unique index name.
+        name: String,
+        /// Indexed table name.
+        table: String,
+        /// Indexed column name.
+        column: String,
+    },
     /// INSERT INTO <table> VALUES ( <values> )
     Insert {
         /// Table name.
@@ -119,6 +128,7 @@ impl Stmt {
     pub fn table_name(&self) -> Option<&str> {
         match self {
             Stmt::CreateTable { name, .. } => Some(name),
+            Stmt::CreateIndex { table, .. } => Some(table),
             Stmt::Insert { table, .. } => Some(table),
             Stmt::Select { table, .. } => Some(table),
             Stmt::Delete { table, .. } => Some(table),
@@ -129,6 +139,7 @@ impl Stmt {
     pub fn parameter_count(&self) -> usize {
         match self {
             Stmt::CreateTable { .. } => 0,
+            Stmt::CreateIndex { .. } => 0,
             Stmt::Insert { values, .. } => values.iter().filter(|e| e.is_parameter()).count(),
             Stmt::Select { predicate, .. } => predicate.as_ref().map_or(0, |e| e.parameter_count()),
             Stmt::Delete { predicate, .. } => predicate.as_ref().map_or(0, |e| e.parameter_count()),

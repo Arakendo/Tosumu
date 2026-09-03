@@ -13,6 +13,14 @@ pub fn row_key(table: &str, pk: &Value) -> String {
     format!("{}{}/{}", ROW_KEY_PREFIX, table, pk.to_sql_literal())
 }
 
+/// Return inclusive bounds covering every primary row for one table.
+pub fn table_row_bounds(table: &str) -> (Vec<u8>, Vec<u8>) {
+    let start = format!("{ROW_KEY_PREFIX}{table}/").into_bytes();
+    let mut end = start.clone();
+    end.push(u8::MAX);
+    (start, end)
+}
+
 /// Encode non-PK column values into a row payload.
 ///
 /// Wire format:
