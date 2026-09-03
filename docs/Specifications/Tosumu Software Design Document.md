@@ -1575,7 +1575,9 @@ Multi-reader concurrency without blocking writes.
   empty value). The initial MVP+10 representation uses SQL-owned reserved
   keyspaces in the authenticated KV B+ tree; independent physical roots remain
   a later storage optimization (ADR-0008).
-- `VACUUM` command — reclaim space from deleted records.
+- `VACUUM` command — offline verified sibling rebuild with retained writer
+  admission and atomic source replacement; it preserves encryption protectors
+  and committed-generation continuity (ADR-0009).
 - Benchmarks vs SQLite on small representative workloads (§11.11).
 
 **Proves:** real concurrency works. Read-heavy workloads don't block writers, and callers no longer have to open-code basic optimistic-concurrency races.
@@ -2004,7 +2006,9 @@ The detailed design lives in the [Tosumu Command Language](../Tosumu%20Command%2
   initial representation is a reserved SQL keyspace in the authenticated KV
   tree (ADR-0008), not a new physical root. Not full-text, fuzzy, or vector
   indexing (see §18).
-- `VACUUM` — reclaim space from deleted records and rebuild indexes.
+- `VACUUM` — reclaim space from deleted records through ADR-0009's offline,
+  verified rebuild and atomic publication contract. Logical index entries are
+  copied like every other live KV record rather than reinterpreted by core.
 - Benchmarks vs SQLite on small representative workloads, purely for humility.
 - Explicit non-goals for Stage 6: no FSTs, no full-text search, no vector search, no spatial indexes. See §18 for why.
 - **Optional optimization:** See [Tosumu Reference Implementations](Tosumu%20Reference%20Implementations.md) for BloomFilter (per-page negative lookups to skip pages during scans).

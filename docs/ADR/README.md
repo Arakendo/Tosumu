@@ -28,3 +28,4 @@ remain in history when superseded.
 - [ADR-0006: Shared KV Store And Snapshot Transactions](ADR-0006-shared-kv-store-and-snapshot-transactions.md)
 - [ADR-0007: Database-Generation Conditional Writes](ADR-0007-database-generation-conditional-writes.md)
 - [ADR-0008: SQL-Owned Secondary Index Keyspaces](ADR-0008-sql-owned-secondary-index-keyspaces.md)
+- [ADR-0009: Offline VACUUM Rebuild Publication](ADR-0009-offline-vacuum-rebuild-publication.md)

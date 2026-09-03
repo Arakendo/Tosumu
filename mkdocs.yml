@@ -66,6 +66,7 @@ nav:
           - ADR-0006 Shared KV Store And Snapshot Transactions: ADR/ADR-0006-shared-kv-store-and-snapshot-transactions.md
           - ADR-0007 Database Generation Conditional Writes: ADR/ADR-0007-database-generation-conditional-writes.md
           - ADR-0008 SQL Owned Secondary Index Keyspaces: ADR/ADR-0008-sql-owned-secondary-index-keyspaces.md
+          - ADR-0009 Offline VACUUM Rebuild Publication: ADR/ADR-0009-offline-vacuum-rebuild-publication.md
           - Template: ADR/TEMPLATE.md
       - Architectural Reviews:
           - Architectural Reviews/README.md
@@ -82,12 +83,14 @@ nav:
           - AR-0011 Committed Generation And Version Residence: Architectural Reviews/AR-0011-committed-generation-and-version-residence.md
           - AR-0012 Conditional Write And Version Token Semantics: Architectural Reviews/AR-0012-conditional-write-and-version-token-semantics.md
           - AR-0013 Secondary Index Representation And Ownership: Architectural Reviews/AR-0013-secondary-index-representation-and-ownership.md
+          - AR-0014 VACUUM Rebuild And Publication: Architectural Reviews/AR-0014-vacuum-rebuild-and-publication.md
           - Template: Architectural Reviews/TEMPLATE.md
       - Implementation Plans:
           - Plans/README.md
           - Main Feature Roadmap: Plans/main-feature-roadmap.md
           - MVP+10 Multiple Readers And Coordination: Plans/mvp-10-multiple-readers.md
           - MVP+10 Secondary Indexes: Plans/mvp-10-secondary-indexes.md
+          - MVP+10 VACUUM: Plans/mvp-10-vacuum.md
           - Initial SQL Layer: Plans/initial-sql-layer.md
           - Tosumu Command Language: Plans/tosumu-command-language.md
           - Tokimu Reciprocal Website Evidence: Plans/tokimu-reciprocal-website-evidence.md
