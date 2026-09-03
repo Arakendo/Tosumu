@@ -7,7 +7,7 @@
 | Last updated | 2026-09-03 (cluster, assurance, and crypto-agility tracks opened) |
 | Owner | Tosumu maintainers |
 | Authority | Tracking plan; `docs/Specifications/Tosumu Software Design Document.md` remains normative |
-| Current milestone | MVP+10 native Unix VACUUM CI confirmation |
+| Current milestone | MVP+11 SDD reconciliation and experimental ABI contract |
 
 ## Purpose
 
@@ -691,9 +691,11 @@ Offline `VACUUM` now has retained writer admission, protector/generation
 preservation, verified staging, explicit space and platform refusal, and a full
 injected failure matrix. Benchmark closure records reader fanout,
 reader/writer overlap, and the retained single-thread SQLite comparison; the
-observations show coherent but mutex-serialized Tosumu reads. Native Unix CI
-confirmation remains the final MVP+10 gate because the current development host
-is Windows.
+observations show coherent but mutex-serialized Tosumu reads. The stable macOS
+arm64 job in CI run `33812169906` passed formatting, strict Clippy, the complete
+workspace all-target test suite (including Unix-only VACUUM publication), and
+documentation at commit `abdc241`. This closes the native Unix gate without
+claiming that the still-running Linux job has passed.
 
 ### MVP+11 Audit
 
@@ -829,8 +831,8 @@ partial or stale milestones directly rather than forcing a pass/fail result.
 | +7 | Verified | Protector lifecycle and attack tests | Maintain key-management evidence |
 | +8 | Verified | TUI/view tests and structured inspect contracts | Maintain viewer evidence |
 | +9 | Verified baseline; deferred scope named | `initial-sql-layer.md`; audit and logical scans explicitly moved out | Post-MVP+10 SQL and future audit plans |
-| +10 | Snapshots, conditional writes, indexes, offline VACUUM, and benchmarks delivered | ADR-0005 through ADR-0009; focused MVP+10 plans; shared KV, SQL, VACUUM, and Criterion evidence | Native Unix VACUUM CI |
-| +11 | Not started | Future dedicated plan | Unassigned |
+| +10 | Complete | ADR-0005 through ADR-0009; focused MVP+10 plans; shared KV, SQL, VACUUM, Criterion, and native macOS arm64 CI evidence | Maintain contracts and platform evidence |
+| +11 | Slice 0 baseline complete; implementation unadmitted | AR-0017, foreign contract/target inventory, and dedicated mobile plan | SDD reconciliation, then experimental ABI schema |
 | +12 | Not started | Architectural Review required | Unassigned |
 | +13 | Not started | Future dedicated plan and format decision | Unassigned |
 | +14 | Not started | Future dedicated plan and benchmarks | Unassigned |

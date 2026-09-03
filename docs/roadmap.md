@@ -8,16 +8,18 @@ This page is the public roadmap summary. It is intentionally shorter than the re
   conditional-write contracts through core and SQL-layer caller tests
 - maintain ADR-0008 plain single-column secondary indexes and their atomic
   row/index mutation contract
-- obtain the remaining native Unix CI evidence for the completed MVP+10
-  `VACUUM` implementation
+- reconcile MVP+11's mobile SDD assumptions through AR-0017 and the retained
+  foreign-contract/target inventory before exporting an ABI
+- define a callback-free experimental C request/result schema and handle state
+  machine without claiming stable Swift/Kotlin or mobile support
 - advance [AR-0015](Architectural%20Reviews/AR-0015-native-replication-scope-authority-and-failure-model.md):
   define concrete failure domains, RPO/RTO hypotheses, authority epochs, and
   fencing requirements before native replication work
 - continue the cross-cutting assurance inventory and AR-0010 source/build
   review from the retained dependency-closure baseline without changing the
   current pre-audit security posture
-- retain the new crypto-agility plan and prepare its architecture/conservation
-  review without changing format v3 or exposing a provider SPI
+- retain the completed crypto C1/C2 private-seam and independent-oracle evidence
+  without changing format v3 or exposing a provider SPI
 - keep the CLI, inspect contract, and TUI viewer coherent
 - keep crash, crypto, and verification behavior visible through tests and tooling
 - improve the trust surface around docs, diagnostics, and website guidance
@@ -42,7 +44,8 @@ This page is the public roadmap summary. It is intentionally shorter than the re
 
 - logical SQL scans built on the admitted reader-visibility contract
 - composite and covering secondary indexes after measured caller pressure
-- mobile-facing wrappers and protector integrations
+- independently exercised Swift/Kotlin wrappers and qualified mobile profiles
+  after the C ABI ownership contract is established
 - provider-owned opaque key lifecycle for future HSM, KMS, TPM, mobile-keystore,
   or controlled cryptographic implementations
 - authenticated cryptographic-suite identity through a deliberate format

@@ -58,6 +58,15 @@ recovery, generation, or encrypted-protector guarantees.
 - [x] Run formatting, strict clippy, all-target tests, and strict docs.
 - [x] Update ADR/AR history and advance MVP+10 to benchmark closure.
 
+### 6. Native Unix Confirmation
+
+- [x] GitHub Actions stable macOS arm64 at commit `abdc241` passed formatting,
+      strict Clippy, `cargo test --workspace --all-targets`, and documentation in
+      [CI run 33812169906, job 100836236880](https://github.com/Arakendo/Tosumu/actions/runs/33812169906/job/100836236880).
+- [x] Treat this as native Unix execution of the admitted publication path, not
+      as Linux, filesystem-provider, crash-power-loss, or broad platform
+      qualification evidence.
+
 ## Acceptance
 
 - All committed logical records survive, including SQL catalog and index keys.

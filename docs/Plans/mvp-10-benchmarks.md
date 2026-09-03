@@ -136,8 +136,9 @@ these comparison evidence rather than a general ranking.
   a duplicate-heavy hot leaf. Regression reduction failed at revision 56;
   commit `3e3a06f` compacts the deduplicated live set before splitting and the
   160-cycle public regression now passes.
-- Plan changes: benchmark work is complete. MVP+10 remains open only for native
-  Unix execution of the admitted VACUUM publication path.
+- Plan changes: benchmark work is complete. The later stable macOS arm64 job in
+  CI run `33812169906` executed the complete workspace suite and closed the
+  native Unix VACUUM gate; MVP+10 is complete.
 
 ## References
 

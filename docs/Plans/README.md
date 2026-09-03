@@ -15,7 +15,7 @@ validation, and exit states.
 
 - [Main Feature Roadmap](main-feature-roadmap.md) -- canonical implementation
   status tracker; **Active**. MVP 0-8 and the MVP+9 baseline are complete;
-  native Unix VACUUM CI confirmation is the final MVP+10 gate.
+  MVP+10 is complete and MVP+11 contract reconciliation is current.
 - [MVP+10 Multiple Readers And Coordination](mvp-10-multiple-readers.md) --
   **Proposed; baseline recorded** for current handle, visibility, writer, and
   checkpoint behavior under AR-0009.
@@ -23,7 +23,8 @@ validation, and exit states.
   ADR-0008 SQL-owned ordered index representation after reader visibility and
   conditional writes.
 - [MVP+10 VACUUM](mvp-10-vacuum.md) -- implementation closure recorded for the
-  ADR-0009 offline verified rebuild; native Unix CI confirmation remains open.
+  ADR-0009 offline verified rebuild; native macOS arm64 CI confirms the Unix
+  publication path.
 - [MVP+10 Benchmark Closure](mvp-10-benchmarks.md) -- **Complete** reader
   scaling, writer-overlap, and SQLite comparison evidence.
 - [MVP+11 Mobile Embedding](mvp-11-mobile-embedding.md) -- **Proposed; Slice 0
