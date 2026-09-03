@@ -871,6 +871,9 @@ Before implementation moves beyond the completed MVP+9 baseline:
       conservation matrix before implementing the private seam.
 - [x] Implement the ADR-0010 private format-v3 and entropy facades without
       changing format bytes, public APIs, errors, or supported behavior.
+- [ ] Complete Gate C2 with a versioned deterministic format-v3 corpus and an
+      independently implemented offline oracle; keep it outside release
+      artifacts and admit its toolchain and dependency closure through AR-0010.
 
 ## Completion Rules
 

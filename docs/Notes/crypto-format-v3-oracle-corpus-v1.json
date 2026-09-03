@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "format_version": 3,
+  "byte_encoding": "lowercase_hex",
+  "integer_encoding": "json_decimal_with_explicit_little_endian_domains",
+  "cases": [
+    {
+      "id": "v3-subkeys-001",
+      "operation": "derive_subkeys_hkdf_sha256",
+      "input": {
+        "dek_hex": "4242424242424242424242424242424242424242424242424242424242424242",
+        "salt_hex": "",
+        "labels_utf8": [
+          "tosumu/v1/page",
+          "tosumu/v1/header-mac",
+          "tosumu/v1/audit"
+        ]
+      },
+      "expected": {
+        "page_key_hex": "6605e5f26a1dc87238f0f0270da9af1c614ef5f461ff566bd9b3279de13e6765",
+        "header_mac_key_hex": "394a6b79454183a3eed059e7686998124c99d26844b110c7e776a23d7bb6fa5b",
+        "audit_key_hex": "54b26c0bd95a0ac5ba38144fcde53546bad75ef2696a40db886ac13da868f5b1"
+      }
+    },
+    {
+      "id": "v3-kcv-001",
+      "operation": "compute_kcv_chacha20poly1305",
+      "input": {
+        "kek_hex": "7777777777777777777777777777777777777777777777777777777777777777",
+        "nonce_hex": "000000000000000000000000",
+        "plaintext_hex": "00000000000000000000000000000000",
+        "aad_utf8": "tosumu/v1/kcv"
+      },
+      "expected": {
+        "ciphertext_and_tag_hex": "d8b24e76eb3a4b850ba6fe54ba2fe49cf1adf7e042daedccdecc3b287bebeb4d"
+      }
+    },
+    {
+      "id": "v3-header-mac-001",
+      "operation": "compute_header_hmac_sha256",
+      "input": {
+        "key_hex": "394a6b79454183a3eed059e7686998124c99d26844b110c7e776a23d7bb6fa5b",
+        "page_size": 4096,
+        "header_plain_recipe": {
+          "offset": 0,
+          "length": 104,
+          "formula": "u8(index * 3 + 1)"
+        },
+        "keyslot_recipe": {
+          "offset": 136,
+          "length": 256,
+          "formula": "u8(index * 5 + 2)"
+        },
+        "all_other_bytes": 0,
+        "keyslot_count": 1,
+        "mac_input": "page[0..104] || page[136..392]"
+      },
+      "expected": {
+        "mac_hex": "7682b9610be022f0c9bc339d6b6f04a29587054bd611ac07af35376e189853fd"
+      }
+    },
+    {
+      "id": "v3-argon2id-001",
+      "operation": "derive_passphrase_kek_argon2id",
+      "input": {
+        "passphrase_utf8": "hunter2",
+        "salt_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "memory_kib": 4096,
+        "iterations": 1,
+        "parallelism": 1,
+        "version": 19,
+        "output_bytes": 32
+      },
+      "expected": {
+        "kek_hex": "510177c3c43f9a0795374a46b077df3ec8d20e94a89446e2a2d2c1ab967c207d"
+      }
+    },
+    {
+      "id": "v3-recovery-kek-001",
+      "operation": "derive_recovery_kek_hkdf_sha256",
+      "input": {
+        "recovery_text": "AAAAAAAAAAAAAAAA-AAAAAAAAAAAAAAAA",
+        "normalization": "remove_hyphen_then_ascii_uppercase_then_base32_no_padding",
+        "decoded_hex": "0000000000000000000000000000000000000000",
+        "hkdf_salt_hex": "",
+        "label_utf8": "tosumu/v1/recovery-kek"
+      },
+      "expected": {
+        "kek_hex": "ac5b927ea6688261b0d4847d391b2cf79c6c46571a42593bbe9d4ac5e7b4fbc3"
+      }
+    },
+    {
+      "id": "v3-wrap-001",
+      "operation": "wrap_dek_chacha20poly1305",
+      "input": {
+        "kek_hex": "abababababababababababababababababababababababababababababababab",
+        "dek_hex": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "nonce_hex": "a5a5a5a5a5a5a5a5a5a5a5a5",
+        "aad": {
+          "prefix_utf8": "tosumu/v1/wrap",
+          "slot_index_u16_le": 3,
+          "dek_id_u64_le": 72623859790382856,
+          "kind_u8": 2
+        }
+      },
+      "expected": {
+        "ciphertext_and_tag_hex": "9a71ea231aca72517f341077de4c0a8e4ba616202e81bfd74ae748f6b4a556354110a4873006c13a16828a406b604b42",
+        "unwrapped_dek_hex": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      }
+    },
+    {
+      "id": "v3-page-001",
+      "operation": "protect_page_chacha20poly1305",
+      "input": {
+        "page_key_hex": "6605e5f26a1dc87238f0f0270da9af1c614ef5f461ff566bd9b3279de13e6765",
+        "nonce_hex": "5a5a5a5a5a5a5a5a5a5a5a5a",
+        "page_number_u64_le": 72623859790382856,
+        "page_version_u64_le": 1230066625199609624,
+        "page_type_u8": 1,
+        "plaintext_recipe": {
+          "length": 4056,
+          "formula": "u8((index * 31 + 7) mod 251)"
+        },
+        "frame_layout": "nonce[12] || page_version_le[8] || page_type[1] || zero[3] || ciphertext[4056] || tag[16]",
+        "aad": "page_number_u64_le || page_version_u64_le || page_type_u8"
+      },
+      "expected": {
+        "frame_sha256_hex": "5dbc8c579bb5e1314e900b62900efe147916e20d222b78f2012e0d17c2d8f855",
+        "frame_prefix_64_hex": "5a5a5a5a5a5a5a5a5a5a5a5a181716151413121101000000f6697428dcacf6c053f6772664e7aacbb0afc11977dcd410207fae2581ec5587fc2a531f4d2da9a9",
+        "frame_suffix_32_hex": "9efd731b259e95bf64c19b93dcdd6a5526fe594f40ff049bf29815c779f1151d",
+        "opened_page_version": 1230066625199609624,
+        "opened_plaintext_recipe": "same_as_input"
+      }
+    }
+  ],
+  "negative_cases": [
+    {
+      "id": "v3-kcv-wrong-key-001",
+      "base_case": "v3-kcv-001",
+      "mutation": "set kek byte 0 to 0x76 before verification",
+      "expected_failure": "wrong_key"
+    },
+    {
+      "id": "v3-wrap-slot-aad-001",
+      "base_case": "v3-wrap-001",
+      "mutation": "set slot_index_u16_le to 4 before unwrap",
+      "expected_failure": "wrong_key"
+    },
+    {
+      "id": "v3-wrap-dek-id-aad-001",
+      "base_case": "v3-wrap-001",
+      "mutation": "increment dek_id_u64_le before unwrap",
+      "expected_failure": "wrong_key"
+    },
+    {
+      "id": "v3-page-number-aad-001",
+      "base_case": "v3-page-001",
+      "mutation": "increment page_number_u64_le before open",
+      "expected_failure": "auth_failed_page"
+    },
+    {
+      "id": "v3-page-ciphertext-tamper-001",
+      "base_case": "v3-page-001",
+      "mutation": "xor frame byte 24 with 0x01 before open",
+      "expected_failure": "auth_failed_page"
+    },
+    {
+      "id": "v3-header-keyslot-tamper-001",
+      "base_case": "v3-header-mac-001",
+      "mutation": "xor page byte 141 with 0xff before verification",
+      "expected_failure": "auth_failed_header"
+    },
+    {
+      "id": "v3-recovery-malformed-base32-001",
+      "base_case": "v3-recovery-kek-001",
+      "mutation": "replace recovery_text with not-valid-base32!!!",
+      "expected_failure": "wrong_key"
+    }
+  ]
+}

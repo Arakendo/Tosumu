@@ -302,6 +302,17 @@ than merely renaming RustCrypto calls.
 **Exit gate:** independent pressure has revealed enough contract shape to decide
 whether a public provider SPI is justified.
 
+#### C2 admission slices
+
+- [x] Assess real and test-only independent implementation candidates without
+      adding them to the product dependency graph.
+- [x] C2a: define a versioned deterministic oracle corpus covering every
+      format-v3 construction and normalized negative outcome.
+- [ ] Admit the independent oracle toolchain and pinned dependency closure
+      through AR-0010.
+- [ ] C2b: implement the oracle outside `tosumu-core` and compare both
+      executors over the retained corpus.
+
 ### Phase 2 / Slice C3: Provider-Owned Key Lifecycle
 
 **Objective:** Permit opaque key ownership without weakening pager trust or
@@ -668,6 +679,38 @@ provider pressure. Reopen or advance when:
   C1 is complete. C2 provider-independence evidence and every public provider,
   opaque-key, alternate-suite, or compliance claim remain unadmitted.
 
+### 2026-09-03 -- C2 Independent Backend Candidate Assessment
+
+- Work completed: compared OpenSSL, libsodium, a `ring` composition, a Go
+  oracle, and a deterministic fixture backend against the exact format-v3
+  construction and current build boundaries.
+- Findings: no candidate should enter `tosumu-core` merely to provide test
+  evidence. A deterministic fake can exercise interface shape but cannot prove
+  independent cryptographic execution. A separately built Go oracle is the
+  preferred complete candidate; it can express every current construction
+  without becoming a runtime backend, but its absent toolchain and module
+  closure require explicit admission.
+- Gate change: split C2 into C2a, a versioned non-secret deterministic corpus,
+  and C2b, its independently implemented executor. No dependency, private
+  provider trait, public SPI, or format change is admitted by this assessment.
+- Next slice: define the C2a request/response corpus and generate it from
+  Tosumu's retained vectors before selecting or installing the executor.
+
+### 2026-09-03 -- C2a Deterministic Oracle Corpus
+
+- Work completed: retained schema version 1 of the language-neutral format-v3
+  oracle corpus with seven positive constructions and seven negative mutations.
+  It uses explicit byte encoding, endian-qualified integer fields, fixed input
+  recipes, expected bytes or digests, and normalized failure categories.
+- Validation: PowerShell JSON parsing confirms schema 1, format 3, seven
+  positive cases, seven negative cases, and no duplicate IDs. Tosumu's focused
+  `gate_c0_fixed_construction_vectors` test still passes against the source
+  values represented by the corpus.
+- Claim boundary: the corpus is an input to future independent evidence. Its
+  agreement with Tosumu's existing vector does not itself provide independence.
+- Next slice: admit a pinned Go toolchain and `golang.org/x/crypto` module
+  closure through AR-0010 before implementing C2b.
+
 ## References
 
 - `docs/ADR/ADR-0001-storage-engine-layer-boundaries.md`
@@ -677,6 +720,8 @@ provider pressure. Reopen or advance when:
 - `docs/Architectural Reviews/AR-0010-dependency-trust-and-source-provenance.md`
 - `docs/Architectural Reviews/AR-0016-cryptographic-provider-seam-and-suite-identity.md`
 - `docs/Notes/crypto-boundary-inventory-v1.md`
+- `docs/Notes/crypto-c2-independent-backend-assessment-v1.md`
+- `docs/Notes/crypto-format-v3-oracle-corpus-v1.json`
 - `docs/Notes/crypto-file-conservation-matrix-v1.md`
 - `docs/Plans/high-assurance-engineering-and-evidence-export.md`
 - `docs/Plans/cluster-fault-tolerance-and-replication.md`

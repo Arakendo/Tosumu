@@ -439,3 +439,38 @@ reinterpretation, or compliance label is accepted by this cycle.
   admitting opaque handles or revising ADR-0010's conservation boundary.
 - Resulting ADR or documentation change: crypto plan checklist corrected; no
   new architectural decision.
+
+### Cycle 8 -- 2026-09-03
+
+- Status entering review: C1 complete; C2 unadmitted.
+- New evidence: the retained C2 candidate assessment compares OpenSSL 3.2+,
+  libsodium 1.0.19+, a `ring`/Argon2 composition, a Go oracle, and a fixture
+  fake against every deterministic format-v3 operation and the repository's
+  native, WASM, MSRV, and provenance constraints.
+- Findings: a fake backend can pressure interface shape but cannot establish
+  independent cryptographic execution. Native-library candidates create a
+  product-build burden if added only for evidence. A separate Go oracle can
+  express the complete suite without entering release artifacts, but its
+  toolchain and pinned module closure are not yet admitted or available in the
+  current environment.
+- Disposition: admit C2a design work for a versioned, non-secret deterministic
+  oracle corpus. Do not admit an executor dependency, production backend,
+  private provider trait, public SPI, or format change yet.
+- Resulting ADR or documentation change: add the C2 candidate assessment and
+  split the plan into C2a corpus and C2b executor gates; no ADR.
+
+### Cycle 9 -- 2026-09-03
+
+- Status entering review: C2a design admitted; executor unadmitted.
+- New evidence: schema version 1 of the format-v3 oracle corpus parses as seven
+  positive construction cases and seven unique negative mutations. The
+  existing focused Tosumu vector passes for the transcribed source values.
+- Findings: compact deterministic recipes avoid retaining page-sized secrets or
+  opaque generated blobs while still fixing page length, byte generation,
+  layout, AAD, digest, prefix, and suffix. Normalized failures are evidence
+  vocabulary and do not change Tosumu's public error contract.
+- Disposition: C2a complete. The corpus remains Tosumu-derived rather than
+  independent evidence until C2b executes it through a separately implemented
+  oracle.
+- Resulting ADR or documentation change: retain
+  `crypto-format-v3-oracle-corpus-v1.json`; no dependency or ADR admitted.
