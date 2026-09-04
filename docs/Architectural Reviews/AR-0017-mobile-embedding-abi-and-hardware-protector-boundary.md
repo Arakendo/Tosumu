@@ -501,3 +501,28 @@ claim.
   filesystem durability, and support claims excluded.
 - Resulting ADR or documentation change: target-build evidence and its failed
   attempts are retained; no stable ABI, loader, wrapper, or mobile claim.
+
+### Cycle 13 -- 2026-09-03
+
+- Status entering review: Incubating; four cross-built artifacts retained but
+  neither target family had loader evidence.
+- New evidence: an app-bundle-shaped attempt in run `33825538270` cold-booted
+  iOS 18.5 but stalled in installation/launch and was stopped without credit.
+  The narrower C-process experiment removed packaging from the question.
+  GitHub Actions run `33825979582`, iOS job `100878618289`, passed from
+  01:29:54 through 01:33:19 UTC on cumulative commit
+  `6c35f028830c91d1c0f971191614e80abc219d98`. A separately compiled C11
+  executable statically linked the arm64 simulator archive; `simctl spawn`
+  launched it inside the iOS 18.5 runtime, where it invoked the ABI-version
+  export and emitted the expected marker.
+- Findings: direct process invocation answers the loader question without
+  prematurely importing framework layout, application signing, installation,
+  or lifecycle behavior. The evidence reaches one symbol and proves neither
+  database I/O nor the rest of the ABI. The failed bundle attempt demonstrates
+  why packaging belongs to a later gate.
+- Disposition: remain Incubating. Credit the iOS half of Slice 4 loader
+  admission. Require the corresponding Android emulator process observation
+  before closing Slice 4, and retain all device, filesystem, lifecycle,
+  packaging, wrapper, and support claims as unestablished.
+- Resulting ADR or documentation change: iOS simulator loader evidence retained;
+  no Android loader, stable ABI, app, wrapper, device, or mobile-support claim.

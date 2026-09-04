@@ -110,7 +110,10 @@ borrow across calls or using callbacks.
 - [x] Compile minimal C ABI artifacts for device and simulator/emulator targets.
 - [x] Verify exported symbols, architecture slices, unwind panic mode, and
       pinned construction inputs.
-- [ ] Load and invoke the artifact from named simulator/emulator consumers.
+- [x] Load and invoke the static archive from a C process in the named iOS
+      simulator.
+- [ ] Load and invoke the shared object from a C process in a named Android
+      emulator.
 - [x] Record unsupported targets explicitly, including the disposition of
       32-bit Android.
 
@@ -129,6 +132,18 @@ run was deliberately cancelled after these jobs, the independent C harness,
 and Miri completed; uncompleted matrix jobs are not credited. This is
 compile/link/inspection evidence, not loader, simulator, emulator, device,
 filesystem, lifecycle, packaging, or support evidence.
+
+The first app-bundle-shaped loader attempt in run `33825538270` cold-booted the
+iOS 18.5 simulator in 61 seconds but then stalled in the unrelated
+installation/launch path; the run was stopped after five minutes and earns no
+loader credit. The narrower follow-up removed SpringBoard packaging from the
+question. Run `33825979582`, iOS job `100878618289`, passed from 01:29:54
+through 01:33:19 UTC on cumulative commit
+`6c35f028830c91d1c0f971191614e80abc219d98`: a C11 executable statically
+linked the arm64 simulator archive, `simctl spawn` launched it inside the iOS
+18.5 runtime, and the process invoked the ABI-version function and emitted the
+expected marker. This is simulator process invocation evidence only, not app
+packaging, storage lifecycle, filesystem, or device evidence.
 
 ## Slice 5: Independent Language Consumers
 

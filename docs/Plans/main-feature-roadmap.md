@@ -302,8 +302,10 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
       transaction symbols across the foreign boundary.
 - [x] Retain pinned dependency closures and compile/link/symbol evidence for
       arm64 iOS device/simulator and 64-bit Android device/emulator artifacts.
-- [ ] Load and invoke the private artifact from named iOS simulator and Android
-      emulator consumers before claiming target runtime evidence.
+- [x] Load and invoke the private static archive from a C process in the named
+      iOS 18.5 simulator without treating that as app or device qualification.
+- [ ] Load and invoke the private shared object from a C process in a named
+      Android emulator before closing target runtime admission.
 - [ ] C ABI/FFI crate with opaque handles and explicit ownership rules.
 - [ ] Stable cross-language error and byte-buffer contracts.
 - [ ] Swift/iOS wrapper and Keychain/Secure Enclave protector integration.

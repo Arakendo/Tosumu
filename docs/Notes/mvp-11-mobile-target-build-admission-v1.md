@@ -116,8 +116,18 @@ target-filtered closure under the pinned Rust/Cargo release. The overall run
 was cancelled after these and the relevant FFI evidence jobs passed, so no
 unfinished matrix work is credited.
 
+Run `33825979582`, iOS job `100878618289`, then compiled a separate C11
+executable, linked it with the arm64 simulator archive, cold-booted the admitted
+iOS 18.5 runtime, and invoked it through `simctl spawn`. The process called the
+ABI-version export and returned the expected marker. The job passed from
+01:29:54 through 01:33:19 UTC on 2026-09-04 at cumulative commit
+`6c35f028830c91d1c0f971191614e80abc219d98`. A preceding app-bundle attempt
+was deliberately stopped after its packaging path stalled; it is retained as a
+failed experiment, not loader evidence.
+
 Official target documentation and runner inventories informed these candidate
 inputs. The retained run now records Tosumu's compiler, SDK/NDK, linker, and
-artifact observations, but does not load an artifact. Runner image inventories
-can change beneath a label. The jobs fail if the explicitly selected Xcode or
-NDK path disappears rather than silently choosing another toolchain.
+artifact observations. The iOS simulator archive now has one loader
+observation; Android still does not. Runner image inventories can change
+beneath a label. The jobs fail if the explicitly selected Xcode or NDK path
+disappears rather than silently choosing another toolchain.
