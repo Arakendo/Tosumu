@@ -31,6 +31,80 @@ env:
   RUSTFLAGS: "-D warnings"
 
 jobs:
+  mobile-ios-artifacts:
+    name: experimental iOS ARM64 artifacts
+    runs-on: macos-15
+    env:
+      IPHONEOS_DEPLOYMENT_TARGET: "13.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      - name: Select and verify Xcode and SDK
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+          xcodebuild -version | tee target-xcode-version.txt
+          grep -Fx "Xcode 16.4" target-xcode-version.txt
+          grep -Fx "Build version 16F6" target-xcode-version.txt
+          test "$(xcrun --sdk iphoneos --show-sdk-version)" = "18.5"
+          test "$(xcrun --sdk iphonesimulator --show-sdk-version)" = "18.5"
+          rustc -vV
+      - name: Link and inspect device and simulator archives
+        run: |
+          for target in aarch64-apple-ios aarch64-apple-ios-sim; do
+            cargo build --locked --release -p tosumu-ffi-experimental --target "$target"
+            archive="target/$target/release/libtosumu_ffi_experimental.a"
+            test -f "$archive"
+            file "$archive"
+            lipo -info "$archive"
+            nm -gU "$archive" \
+              | awk '{print $NF}' \
+              | sed 's/^_//' \
+              | grep '^tosumu_experimental_v1_' \
+              | sort -u > "target/$target/exports.txt"
+            diff -u tools/ffi-harness/symbols-production.txt \
+              "target/$target/exports.txt"
+          done
+
+  mobile-android-artifacts:
+    name: experimental Android 64-bit artifacts
+    runs-on: ubuntu-24.04
+    env:
+      TOSUMU_ANDROID_NDK: /usr/local/lib/android/sdk/ndk/27.3.13750724
+      CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: /usr/local/lib/android/sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
+      CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER: /usr/local/lib/android/sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android24-clang
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android,x86_64-linux-android
+      - name: Verify NDK and compiler identity
+        run: |
+          grep -Fx "Pkg.Revision = 27.3.13750724" \
+            "$TOSUMU_ANDROID_NDK/source.properties"
+          "$CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER" --version
+          "$CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER" --version
+          rustc -vV
+      - name: Link and inspect device and emulator shared objects
+        run: |
+          for target in aarch64-linux-android x86_64-linux-android; do
+            cargo build --locked --release -p tosumu-ffi-experimental --target "$target"
+            library="target/$target/release/libtosumu_ffi_experimental.so"
+            test -f "$library"
+            file "$library"
+            readelf -h "$library"
+            readelf -d "$library"
+            nm -D --defined-only "$library" \
+              | awk '{print $3}' \
+              | grep '^tosumu_experimental_v1_' \
+              | sort -u > "target/$target/exports.txt"
+            diff -u tools/ffi-harness/symbols-production.txt \
+              "target/$target/exports.txt"
+          done
+
   ffi-miri:
     name: experimental FFI boundary / Miri
     runs-on: ubuntu-latest

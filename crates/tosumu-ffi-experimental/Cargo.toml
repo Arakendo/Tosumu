@@ -12,7 +12,7 @@ readme.workspace = true
 publish = false
 
 [lib]
-crate-type = ["rlib", "cdylib"]
+crate-type = ["rlib", "cdylib", "staticlib"]
 
 [features]
 ffi-test-hooks = []
