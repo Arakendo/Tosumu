@@ -481,7 +481,59 @@ int main(int argc, char **argv) {
         TOSUMU_EXPERIMENTAL_V1_BOUNDARY_LENGTH_OUT_OF_RANGE);
     require_success(tosumu_experimental_v1_batch_close(pointer_batch.payload));
 
+    tosumu_experimental_v1_outcome failed_batch =
+        tosumu_experimental_v1_batch_create();
+    require_success(failed_batch);
+    require_success(tosumu_experimental_v1_batch_append_put(
+        failed_batch.payload,
+        (const uint8_t *)"error-staged",
+        12,
+        (const uint8_t *)"never",
+        5));
+    require_success(tosumu_experimental_v1_test_batch_append_failure(
+        failed_batch.payload, 1));
+    tosumu_experimental_v1_outcome injected_error =
+        tosumu_experimental_v1_database_execute_batch(
+            recovered.payload, failed_batch.payload);
+    assert(injected_error.tag == TOSUMU_EXPERIMENTAL_V1_ERROR);
+    require_success(tosumu_experimental_v1_error_close(injected_error.payload));
+    assert(tosumu_experimental_v1_database_get(
+               recovered.payload, (const uint8_t *)"error-staged", 12)
+               .tag == TOSUMU_EXPERIMENTAL_V1_ABSENT);
+
+    tosumu_experimental_v1_outcome panicking_batch =
+        tosumu_experimental_v1_batch_create();
+    require_success(panicking_batch);
+    require_success(tosumu_experimental_v1_batch_append_put(
+        panicking_batch.payload,
+        (const uint8_t *)"panic-staged",
+        12,
+        (const uint8_t *)"never",
+        5));
+    require_success(tosumu_experimental_v1_test_batch_append_failure(
+        panicking_batch.payload, 2));
+    require_boundary(
+        tosumu_experimental_v1_database_execute_batch(
+            recovered.payload, panicking_batch.payload),
+        TOSUMU_EXPERIMENTAL_V1_BOUNDARY_PANIC);
+    require_boundary(
+        tosumu_experimental_v1_database_get(
+            recovered.payload, (const uint8_t *)"panic-staged", 12),
+        TOSUMU_EXPERIMENTAL_V1_BOUNDARY_POISONED);
     require_success(tosumu_experimental_v1_database_close(recovered.payload));
+
+    tosumu_experimental_v1_outcome batch_recovered =
+        tosumu_experimental_v1_database_open(
+            (const uint8_t *)argv[1], strlen(argv[1]));
+    require_success(batch_recovered);
+    assert(tosumu_experimental_v1_database_get(
+               batch_recovered.payload, (const uint8_t *)"error-staged", 12)
+               .tag == TOSUMU_EXPERIMENTAL_V1_ABSENT);
+    assert(tosumu_experimental_v1_database_get(
+               batch_recovered.payload, (const uint8_t *)"panic-staged", 12)
+               .tag == TOSUMU_EXPERIMENTAL_V1_ABSENT);
+    require_success(
+        tosumu_experimental_v1_database_close(batch_recovered.payload));
 
     tosumu_experimental_v1_outcome missing = tosumu_experimental_v1_database_open(
         (const uint8_t *)argv[2], strlen(argv[2]));

@@ -437,6 +437,18 @@ pub extern "C" fn tosumu_experimental_v1_test_inject_database_panic_after_write_
     })
 }
 
+#[cfg(feature = "ffi-test-hooks")]
+#[no_mangle]
+pub extern "C" fn tosumu_experimental_v1_test_batch_append_failure(
+    batch: u64,
+    mode: u32,
+) -> TosumuExperimentalV1Outcome {
+    contained(None, || {
+        boundary::batch_append_test_failure(batch, mode)
+            .map(|()| TosumuExperimentalV1Outcome::success(0))
+    })
+}
+
 #[no_mangle]
 pub extern "C" fn tosumu_experimental_v1_error_code(error: u64) -> TosumuExperimentalV1Outcome {
     contained(None, || {

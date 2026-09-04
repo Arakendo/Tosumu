@@ -210,3 +210,52 @@ fn execute_validates_both_handles_and_linearizes_with_close() {
 
     assert_success(tosumu_experimental_v1_database_close(database));
 }
+
+#[cfg(feature = "ffi-test-hooks")]
+#[test]
+fn injected_error_and_panic_publish_no_staged_batch_commands() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("batch-faults.tsm");
+    let path_bytes = path.to_str().unwrap().as_bytes();
+    let database = unsafe { create_database(&path) };
+
+    let failed = assert_success(tosumu_experimental_v1_batch_create());
+    assert_success(unsafe { append_put(failed, b"error-staged", b"never") });
+    assert_success(tosumu_experimental_v1_test_batch_append_failure(failed, 1));
+    let failure = tosumu_experimental_v1_database_execute_batch(database, failed);
+    assert_eq!(failure.tag, boundary::TAG_ERROR);
+    assert_success(tosumu_experimental_v1_error_close(failure.payload));
+    assert_eq!(unsafe { read(database, b"error-staged") }, None);
+    let after_error = assert_success(tosumu_experimental_v1_batch_create());
+    assert_success(unsafe { append_put(after_error, b"still-usable", b"yes") });
+    assert_success(tosumu_experimental_v1_database_execute_batch(
+        database,
+        after_error,
+    ));
+    assert_eq!(
+        unsafe { read(database, b"still-usable") },
+        Some(b"yes".to_vec())
+    );
+
+    let panicking = assert_success(tosumu_experimental_v1_batch_create());
+    assert_success(unsafe { append_put(panicking, b"panic-staged", b"never") });
+    assert_success(tosumu_experimental_v1_test_batch_append_failure(
+        panicking, 2,
+    ));
+    assert_boundary(
+        tosumu_experimental_v1_database_execute_batch(database, panicking),
+        boundary::BOUNDARY_PANIC,
+    );
+    assert_boundary(
+        unsafe { tosumu_experimental_v1_database_get(database, b"panic-staged".as_ptr(), 12) },
+        boundary::BOUNDARY_POISONED,
+    );
+    assert_success(tosumu_experimental_v1_database_close(database));
+
+    let reopened = assert_success(unsafe {
+        tosumu_experimental_v1_database_open(path_bytes.as_ptr(), path_bytes.len())
+    });
+    assert_eq!(unsafe { read(reopened, b"error-staged") }, None);
+    assert_eq!(unsafe { read(reopened, b"panic-staged") }, None);
+    assert_success(tosumu_experimental_v1_database_close(reopened));
+}

@@ -57,8 +57,17 @@ struct BatchState {
 }
 
 enum BatchCommand {
-    Put { key: Vec<u8>, value: Vec<u8> },
-    Delete { key: Vec<u8> },
+    Put {
+        key: Vec<u8>,
+        value: Vec<u8>,
+    },
+    Delete {
+        key: Vec<u8>,
+    },
+    #[cfg(feature = "ffi-test-hooks")]
+    InjectError,
+    #[cfg(feature = "ffi-test-hooks")]
+    InjectPanic,
 }
 
 #[derive(Clone)]
@@ -353,6 +362,23 @@ pub fn batch_append_delete(handle: u64, key: &[u8]) -> Result<(), CallFailure> {
     Ok(())
 }
 
+#[cfg(feature = "ffi-test-hooks")]
+pub fn batch_append_test_failure(handle: u64, mode: u32) -> Result<(), CallFailure> {
+    let batch = batch(handle)?;
+    let command = match mode {
+        1 => BatchCommand::InjectError,
+        2 => BatchCommand::InjectPanic,
+        _ => return Err(CallFailure::Boundary(BOUNDARY_INVALID_INDEX)),
+    };
+    let mut state = batch
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    admit_batch_payload(&state, 0)?;
+    state.commands.push(command);
+    Ok(())
+}
+
 fn consume_batch(handle: u64) -> Result<Arc<BatchObject>, CallFailure> {
     if handle == 0 {
         return Err(CallFailure::Boundary(BOUNDARY_INVALID_HANDLE));
@@ -399,6 +425,16 @@ pub fn batch_execute(database_handle: u64, batch_handle: u64) -> Result<(), Call
                 match command {
                     BatchCommand::Put { key, value } => transaction.put(&key, &value)?,
                     BatchCommand::Delete { key } => transaction.delete(&key)?,
+                    #[cfg(feature = "ffi-test-hooks")]
+                    BatchCommand::InjectError => {
+                        return Err(TosumuError::InvalidArgument(
+                            "experimental C batch injected failure",
+                        ));
+                    }
+                    #[cfg(feature = "ffi-test-hooks")]
+                    BatchCommand::InjectPanic => {
+                        panic!("experimental C batch injected panic");
+                    }
                 }
             }
             Ok(())
