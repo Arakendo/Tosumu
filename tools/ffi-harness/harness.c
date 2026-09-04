@@ -323,6 +323,164 @@ int main(int argc, char **argv) {
             recovered.payload, key, sizeof(key));
     require_success(recovered_value);
     require_bytes(recovered_value.payload, second, sizeof(second));
+
+    const uint8_t batch_delete_key[] = "batch-delete";
+    require_success(tosumu_experimental_v1_database_put(
+        recovered.payload,
+        batch_delete_key,
+        sizeof(batch_delete_key) - 1,
+        (const uint8_t *)"present",
+        7));
+    uint8_t copied_key[] = "batch-copy";
+    uint8_t copied_value[] = "copied-value";
+    tosumu_experimental_v1_outcome batch =
+        tosumu_experimental_v1_batch_create();
+    require_success(batch);
+    require_success(tosumu_experimental_v1_batch_append_put(
+        batch.payload,
+        copied_key,
+        sizeof(copied_key) - 1,
+        copied_value,
+        sizeof(copied_value) - 1));
+    require_success(tosumu_experimental_v1_batch_append_put(
+        batch.payload,
+        (const uint8_t *)"batch-duplicate",
+        15,
+        (const uint8_t *)"before",
+        6));
+    require_success(tosumu_experimental_v1_batch_append_delete(
+        batch.payload, batch_delete_key, sizeof(batch_delete_key) - 1));
+    require_success(tosumu_experimental_v1_batch_append_put(
+        batch.payload,
+        (const uint8_t *)"batch-duplicate",
+        15,
+        (const uint8_t *)"after",
+        5));
+    copied_key[0] = 'X';
+    copied_value[0] = 'X';
+    require_success(tosumu_experimental_v1_database_execute_batch(
+        recovered.payload, batch.payload));
+    require_boundary(
+        tosumu_experimental_v1_database_execute_batch(
+            recovered.payload, batch.payload),
+        TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_HANDLE);
+    require_boundary(tosumu_experimental_v1_batch_close(batch.payload),
+                     TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_HANDLE);
+    tosumu_experimental_v1_outcome copied =
+        tosumu_experimental_v1_database_get(
+            recovered.payload, (const uint8_t *)"batch-copy", 10);
+    require_success(copied);
+    require_bytes(copied.payload,
+                  (const uint8_t *)"copied-value",
+                  12);
+    tosumu_experimental_v1_outcome duplicate =
+        tosumu_experimental_v1_database_get(
+            recovered.payload, (const uint8_t *)"batch-duplicate", 15);
+    require_success(duplicate);
+    require_bytes(duplicate.payload, (const uint8_t *)"after", 5);
+    assert(tosumu_experimental_v1_database_get(
+               recovered.payload,
+               batch_delete_key,
+               sizeof(batch_delete_key) - 1)
+               .tag == TOSUMU_EXPERIMENTAL_V1_ABSENT);
+
+    tosumu_experimental_v1_outcome aborted =
+        tosumu_experimental_v1_batch_create();
+    require_success(aborted);
+    require_success(tosumu_experimental_v1_batch_append_put(
+        aborted.payload,
+        (const uint8_t *)"batch-abort",
+        11,
+        (const uint8_t *)"never",
+        5));
+    require_success(tosumu_experimental_v1_batch_close(aborted.payload));
+    assert(tosumu_experimental_v1_database_get(
+               recovered.payload, (const uint8_t *)"batch-abort", 11)
+               .tag == TOSUMU_EXPERIMENTAL_V1_ABSENT);
+
+    tosumu_experimental_v1_outcome empty_batch =
+        tosumu_experimental_v1_batch_create();
+    require_success(empty_batch);
+    require_boundary(
+        tosumu_experimental_v1_database_execute_batch(
+            recovered.payload, empty_batch.payload),
+        TOSUMU_EXPERIMENTAL_V1_BOUNDARY_EMPTY_BATCH);
+    require_boundary(tosumu_experimental_v1_batch_close(empty_batch.payload),
+                     TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_HANDLE);
+
+    tosumu_experimental_v1_outcome retained_batch =
+        tosumu_experimental_v1_batch_create();
+    require_success(retained_batch);
+    require_success(tosumu_experimental_v1_batch_append_put(
+        retained_batch.payload,
+        (const uint8_t *)"retained",
+        8,
+        (const uint8_t *)"yes",
+        3));
+    require_boundary(
+        tosumu_experimental_v1_database_execute_batch(
+            UINT64_MAX, retained_batch.payload),
+        TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_HANDLE);
+    require_success(tosumu_experimental_v1_database_execute_batch(
+        recovered.payload, retained_batch.payload));
+
+    tosumu_experimental_v1_outcome command_limit =
+        tosumu_experimental_v1_batch_create();
+    require_success(command_limit);
+    for (int command = 0;
+         command < TOSUMU_EXPERIMENTAL_V1_MAX_BATCH_COMMANDS;
+         command++) {
+        require_success(tosumu_experimental_v1_batch_append_delete(
+            command_limit.payload, (const uint8_t *)"x", 1));
+    }
+    require_boundary(
+        tosumu_experimental_v1_batch_append_delete(
+            command_limit.payload, (const uint8_t *)"x", 1),
+        TOSUMU_EXPERIMENTAL_V1_BOUNDARY_BATCH_LIMIT_REACHED);
+    require_success(tosumu_experimental_v1_batch_close(command_limit.payload));
+
+    tosumu_experimental_v1_outcome payload_limit =
+        tosumu_experimental_v1_batch_create();
+    require_success(payload_limit);
+    size_t excessive_length =
+        (size_t)TOSUMU_EXPERIMENTAL_V1_MAX_BATCH_PAYLOAD_BYTES + 1;
+    uint8_t *excessive = malloc(excessive_length);
+    assert(excessive != NULL);
+    memset(excessive, 0x33, excessive_length);
+    require_boundary(
+        tosumu_experimental_v1_batch_append_put(
+            payload_limit.payload,
+            (const uint8_t *)"large",
+            5,
+            excessive,
+            excessive_length),
+        TOSUMU_EXPERIMENTAL_V1_BOUNDARY_BATCH_LIMIT_REACHED);
+    free(excessive);
+    require_success(tosumu_experimental_v1_batch_append_put(
+        payload_limit.payload,
+        (const uint8_t *)"small",
+        5,
+        (const uint8_t *)"accepted",
+        8));
+    require_success(tosumu_experimental_v1_batch_close(payload_limit.payload));
+
+    require_boundary(
+        tosumu_experimental_v1_batch_append_delete(
+            recovered.payload, (const uint8_t *)"wrong-kind", 10),
+        TOSUMU_EXPERIMENTAL_V1_BOUNDARY_WRONG_KIND);
+    tosumu_experimental_v1_outcome pointer_batch =
+        tosumu_experimental_v1_batch_create();
+    require_success(pointer_batch);
+    require_boundary(
+        tosumu_experimental_v1_batch_append_put(
+            pointer_batch.payload, NULL, 1, (const uint8_t *)"v", 1),
+        TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_POINTER);
+    require_boundary(
+        tosumu_experimental_v1_batch_append_delete(
+            pointer_batch.payload, (const uint8_t *)"x", SIZE_MAX),
+        TOSUMU_EXPERIMENTAL_V1_BOUNDARY_LENGTH_OUT_OF_RANGE);
+    require_success(tosumu_experimental_v1_batch_close(pointer_batch.payload));
+
     require_success(tosumu_experimental_v1_database_close(recovered.payload));
 
     tosumu_experimental_v1_outcome missing = tosumu_experimental_v1_database_open(
