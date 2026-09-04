@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread::{self, ThreadId};
 
 use tosumu_core::error::{ErrorReport, ErrorStatus, ErrorValue, TosumuError};
-use tosumu_core::{KvConnectionInfo, KvReadTransaction, SharedKvStore};
+use tosumu_core::{KvConnectionInfo, KvReadTransaction, KvScanPage, SharedKvStore};
 
 pub const TAG_SUCCESS: u32 = 0;
 pub const TAG_ABSENT: u32 = 1;
@@ -23,6 +23,7 @@ pub const BOUNDARY_REGISTRY_FULL: u32 = 8;
 pub const BOUNDARY_INVALID_PATH: u32 = 9;
 pub const BOUNDARY_INVALID_INDEX: u32 = 10;
 pub const BOUNDARY_WRONG_DETAIL_TYPE: u32 = 11;
+pub const BOUNDARY_LIMIT_OUT_OF_RANGE: u32 = 12;
 
 const MAX_LIVE_HANDLES: usize = 4096;
 
@@ -44,6 +45,7 @@ enum Entry {
     Bytes(Arc<Vec<u8>>),
     Error(Arc<ErrorReport>),
     Connection(Arc<KvConnectionInfo>),
+    ScanPage(Arc<KvScanPage>),
 }
 
 #[derive(Clone, Copy)]
@@ -53,6 +55,7 @@ pub enum Kind {
     Bytes,
     Error,
     Connection,
+    ScanPage,
 }
 
 #[derive(Default)]
@@ -125,6 +128,7 @@ impl Entry {
                 | (Self::Bytes(_), Kind::Bytes)
                 | (Self::Error(_), Kind::Error)
                 | (Self::Connection(_), Kind::Connection)
+                | (Self::ScanPage(_), Kind::ScanPage)
         )
     }
 }
@@ -266,6 +270,71 @@ pub fn snapshot_get(handle: u64, key: &[u8]) -> Result<Option<u64>, CallFailure>
         .get(key)
         .map_err(CallFailure::Core)?;
     value.map(insert_bytes).transpose()
+}
+
+pub fn snapshot_scan_page(
+    handle: u64,
+    start: &[u8],
+    end: &[u8],
+    maximum_pairs: u64,
+    maximum_payload_bytes: u64,
+) -> Result<u64, CallFailure> {
+    let maximum_pairs = usize::try_from(maximum_pairs)
+        .map_err(|_| CallFailure::Boundary(BOUNDARY_LIMIT_OUT_OF_RANGE))?;
+    let snapshot = snapshot(handle)?;
+    let page = snapshot
+        .snapshot
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .scan_page(start, end, maximum_pairs, maximum_payload_bytes)
+        .map_err(CallFailure::Core)?;
+    insert(Entry::ScanPage(Arc::new(page))).map_err(CallFailure::Boundary)
+}
+
+fn scan_page(handle: u64) -> Result<Arc<KvScanPage>, u32> {
+    match lookup(handle)? {
+        Entry::ScanPage(page) => Ok(page),
+        _ => Err(BOUNDARY_WRONG_KIND),
+    }
+}
+
+pub fn scan_page_pair_count(handle: u64) -> Result<u64, u32> {
+    u64::try_from(scan_page(handle)?.pairs.len()).map_err(|_| BOUNDARY_INVALID_INDEX)
+}
+
+pub fn scan_page_pair_key(handle: u64, index: u64) -> Result<u64, CallFailure> {
+    let page = scan_page(handle).map_err(CallFailure::Boundary)?;
+    let index =
+        usize::try_from(index).map_err(|_| CallFailure::Boundary(BOUNDARY_INVALID_INDEX))?;
+    let pair = page
+        .pairs
+        .get(index)
+        .ok_or(CallFailure::Boundary(BOUNDARY_INVALID_INDEX))?;
+    insert_bytes(pair.0.clone())
+}
+
+pub fn scan_page_pair_value(handle: u64, index: u64) -> Result<u64, CallFailure> {
+    let page = scan_page(handle).map_err(CallFailure::Boundary)?;
+    let index =
+        usize::try_from(index).map_err(|_| CallFailure::Boundary(BOUNDARY_INVALID_INDEX))?;
+    let pair = page
+        .pairs
+        .get(index)
+        .ok_or(CallFailure::Boundary(BOUNDARY_INVALID_INDEX))?;
+    insert_bytes(pair.1.clone())
+}
+
+pub fn scan_page_next_start(handle: u64) -> Result<Option<u64>, CallFailure> {
+    scan_page(handle)
+        .map_err(CallFailure::Boundary)?
+        .next_start_inclusive
+        .clone()
+        .map(insert_bytes)
+        .transpose()
+}
+
+pub fn scan_page_blocked_entry_payload_bytes(handle: u64) -> Result<Option<u64>, u32> {
+    Ok(scan_page(handle)?.blocked_entry_payload_bytes)
 }
 
 pub fn insert_bytes(bytes: Vec<u8>) -> Result<u64, CallFailure> {

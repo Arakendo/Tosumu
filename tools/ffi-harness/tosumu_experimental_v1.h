@@ -40,7 +40,8 @@ enum {
     TOSUMU_EXPERIMENTAL_V1_BOUNDARY_REGISTRY_FULL = 8,
     TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_PATH = 9,
     TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_INDEX = 10,
-    TOSUMU_EXPERIMENTAL_V1_BOUNDARY_WRONG_DETAIL_TYPE = 11
+    TOSUMU_EXPERIMENTAL_V1_BOUNDARY_WRONG_DETAIL_TYPE = 11,
+    TOSUMU_EXPERIMENTAL_V1_BOUNDARY_LIMIT_OUT_OF_RANGE = 12
 };
 
 enum {
@@ -73,7 +74,14 @@ tosumu_experimental_v1_outcome tosumu_experimental_v1_database_get(uint64_t, con
 tosumu_experimental_v1_outcome tosumu_experimental_v1_snapshot_begin(uint64_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_snapshot_generation(uint64_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_snapshot_get(uint64_t, const uint8_t *, size_t);
+tosumu_experimental_v1_outcome tosumu_experimental_v1_snapshot_scan_page(uint64_t, const uint8_t *, size_t, const uint8_t *, size_t, uint64_t, uint64_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_snapshot_close(uint64_t);
+tosumu_experimental_v1_outcome tosumu_experimental_v1_scan_page_pair_count(uint64_t);
+tosumu_experimental_v1_outcome tosumu_experimental_v1_scan_page_pair_key(uint64_t, uint64_t);
+tosumu_experimental_v1_outcome tosumu_experimental_v1_scan_page_pair_value(uint64_t, uint64_t);
+tosumu_experimental_v1_outcome tosumu_experimental_v1_scan_page_next_start(uint64_t);
+tosumu_experimental_v1_outcome tosumu_experimental_v1_scan_page_blocked_entry_payload_bytes(uint64_t);
+tosumu_experimental_v1_outcome tosumu_experimental_v1_scan_page_close(uint64_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_bytes_length(uint64_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_bytes_copy(uint64_t, uint8_t *, size_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_bytes_close(uint64_t);

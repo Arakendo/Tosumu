@@ -204,10 +204,92 @@ pub unsafe extern "C" fn tosumu_experimental_v1_snapshot_get(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn tosumu_experimental_v1_snapshot_scan_page(
+    snapshot: u64,
+    start: *const u8,
+    start_length: usize,
+    end: *const u8,
+    end_length: usize,
+    maximum_pairs: u64,
+    maximum_payload_bytes: u64,
+) -> TosumuExperimentalV1Outcome {
+    contained(None, || {
+        let start = unsafe { input(start, start_length) }?;
+        let end = unsafe { input(end, end_length) }?;
+        boundary::snapshot_scan_page(snapshot, start, end, maximum_pairs, maximum_payload_bytes)
+            .map(TosumuExperimentalV1Outcome::success)
+    })
+}
+
+#[no_mangle]
 pub extern "C" fn tosumu_experimental_v1_snapshot_close(
     snapshot: u64,
 ) -> TosumuExperimentalV1Outcome {
     close(snapshot, Kind::Snapshot)
+}
+
+#[no_mangle]
+pub extern "C" fn tosumu_experimental_v1_scan_page_pair_count(
+    page: u64,
+) -> TosumuExperimentalV1Outcome {
+    contained(None, || {
+        boundary::scan_page_pair_count(page)
+            .map(TosumuExperimentalV1Outcome::success)
+            .map_err(CallFailure::Boundary)
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn tosumu_experimental_v1_scan_page_pair_key(
+    page: u64,
+    index: u64,
+) -> TosumuExperimentalV1Outcome {
+    contained(None, || {
+        boundary::scan_page_pair_key(page, index).map(TosumuExperimentalV1Outcome::success)
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn tosumu_experimental_v1_scan_page_pair_value(
+    page: u64,
+    index: u64,
+) -> TosumuExperimentalV1Outcome {
+    contained(None, || {
+        boundary::scan_page_pair_value(page, index).map(TosumuExperimentalV1Outcome::success)
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn tosumu_experimental_v1_scan_page_next_start(
+    page: u64,
+) -> TosumuExperimentalV1Outcome {
+    contained(None, || {
+        Ok(match boundary::scan_page_next_start(page)? {
+            Some(handle) => TosumuExperimentalV1Outcome::success(handle),
+            None => TosumuExperimentalV1Outcome::absent(),
+        })
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn tosumu_experimental_v1_scan_page_blocked_entry_payload_bytes(
+    page: u64,
+) -> TosumuExperimentalV1Outcome {
+    contained(None, || {
+        Ok(
+            match boundary::scan_page_blocked_entry_payload_bytes(page)
+                .map_err(CallFailure::Boundary)?
+            {
+                Some(value) => TosumuExperimentalV1Outcome::success(value),
+                None => TosumuExperimentalV1Outcome::absent(),
+            },
+        )
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn tosumu_experimental_v1_scan_page_close(page: u64) -> TosumuExperimentalV1Outcome {
+    close(page, Kind::ScanPage)
 }
 
 #[no_mangle]
@@ -465,6 +547,75 @@ mod tests {
         assert_eq!(
             tosumu_experimental_v1_snapshot_close(snapshot.payload).status,
             boundary::BOUNDARY_INVALID_HANDLE
+        );
+    }
+
+    #[test]
+    fn scan_page_handles_own_results_and_continuation_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = path_bytes(&directory.path().join("scan-page.tsm"));
+        let database = unsafe { tosumu_experimental_v1_database_create(path.as_ptr(), path.len()) };
+        assert_eq!(database.tag, boundary::TAG_SUCCESS);
+
+        for (key, value) in [
+            (b"a".as_slice(), b"one".as_slice()),
+            (b"b", b"two"),
+            (b"c", b"three"),
+        ] {
+            let outcome = unsafe {
+                tosumu_experimental_v1_database_put(
+                    database.payload,
+                    key.as_ptr(),
+                    key.len(),
+                    value.as_ptr(),
+                    value.len(),
+                )
+            };
+            assert_eq!(outcome.tag, boundary::TAG_SUCCESS);
+        }
+
+        let snapshot = tosumu_experimental_v1_snapshot_begin(database.payload);
+        let page = unsafe {
+            tosumu_experimental_v1_snapshot_scan_page(
+                snapshot.payload,
+                b"a".as_ptr(),
+                1,
+                b"z".as_ptr(),
+                1,
+                2,
+                100,
+            )
+        };
+        assert_eq!(page.tag, boundary::TAG_SUCCESS);
+        assert_eq!(
+            tosumu_experimental_v1_scan_page_pair_count(page.payload).payload,
+            2
+        );
+        let first_key = tosumu_experimental_v1_scan_page_pair_key(page.payload, 0);
+        let first_value = tosumu_experimental_v1_scan_page_pair_value(page.payload, 0);
+        let next = tosumu_experimental_v1_scan_page_next_start(page.payload);
+        assert_eq!(first_key.tag, boundary::TAG_SUCCESS);
+        assert_eq!(first_value.tag, boundary::TAG_SUCCESS);
+        assert_eq!(next.tag, boundary::TAG_SUCCESS);
+        assert_eq!(
+            tosumu_experimental_v1_scan_page_blocked_entry_payload_bytes(page.payload).tag,
+            boundary::TAG_ABSENT
+        );
+        assert_eq!(
+            tosumu_experimental_v1_scan_page_close(page.payload).tag,
+            boundary::TAG_SUCCESS
+        );
+
+        assert_eq!(unsafe { read_bytes(first_key.payload) }, b"a");
+        assert_eq!(unsafe { read_bytes(first_value.payload) }, b"one");
+        assert_eq!(unsafe { read_bytes(next.payload) }, b"c");
+        assert_eq!(
+            tosumu_experimental_v1_snapshot_close(snapshot.payload).tag,
+            boundary::TAG_SUCCESS
+        );
+        assert_eq!(
+            tosumu_experimental_v1_database_close(database.payload).tag,
+            boundary::TAG_SUCCESS
         );
     }
 
