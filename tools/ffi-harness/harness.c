@@ -9,6 +9,13 @@ static void require_success(tosumu_experimental_v1_outcome outcome) {
     assert(outcome.tag == TOSUMU_EXPERIMENTAL_V1_SUCCESS);
 }
 
+static void require_boundary(tosumu_experimental_v1_outcome outcome,
+                             uint32_t status) {
+    assert(outcome.tag == TOSUMU_EXPERIMENTAL_V1_BOUNDARY_FAILURE);
+    assert(outcome.status == status);
+    assert(outcome.payload == 0);
+}
+
 static void require_bytes(uint64_t handle, const uint8_t *expected, size_t expected_length) {
     tosumu_experimental_v1_outcome length = tosumu_experimental_v1_bytes_length(handle);
     require_success(length);
@@ -77,6 +84,17 @@ int main(int argc, char **argv) {
         sizeof(large_key) - 1,
         large_value,
         large_value_length));
+    require_success(tosumu_experimental_v1_database_put(
+        database.payload, (const uint8_t *)"empty", 5, NULL, 0));
+    tosumu_experimental_v1_outcome empty =
+        tosumu_experimental_v1_database_get(
+            database.payload, (const uint8_t *)"empty", 5);
+    require_success(empty);
+    assert(tosumu_experimental_v1_bytes_length(empty.payload).payload == 0);
+    require_success(tosumu_experimental_v1_bytes_close(empty.payload));
+    assert(tosumu_experimental_v1_database_get(
+               database.payload, (const uint8_t *)"missing", 7)
+               .tag == TOSUMU_EXPERIMENTAL_V1_ABSENT);
 
     tosumu_experimental_v1_outcome snapshot =
         tosumu_experimental_v1_snapshot_begin(database.payload);
@@ -91,6 +109,13 @@ int main(int argc, char **argv) {
         tosumu_experimental_v1_snapshot_get(snapshot.payload, key, sizeof(key));
     require_success(latest);
     require_success(pinned);
+    uint8_t undersized[2] = {0xa5, 0xa5};
+    tosumu_experimental_v1_outcome required_copy =
+        tosumu_experimental_v1_bytes_copy(
+            pinned.payload, undersized, sizeof(undersized));
+    require_success(required_copy);
+    assert(required_copy.payload == sizeof(first));
+    assert(undersized[0] == 0xa5 && undersized[1] == 0xa5);
     tosumu_experimental_v1_outcome connection =
         tosumu_experimental_v1_database_connection_info(database.payload);
     require_success(connection);
@@ -101,8 +126,20 @@ int main(int argc, char **argv) {
     assert(active_readers.payload == 1);
     require_success(tosumu_experimental_v1_database_close(database.payload));
     require_success(tosumu_experimental_v1_connection_close(connection.payload));
+    require_boundary(
+        tosumu_experimental_v1_database_get(database.payload, key, sizeof(key)),
+        TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_HANDLE);
+    require_boundary(
+        tosumu_experimental_v1_connection_field(
+            connection.payload,
+            TOSUMU_EXPERIMENTAL_V1_CONNECTION_ACTIVE_READERS),
+        TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_HANDLE);
     require_bytes(latest.payload, second, sizeof(second));
     require_bytes(pinned.payload, first, sizeof(first));
+    require_boundary(tosumu_experimental_v1_bytes_length(latest.payload),
+                     TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_HANDLE);
+    require_boundary(tosumu_experimental_v1_bytes_length(pinned.payload),
+                     TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_HANDLE);
 
     for (int page_index = 0; page_index < 4; page_index++) {
         int first_row = page_index * 4;
@@ -154,6 +191,9 @@ int main(int argc, char **argv) {
         tosumu_experimental_v1_outcome next =
             tosumu_experimental_v1_scan_page_next_start(page.payload);
         require_success(tosumu_experimental_v1_scan_page_close(page.payload));
+        require_boundary(
+            tosumu_experimental_v1_scan_page_pair_count(page.payload),
+            TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_HANDLE);
         if (first_row + expected_count < 13) {
             char expected_next[16];
             int next_length = snprintf(expected_next,
@@ -192,6 +232,9 @@ int main(int argc, char **argv) {
     require_success(required);
     assert(required.payload == (sizeof(large_key) - 1) + large_value_length);
     require_success(tosumu_experimental_v1_scan_page_close(blocked.payload));
+    require_boundary(
+        tosumu_experimental_v1_scan_page_pair_count(blocked.payload),
+        TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_HANDLE);
     require_bytes(blocked_next.payload, large_key, sizeof(large_key) - 1);
 
     tosumu_experimental_v1_outcome admitted =
@@ -220,6 +263,9 @@ int main(int argc, char **argv) {
                admitted.payload)
                .tag == TOSUMU_EXPERIMENTAL_V1_ABSENT);
     require_success(tosumu_experimental_v1_scan_page_close(admitted.payload));
+    require_boundary(
+        tosumu_experimental_v1_scan_page_pair_count(admitted.payload),
+        TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_HANDLE);
     require_bytes(admitted_key.payload, large_key, sizeof(large_key) - 1);
     require_bytes(admitted_value.payload, large_value, large_value_length);
     assert(tosumu_experimental_v1_scan_page_pair_count(snapshot.payload).status ==
@@ -274,12 +320,22 @@ int main(int argc, char **argv) {
     assert(tosumu_experimental_v1_bytes_length(missing.payload).status ==
            TOSUMU_EXPERIMENTAL_V1_BOUNDARY_WRONG_KIND);
     require_success(tosumu_experimental_v1_error_close(missing.payload));
+    require_boundary(tosumu_experimental_v1_error_status(missing.payload),
+                     TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_HANDLE);
 
-    assert(tosumu_experimental_v1_database_open(NULL, 1).status ==
-           TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_POINTER);
-    assert(tosumu_experimental_v1_database_open(
-               (const uint8_t *)"x", SIZE_MAX)
-               .status == TOSUMU_EXPERIMENTAL_V1_BOUNDARY_LENGTH_OUT_OF_RANGE);
+    require_boundary(tosumu_experimental_v1_database_open(NULL, 1),
+                     TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_POINTER);
+    require_boundary(
+        tosumu_experimental_v1_database_open((const uint8_t *)"x", SIZE_MAX),
+        TOSUMU_EXPERIMENTAL_V1_BOUNDARY_LENGTH_OUT_OF_RANGE);
+    const uint8_t invalid_utf8[] = {0xff};
+    require_boundary(
+        tosumu_experimental_v1_database_open(invalid_utf8, sizeof(invalid_utf8)),
+        TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_UTF8);
+    require_boundary(tosumu_experimental_v1_bytes_length(0),
+                     TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_HANDLE);
+    require_boundary(tosumu_experimental_v1_bytes_length(UINT64_MAX),
+                     TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_HANDLE);
 
     puts("independent C ABI harness: ok");
     return 0;
