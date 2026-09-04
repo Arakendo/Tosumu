@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Incubating |
+| Status | Accepted through the 2026-09-03 ADR-0006 amendment |
 | Opened | 2026-09-03 |
 | Last reviewed | 2026-09-03 |
 | Scope | Provider-neutral snapshot range reads / pagination / resource limits |
@@ -151,12 +151,10 @@ shape and avoids synthesizing a successor for arbitrary bytes.
 
 ## Disposition
 
-Incubating. The private traversal and public result vocabulary have cleared
-their gates, and `KvReadTransaction::scan_page` is admitted as a public Rust
-experiment with an external integration caller. Do not add C range symbols
-until that adapter preserves fixed-width limit conversion, owned-result
-lifetime, multi-page continuation, and blocked-entry meaning. Amend ADR-0006
-only after the independent Rust and C callers establish the contract.
+Accepted through the 2026-09-03 ADR-0006 amendment. The provider-neutral Rust
+contract is supported. The C range symbols remain part of the private unstable
+MVP+11 experiment and receive no stable-ABI or mobile-platform status from this
+review.
 
 ## Reopening Triggers
 
@@ -266,6 +264,29 @@ only after the independent Rust and C callers establish the contract.
   harness to consume multiple pages and a blocked entry before ADR amendment.
 - Resulting ADR or documentation change: public Rust experiment and independent
   integration evidence established; no C symbols or ADR amendment yet.
+
+### Cycle 6 -- 2026-09-03
+
+- Status entering review: Incubating; independent Rust evidence obtained and a
+  private C adapter experiment admitted.
+- New evidence: GitHub Actions run `33820788393`, job `100862796680`, exercised
+  commit `2f7969af3cf6a2adbcec6cf24c2f4739b4f2ce4b`. The hand-maintained C11
+  caller compiled with warnings denied, matched the exact experimental-symbol
+  allowlist, consumed thirteen rows through four owned pages after closing the
+  database handle, verified each pair and inclusive continuation, observed and
+  retried a blocked 20,000-byte overflow value, retained derived byte handles
+  after page close, and rejected a wrong-kind page operation. The independent
+  C job completed successfully; the wider matrix was still running when this
+  specific result first became available.
+- Findings: fixed-width adapter limits convert without changing core meaning;
+  immutable owned page handles and separately owned byte results preserve the
+  existing close/use model. Both independent caller gates and every listed
+  traversal/fault/conservation gate are now satisfied.
+- Disposition: Accept the bounded logical page contract and amend ADR-0006.
+  Keep the C projection private and unstable under AR-0017; it establishes no
+  mobile, cross-platform, or stable-ABI claim.
+- Resulting ADR or documentation change: ADR-0006 and the normative SDD now own
+  bounded snapshot pagination; AR-0018 closes as Accepted.
 
 ## References
 

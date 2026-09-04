@@ -489,7 +489,13 @@ Not "the file is large because mystery."
 > is deliberately all-or-nothing: any active reader suppresses checkpoint and
 > truncation; reader drop performs no hidden work; the next zero-reader commit
 > performs a full checkpoint. `SharedKvStore`, `KvReadTransaction`,
-> `KvWriteTransaction`, and `KvConnectionInfo` are supported at the crate root.
+> `KvWriteTransaction`, `KvScanPage`, and `KvConnectionInfo` are supported at
+> the crate root. A read transaction's `scan_page` bounds admitted pairs and
+> logical `key.len() + value.len()` bytes during traversal, returns the first
+> unconsumed key as an inclusive continuation, and reports the full logical size
+> of a byte-blocked entry without reading an excluded overflow value. The
+> continuation key is an explicit additive allocation bounded by
+> `MAX_KEY_SIZE`; the payload limit is not a total-memory claim.
 > Generic `Database`, `Session`, `BusyPolicy`, session identity/age,
 > partial/passive checkpoint progress, cancellation, and timeout behavior
 > remain unimplemented. Existing independent read-only handles remain live

@@ -344,3 +344,23 @@ claim.
   truncation.
 - Resulting ADR or documentation change: expanded C evidence and bounded-range
   blocker retained; no stable ABI or mobile claim.
+
+### Cycle 7 -- 2026-09-03
+
+- Status entering review: Incubating; bounded core range contract required
+  before the private C experiment could expose pagination.
+- New evidence: AR-0018 completed private traversal, fault, property, public
+  Rust caller, and independent C caller gates. GitHub Actions run `33820788393`,
+  job `100862796680`, compiled and ran the expanded C11 harness against commit
+  `2f7969af3cf6a2adbcec6cf24c2f4739b4f2ce4b`. Immutable page handles preserved
+  pair, continuation, blocked-size, and derived-byte ownership after database
+  and page close without callbacks or physical cursors.
+- Findings: a bounded logical range composes through the existing handle model
+  without extending core with foreign policy. This closes Slice 1's remaining
+  range omission but does not settle hostile-handle concurrency, multi-call
+  writes, target packaging, or mobile lifecycle.
+- Disposition: remain Incubating. Credit Slice 1 as complete, accept AR-0018
+  through ADR-0006 for the Rust contract only, and move to Slice 2 hostile ABI
+  and ownership closure. Keep every C symbol private and experimental.
+- Resulting ADR or documentation change: bounded range no longer blocks the
+  experiment; no stable ABI, wrapper, target, or mobile claim.

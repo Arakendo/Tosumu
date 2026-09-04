@@ -24,6 +24,8 @@ caller currently needs.
 
 - `SharedKvStore`: a cloneable `Send + Sync` owner for one writable database;
 - `KvReadTransaction`: a generation-pinned `Send + !Sync` logical reader;
+- `KvScanPage`: one owned, bounded logical range result with an inclusive
+  continuation key;
 - `KvWriteTransaction<'_>`: a borrowed `!Send + !Sync` logical writer supplied
   only to an atomic write callback; and
 - `KvConnectionInfo`: bounded process-local reader, generation, WAL-retention,
@@ -50,6 +52,17 @@ names needed by a later locked/unlocked typestate or host composition.
   with commit publication and retains one bounded registry pin until drop.
 - `KvReadTransaction::get` and inclusive ordered `scan` resolve only versions no
   newer than that generation through the authenticated pager boundary.
+- `KvReadTransaction::scan_page` applies positive pair and logical-payload-byte
+  limits during traversal. Its owned `KvScanPage` contains admitted pairs, the
+  first unconsumed key as an inclusive continuation, and the blocked entry's
+  full logical size when the byte budget prevents admission. Logical payload is
+  `key.len() + value.len()`.
+- An excluded overflow value is not read or allocated merely to discover its
+  continuation and declared size. The continuation key is one explicit additive
+  allocation outside the payload budget, independently bounded by
+  `MAX_KEY_SIZE`. Invalid limits and inverted bounds retain typed
+  `InvalidArgument`; admitted data retains existing corruption/authentication
+  behavior.
 - The reader is movable to another thread but cannot be shared concurrently.
 - Reader drop only unregisters the pin. It performs no checkpoint, I/O, wait,
   or fallible cleanup.
@@ -95,6 +108,8 @@ mechanism would make the compatibility boundary ambiguous.
   decision does not claim parallel read execution or scaling.
 - `tosumu-sql` has a real lower-layer snapshot contract for later scan work
   without teaching core about tables or SQL.
+- Bounded consumers can stop before excluded overflow materialization and resume
+  without receiving a physical page, slot, WAL position, or mutable cursor.
 - Long-lived readers can defer checkpoints and cause bounded write rejection;
   callers can observe the pressure but cannot configure the private defaults
   through this initial API.
@@ -124,7 +139,20 @@ Revisit this decision if a consumer needs cross-process pinned readers,
 read-only shared owners, recovery-key/keyfile constructors, configurable
 retention limits, partial checkpoints, session identity/age, bounded waiting or
 cancellation, async integration, parallel read throughput, or a typestate
-locked/unlocked database.
+locked/unlocked database. Revisit bounded pagination if measured repeated root
+descent requires an owned cursor, callers require continuation across
+close/reopen, reverse traversal is admitted, or logical pair/payload limits do
+not predict consumer resource use adequately.
+
+## 2026-09-03 Amendment: Bounded Snapshot Pagination
+
+AR-0018 established the bounded page contract through a private traversal,
+leaf-boundary and overflow-corruption falsifications, a complete-scan property,
+an integration caller using only public Rust exports, and an independently
+compiled C caller. The amendment admits the provider-neutral Rust contract. It
+does not admit the experimental C symbols as stable ABI, make the physical WAL
+an application protocol, or add cursor, mobile, SQL, or service semantics to
+core.
 
 ## References
 
@@ -134,6 +162,7 @@ locked/unlocked database.
 - `ADR-0004-cooperative-single-writer-admission.md`
 - `ADR-0005-committed-generation-and-retained-wal-snapshots.md`
 - `../Architectural Reviews/AR-0009-multiple-reader-execution-and-coordination.md`
+- `../Architectural Reviews/AR-0018-bounded-snapshot-range-pagination.md`
 - `../Plans/mvp-10-multiple-readers.md`
 - `../Specifications/Tosumu Software Design Document.md`
 - `../Specifications/Tosumu Error Design Document.md`

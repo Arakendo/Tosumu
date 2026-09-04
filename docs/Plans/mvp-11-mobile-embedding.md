@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; Slice 0 complete and Slice 1 independent Linux baseline obtained |
+| Status | Active; Slices 0-1 complete and Slice 2 ownership pressure current |
 | Opened | 2026-09-03 |
 | Owner | Mobile adapters above `tosumu-core` |
 | Target | Callback-free C ABI, independent Swift/Kotlin callers, and named iOS/Android qualification profiles |
@@ -53,7 +53,7 @@ claimed.
 - [x] Expose create/open/close, put/delete/get, and snapshot begin/get/close.
 - [x] Expose immutable bounded connection observations without JSON, callbacks,
       or a live borrowed core reference.
-- [ ] Admit a resumable core range contract that bounds work before allocation;
+- [x] Admit a resumable core range contract that bounds work before allocation;
       do not truncate the existing fully materialized scan in the adapter.
 - [x] Contain exported operations through the common unwind boundary and prove
       the database poison/close transition with a feature-gated C panic hook.
@@ -195,11 +195,10 @@ No rung implies the next.
 
 ## Immediate Next Slice
 
-Project AR-0018's passing public Rust page through the private experimental C
-boundary. Use checked fixed-width limit conversion and owned result handles;
-make the independent C process consume multiple pages and retry one blocked
-entry without callbacks or physical cursor state. Then review whether the two
-independent callers justify amending ADR-0006.
+Begin Slice 2 with a generated hostile-handle corpus over every exported handle
+kind and operation. Establish zero, stale, wrong-kind, random, and double-close
+behavior plus handle-count recovery without dispatching invalid use into core;
+then pressure null/length and close/use concurrency separately.
 
 ## References
 

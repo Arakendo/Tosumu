@@ -90,32 +90,36 @@ database-associated panic transition. It does not prove that allocator aborts,
 foreign invalid-pointer faults, platform exceptions, or every possible panic
 site are recoverable.
 
-## Bounded Range Finding
+GitHub Actions run `33820788393`, job `100862796680`, next exercised commit
+`2f7969af3cf6a2adbcec6cf24c2f4739b4f2ce4b`. The expanded independent C caller
+consumed thirteen captured rows through four bounded pages after database-handle
+close, checked every pair and first-unconsumed inclusive continuation, handled
+and retried a blocked 20,000-byte overflow entry, and verified that derived byte
+handles outlive page close. The exact experimental symbol allowlist and the C
+compiler's `-Wall -Wextra -Werror` checks passed. This closes the C evidence gate
+for AR-0018's provider-neutral pagination contract; it does not stabilize the C
+representation.
 
-The current `KvReadTransaction::scan` calls `BTree::scan_at_snapshot`, whose
-`scan_from` implementation materializes the complete selected range in a
-`BTreeMap` and then a `Vec`. An adapter-side pair or byte limit would therefore
-bound only the returned encoding, not the work or memory already consumed.
+## Bounded Range Resolution
 
-Do not expose that operation as a bounded C scan. The next admission review
-must define a resumable core scan page/cursor that:
+The original `KvReadTransaction::scan` materializes its complete selected range,
+so adapter-side truncation was rejected as a false resource bound. AR-0018 now
+admits `KvReadTransaction::scan_page`, which applies pair and logical-payload
+limits while traversing the captured generation and returns the first unconsumed
+key as an inclusive continuation.
 
-- applies pair and logical-payload-byte limits while traversing leaves;
-- does not read an overflow value after its declared length exceeds the
-  remaining page budget;
-- distinguishes exhausted range from a resumable continuation;
-- defines inclusive first-bound and exclusive continuation semantics;
-- remains pinned to the snapshot generation; and
-- returns a typed outcome when one entry cannot fit the caller's admitted
-  maximum.
+The operation validates an overflow entry's declared logical length before
+deciding whether it fits, but does not read or allocate excluded overflow pages.
+One continuation-key allocation lies outside the logical payload budget and is
+bounded separately by `MAX_KEY_SIZE`. The experimental C adapter converts its
+fixed-width pair limit to Rust `usize`, owns the returned page behind an opaque
+handle, and returns pair/continuation bytes through independently owned byte
+handles. It exposes no page number, slot, WAL offset, or mutable cursor.
 
-The continuation itself owns one copy of the first excluded key. That memory is
-outside the logical payload limit but bounded independently by `MAX_KEY_SIZE`;
-an adapter envelope must budget for it explicitly.
-
-That change extends the public `KvReadTransaction` contract governed by
-ADR-0006/0007. It requires review and an independent Rust caller in addition to
-the C adapter; post-hoc truncation is rejected.
+The independent Rust and C callers, leaf-boundary tests, corruption tests,
+complete-scan property, and workspace conservation run justified the 2026-09-03
+ADR-0006 amendment. The C projection remains private under AR-0017 and supplies
+no stable-ABI, mobile, or cross-platform claim.
 
 ## Provisional Representation
 
@@ -134,12 +138,13 @@ paths, or object addresses.
 - discriminants and symbol spellings are retained beside the header and tested
   for exact agreement, but remain explicitly experimental.
 
-The initial harness exercises ABI version, unencrypted create/open, close,
+The admitted harness exercises ABI version, unencrypted create/open, close,
 single-key put/delete/get, snapshot create/generation/get/close, byte
-length/copy/close, and full error code/status/message/detail projection. Range
-encoding and connection observations may follow in the same slice only after
-their bounded C representation is reviewed; their omission is explicit rather
-than filled with JSON or callbacks.
+length/copy/close, full error code/status/message/detail projection, immutable
+connection observations, and owned bounded scan pages. Pagination accessors
+return pair count, separately owned key/value bytes, optional continuation, and
+optional blocked-entry size; absence remains distinct from a zero scalar or an
+empty byte string. No operation uses JSON or callbacks.
 
 ## Unsafe-Code Budget
 

@@ -7,7 +7,7 @@
 | Last updated | 2026-09-03 (cluster, assurance, and crypto-agility tracks opened) |
 | Owner | Tosumu maintainers |
 | Authority | Tracking plan; `docs/Specifications/Tosumu Software Design Document.md` remains normative |
-| Current milestone | MVP+11 bounded snapshot pagination C-boundary evidence |
+| Current milestone | MVP+11 hostile ABI corpus and ownership closure |
 
 ## Purpose
 
