@@ -31,6 +31,25 @@ env:
   RUSTFLAGS: "-D warnings"
 
 jobs:
+  ffi-miri:
+    name: experimental FFI boundary / Miri
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-09-03
+          components: miri
+      - name: Prepare Miri sysroot
+        run: cargo +nightly-2026-09-03 miri setup
+      - name: Interpret unsafe slice, copy, and close-race boundary
+        env:
+          MIRIFLAGS: -Zmiri-many-seeds=0..8
+        run: >-
+          cargo +nightly-2026-09-03 miri test
+          -p tosumu-ffi-experimental --lib
+          interpreter_checks_slice_copy_and_close_race_contract
+
   experimental-c-abi:
     name: independent experimental C ABI harness
     runs-on: ubuntu-latest

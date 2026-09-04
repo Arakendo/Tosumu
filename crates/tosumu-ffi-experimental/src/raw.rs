@@ -765,3 +765,6 @@ mod tests {
 
 #[cfg(test)]
 mod hostile_tests;
+
+#[cfg(test)]
+mod interpreter_tests;
