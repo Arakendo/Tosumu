@@ -471,3 +471,33 @@ claim.
   and experimental.
 - Resulting ADR or documentation change: AR-0019 and MVP+11 plan updated; no
   stable ABI, wrapper, target, or mobile claim.
+
+### Cycle 12 -- 2026-09-03
+
+- Status entering review: Incubating; Slice 3 complete and exact target,
+  dependency, and artifact-construction evidence required before wrappers.
+- New evidence: the provenance generator now includes arm64 iOS device,
+  arm64 iOS simulator, arm64 Android device, and x86-64 Android emulator
+  profiles and is bound to Rust/Cargo 1.95.0. GitHub Actions run `33825144893`
+  exercised cumulative commit
+  `f63383fa7710d94a33940cb974b4c8b4be58f68d`. Provenance job
+  `100876092292`, iOS artifact job `100876092477`, Android artifact job
+  `100876092434`, independent C job `100876092485`, and Miri job
+  `100876092619` all passed before the remaining matrix was cancelled.
+- Findings: Xcode 16.4's `nm` could not read LLVM 22 attributes from moving
+  Rust stable even though the first iOS archive linked. Matching `llvm-nm`
+  makes the symbol observation compiler-coherent, while Xcode continues to
+  own SDK/link/archive observations. An initially installed 1.95 toolchain was
+  also shadowed by the repository's moving `stable` override until
+  `RUSTUP_TOOLCHAIN` made selection explicit. With that correction, both Apple
+  arm64 archives and both Android ELF shared objects linked and matched the
+  retained 38-symbol production allowlist. The target-filtered closure records
+  41 core packages on iOS and 42 on Android; it remains reachability evidence.
+- Disposition: remain Incubating. Credit target selection, dependency closure,
+  cross-linking, architecture, symbol, and construction-input portions of
+  Slice 4. Require an independently invoked simulator/emulator loader before
+  closing the slice. Keep iOS 13 and Android API 24 provisional pending a real
+  fleet, and keep 32-bit Android, Intel simulator, packaging, device behavior,
+  filesystem durability, and support claims excluded.
+- Resulting ADR or documentation change: target-build evidence and its failed
+  attempts are retained; no stable ABI, loader, wrapper, or mobile claim.

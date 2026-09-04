@@ -60,6 +60,7 @@ jobs:
         run: |
           llvm_nm="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin/llvm-nm"
           for target in aarch64-apple-ios aarch64-apple-ios-sim; do
+            rustc --target "$target" --print cfg | grep -Fx 'panic="unwind"'
             cargo build --locked --release -p tosumu-ffi-experimental --target "$target"
             archive="target/$target/release/libtosumu_ffi_experimental.a"
             test -f "$archive"
@@ -98,6 +99,7 @@ jobs:
       - name: Link and inspect device and emulator shared objects
         run: |
           for target in aarch64-linux-android x86_64-linux-android; do
+            rustc --target "$target" --print cfg | grep -Fx 'panic="unwind"'
             cargo build --locked --release -p tosumu-ffi-experimental --target "$target"
             library="target/$target/release/libtosumu_ffi_experimental.so"
             test -f "$library"

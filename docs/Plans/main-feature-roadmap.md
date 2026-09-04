@@ -300,6 +300,10 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
       symbol, and focused Rust Miri pressure corpus.
 - [x] Admit the atomic multi-mutation contract before exposing batch or
       transaction symbols across the foreign boundary.
+- [x] Retain pinned dependency closures and compile/link/symbol evidence for
+      arm64 iOS device/simulator and 64-bit Android device/emulator artifacts.
+- [ ] Load and invoke the private artifact from named iOS simulator and Android
+      emulator consumers before claiming target runtime evidence.
 - [ ] C ABI/FFI crate with opaque handles and explicit ownership rules.
 - [ ] Stable cross-language error and byte-buffer contracts.
 - [ ] Swift/iOS wrapper and Keychain/Secure Enclave protector integration.

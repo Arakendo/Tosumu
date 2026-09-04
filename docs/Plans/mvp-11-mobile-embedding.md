@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; Slices 0-3 complete and Slice 4 target-build admission current |
+| Status | Active; Slices 0-3 complete and Slice 4 cross-build evidence obtained, loader evidence current |
 | Opened | 2026-09-03 |
 | Owner | Mobile adapters above `tosumu-core` |
 | Target | Callback-free C ABI, independent Swift/Kotlin callers, and named iOS/Android qualification profiles |
@@ -103,16 +103,32 @@ borrow across calls or using callbacks.
 
 ## Slice 4: Mobile Target Build Admission
 
-- [ ] Select minimum iOS/Android OS versions and exact Rust/SDK/NDK targets.
-- [ ] Generate target-specific dependency and build-script closures under
+- [x] Select provisional minimum iOS/Android OS versions and exact
+      Rust/SDK/NDK construction targets.
+- [x] Generate target-specific dependency and build-script closures under
       AR-0010 before adding packaging dependencies.
-- [ ] Compile minimal C ABI artifacts for device and simulator/emulator targets.
-- [ ] Verify exported symbols, architecture slices, loader behavior, panic mode,
-      and reproducible build inputs.
-- [ ] Record unsupported targets explicitly, including the disposition of
+- [x] Compile minimal C ABI artifacts for device and simulator/emulator targets.
+- [x] Verify exported symbols, architecture slices, unwind panic mode, and
+      pinned construction inputs.
+- [ ] Load and invoke the artifact from named simulator/emulator consumers.
+- [x] Record unsupported targets explicitly, including the disposition of
       32-bit Android.
 
 **Exit:** named artifacts compile and load; no device-runtime claim yet.
+
+Hosted run `33825144893` exercised cumulative commit
+`f63383fa7710d94a33940cb974b4c8b4be58f68d`. The provenance job
+`100876092292` passed from 01:16:46 through 01:17:15 UTC on 2026-09-04. iOS
+job `100876092477` passed from 01:16:45 through 01:17:29 using Rust 1.95.0,
+Xcode 16.4 (`16F6`), and SDK 18.5; it produced separate arm64 device and
+simulator archives whose production-prefixed symbols matched the retained
+allowlist. Android job `100876092434` passed from 01:16:46 through 01:17:47
+using the same Rust release, NDK r27d, and API 24 Clang drivers; it produced
+arm64 and x86-64 ELF shared objects with the same normalized symbol set. The
+run was deliberately cancelled after these jobs, the independent C harness,
+and Miri completed; uncompleted matrix jobs are not credited. This is
+compile/link/inspection evidence, not loader, simulator, emulator, device,
+filesystem, lifecycle, packaging, or support evidence.
 
 ## Slice 5: Independent Language Consumers
 

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed build profiles; no runtime or mobile-support claim |
+| Status | Cross-build profiles observed; simulator/emulator loading not yet observed |
 | Observed | 2026-09-03 |
 | Owner | AR-0017 / MVP+11 Slice 4 |
 | Depends on | AR-0010 dependency evidence, AR-0017, private experimental C adapter |
@@ -105,8 +105,19 @@ overall `attempted_incomplete` state.
 
 ## Evidence Limits
 
+GitHub Actions run `33825144893` observed the four named artifacts at commit
+`f63383fa7710d94a33940cb974b4c8b4be58f68d`. Job `100876092477` linked and
+inspected the two arm64 Apple archives with Rust 1.95.0, Xcode 16.4 (`16F6`),
+and SDK 18.5. Job `100876092434` linked and inspected the arm64 and x86-64
+Android shared objects with Rust 1.95.0, NDK r27d, and API 24 Clang drivers.
+All four normalized production symbol sets matched the retained allowlist.
+Dependency provenance job `100876092292` independently regenerated the
+target-filtered closure under the pinned Rust/Cargo release. The overall run
+was cancelled after these and the relevant FFI evidence jobs passed, so no
+unfinished matrix work is credited.
+
 Official target documentation and runner inventories informed these candidate
-inputs, but this retained note is a plan until Tosumu's own hosted jobs record
-their actual compiler, SDK/NDK, linker, and artifacts. Runner image inventories
-can change beneath a label. The jobs must fail if the explicitly selected Xcode
-or NDK path disappears rather than silently choosing another toolchain.
+inputs. The retained run now records Tosumu's compiler, SDK/NDK, linker, and
+artifact observations, but does not load an artifact. Runner image inventories
+can change beneath a label. The jobs fail if the explicitly selected Xcode or
+NDK path disappears rather than silently choosing another toolchain.
