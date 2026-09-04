@@ -211,6 +211,7 @@ generation-result semantics before adding another exported mutation symbol.
 
 - `docs/Architectural Reviews/AR-0017-mobile-embedding-abi-and-hardware-protector-boundary.md`
 - `docs/Architectural Reviews/AR-0018-bounded-snapshot-range-pagination.md`
+- `docs/Architectural Reviews/AR-0019-foreign-atomic-mutation-batch-boundary.md`
 - `docs/Architectural Reviews/AR-0016-cryptographic-provider-seam-and-suite-identity.md`
 - `docs/Notes/mvp-11-foreign-contract-and-target-inventory-v1.md`
 - `docs/Notes/mvp-11-experimental-abi-contract-v1.md`

@@ -93,10 +93,14 @@ numbering. Copy `TEMPLATE.md` and add the record to this index.
   -- incubating foreign-ABI ownership, mobile lifecycle and qualification, and
   real Keychain/Keystore pressure for opaque provider-owned keys.
 - [AR-0018: Bounded Snapshot Range Pagination](AR-0018-bounded-snapshot-range-pagination.md)
-  -- incubating a generation-pinned range page whose pair and payload bounds
-  apply during traversal rather than after full materialization.
+  -- accepted through ADR-0006; defines a generation-pinned range page whose
+  pair and payload bounds apply during traversal rather than after full
+  materialization.
+- [AR-0019: Foreign Atomic Mutation Batch Boundary](AR-0019-foreign-atomic-mutation-batch-boundary.md)
+  -- incubating a bounded, copied, one-shot foreign command batch without
+  replacing the callback-scoped core write transaction.
 
-AR-0009, AR-0011, AR-0012, AR-0013, AR-0014, and the Gate C1 portion of
-AR-0016 are **Accepted** through their related ADRs. Other indexed reviews and
-unresolved portions are currently **Incubating**; none are rejected, deferred,
-or superseded.
+AR-0009, AR-0011, AR-0012, AR-0013, AR-0014, AR-0018, and the Gate C1 portion
+of AR-0016 are **Accepted** through their related ADRs. Other indexed reviews
+and unresolved portions are currently **Incubating**; none are rejected,
+deferred, or superseded.
