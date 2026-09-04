@@ -364,3 +364,30 @@ claim.
   and ownership closure. Keep every C symbol private and experimental.
 - Resulting ADR or documentation change: bounded range no longer blocks the
   experiment; no stable ABI, wrapper, target, or mobile claim.
+
+### Cycle 8 -- 2026-09-03
+
+- Status entering review: Incubating; Slice 1 complete and hostile ownership
+  evidence required before language wrappers.
+- New evidence: a table-driven Rust corpus invokes 31 handle-taking exports
+  against zero, `u64::MAX`, every wrong-kind handle, and the matching stale
+  handle across database, snapshot, byte, error, connection, and scan-page
+  kinds. It verifies all six close operations remove their entries. Separate
+  cases cover every borrowed input position with null/nonzero and lengths above
+  `isize::MAX`, empty bytes versus absence, undersized and null output buffers,
+  malformed paths, oversized keys, invalid indices, every handle's thread
+  policy, finalizer-thread close, and 64 close/use races. Eight feature-enabled
+  FFI tests pass locally.
+- Findings: the corpus caught two incorrect assumptions and one real boundary
+  defect. Empty lookup keys preserve the existing absence result rather than a
+  write-style invalid-key error. The feature-gated panic hook formerly panicked
+  before validating its database handle and now performs normal kind/thread/
+  poison admission first. Raw input now rejects lengths above `isize::MAX`
+  before `from_raw_parts`, preventing an invalid Rust-slice construction.
+- Disposition: remain Incubating. Credit the first handle matrix and every-kind
+  thread policy. Do not close the broader input/concurrency checklist until
+  registry exhaustion, irreducible foreign-region preconditions, database and
+  snapshot close races, independent C hostile cases, and applicable sanitizer
+  evidence are retained.
+- Resulting ADR or documentation change: Slice 2 partial evidence only; no ABI,
+  wrapper, platform, or safety-support claim.

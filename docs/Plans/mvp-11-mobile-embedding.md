@@ -66,11 +66,11 @@ structured errors, but all symbols remain explicitly experimental.
 
 ## Slice 2: Hostile ABI Corpus And Ownership Closure
 
-- [ ] Exercise zero/random/forged/wrong-kind/stale/double-closed handles.
+- [x] Exercise zero/random/forged/wrong-kind/stale/double-closed handles.
 - [ ] Exercise null/length mismatch, length overflow, zero-length versus absent,
       oversized input, allocation failure, and output aliasing policy.
 - [ ] Exercise database/snapshot close ordering and concurrent close/use.
-- [ ] Verify chosen thread rules for every handle kind.
+- [x] Verify chosen thread rules for every handle kind.
 - [ ] Inject panics before and after internal state acquisition and verify
       containment, cleanup, and handle usability/poisoning.
 - [ ] Run leak, address, undefined-behavior, and symbol/export checks on each
@@ -195,10 +195,11 @@ No rung implies the next.
 
 ## Immediate Next Slice
 
-Begin Slice 2 with a generated hostile-handle corpus over every exported handle
-kind and operation. Establish zero, stale, wrong-kind, random, and double-close
-behavior plus handle-count recovery without dispatching invalid use into core;
-then pressure null/length and close/use concurrency separately.
+Close Slice 2's remaining allocation and concurrency questions. Exercise the
+registry-full/recovery transition without relying on process-global test order;
+state the irreducible caller-valid-region and aliasing preconditions; race
+database and snapshot use against finalizer-thread close; then carry a bounded
+hostile subset into the independent C process and admitted sanitizers.
 
 ## References
 

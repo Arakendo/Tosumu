@@ -227,6 +227,35 @@ Existing workspace format, crypto, recovery, concurrency, and documentation
 checks remain the broad conservation baseline. A green C harness is evidence
 about this adapter profile only.
 
+### Initial Slice 2 observations
+
+The first table-driven hostile corpus covers every handle-taking export across
+all six registered kinds. Zero and `u64::MAX` are invalid handles; a live handle
+of any other kind is wrong-kind; after the matching close, the same identifier
+is stale and invalid. The corpus counts only its own six entries, so concurrent
+Rust tests cannot falsify the removal check through unrelated registry use.
+
+All borrowed input positions reject null with nonzero length. The raw slice
+helper now also rejects lengths above `isize::MAX` before calling
+`from_raw_parts`; a non-null pointer does not make an unrepresentable Rust slice
+valid. The caller still owns the unavoidable stronger precondition that a
+non-null region is genuinely readable for the stated length. Portable Rust or C
+code cannot prove that property from an address and count.
+
+Database and snapshot operations remain creating-thread-only. Immutable byte,
+error, connection, and scan-page observations are readable on another thread,
+and every kind-specific close is finalizer-thread-safe. A 64-case close/read
+race over owned byte results produced only the documented linearizations:
+successful read after ownership acquisition or invalid-handle after close.
+
+These are local Rust-side boundary observations for commits
+`10295dd8210bd63fa91c4a46a7064959603504f0`,
+`4969aac7cb2bd98963cd549645a58361eccb363c`, and
+`ca8badf3226f7eb902a43b2573339d4587faf4d7`; their pushed hosted workflows were
+not yet complete when this note was updated. Registry exhaustion/recovery,
+database and snapshot close/use races, allocator-abort scope, independent C
+hostile cases, and sanitizer evidence remain open.
+
 ## Disposition
 
 Admit the bounded private implementation above. Do not admit a stable ABI,
