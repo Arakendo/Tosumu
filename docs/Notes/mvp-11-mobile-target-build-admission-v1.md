@@ -6,6 +6,7 @@
 | Observed | 2026-09-03 |
 | Owner | AR-0017 / MVP+11 Slice 4 |
 | Depends on | AR-0010 dependency evidence, AR-0017, private experimental C adapter |
+| Construction Rust | Rust/Cargo 1.95.0; target inspection uses matching `llvm-tools-preview` |
 
 ## Purpose
 
@@ -52,6 +53,13 @@ Each build must retain at least:
 - file type and architecture reported from the linked artifact;
 - the normalized Tosumu export set compared with the retained allowlist; and
 - confirmation that test-hook symbols are absent from the non-test artifact.
+
+The construction compiler is pinned independently of the repository's moving
+`stable` compatibility jobs. Apple `nm` from Xcode 16.4 cannot inspect every
+LLVM attribute emitted by newer Rust LLVM releases, so archive symbol evidence
+uses the `llvm-nm` shipped with the pinned Rust toolchain. Xcode still owns the
+Apple SDK, linker, archive type, and architecture observations; the matching
+LLVM reader owns only the normalized symbol observation.
 
 An archive member list or shared-object dependency list is useful artifact
 inspection, not loader evidence. A later simulator/emulator consumer must load

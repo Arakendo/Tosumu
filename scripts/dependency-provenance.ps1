@@ -10,6 +10,16 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+$requiredRustRelease = "1.95.0"
+$rustVersion = (& rustc --version).Trim()
+if ($LASTEXITCODE -ne 0 -or $rustVersion -notmatch "^rustc $([regex]::Escape($requiredRustRelease)) ") {
+    throw "Dependency provenance requires rustc $requiredRustRelease; observed '$rustVersion'. Run the generator under the admitted toolchain."
+}
+$cargoVersion = (& cargo --version).Trim()
+if ($LASTEXITCODE -ne 0 -or $cargoVersion -notmatch "^cargo $([regex]::Escape($requiredRustRelease)) ") {
+    throw "Dependency provenance requires Cargo $requiredRustRelease; observed '$cargoVersion'. Run the generator under the admitted toolchain."
+}
+
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $absoluteOutputPath = if ([IO.Path]::IsPathRooted($OutputPath)) {
     $OutputPath
@@ -748,6 +758,8 @@ $document = [ordered]@{
     schema_version = 1
     subject = [ordered]@{
         kind = "cargo-workspace-lock"
+        rustc = $rustVersion
+        cargo = $cargoVersion
         cargo_lock_sha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
         risk_classification_sha256 = (Get-FileHash -LiteralPath $absoluteRiskPath -Algorithm SHA256).Hash.ToLowerInvariant()
         build_script_review_sha256 = (Get-FileHash -LiteralPath $absoluteBuildReviewPath -Algorithm SHA256).Hash.ToLowerInvariant()

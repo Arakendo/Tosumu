@@ -40,7 +40,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
+          toolchain: 1.95.0
+          components: llvm-tools-preview
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
       - name: Select and verify Xcode and SDK
         run: |
@@ -51,15 +52,19 @@ jobs:
           test "$(xcrun --sdk iphoneos --show-sdk-version)" = "18.5"
           test "$(xcrun --sdk iphonesimulator --show-sdk-version)" = "18.5"
           rustc -vV
+          llvm_nm="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin/llvm-nm"
+          test -x "$llvm_nm"
+          "$llvm_nm" --version
       - name: Link and inspect device and simulator archives
         run: |
+          llvm_nm="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin/llvm-nm"
           for target in aarch64-apple-ios aarch64-apple-ios-sim; do
             cargo build --locked --release -p tosumu-ffi-experimental --target "$target"
             archive="target/$target/release/libtosumu_ffi_experimental.a"
             test -f "$archive"
             file "$archive"
             lipo -info "$archive"
-            nm -gU "$archive" \
+            "$llvm_nm" --extern-only --defined-only "$archive" \
               | awk '{print $NF}' \
               | sed 's/^_//' \
               | grep '^tosumu_experimental_v1_' \
@@ -79,7 +84,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
+          toolchain: 1.95.0
           targets: aarch64-linux-android,x86_64-linux-android
       - name: Verify NDK and compiler identity
         run: |
@@ -155,7 +160,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
+          toolchain: 1.95.0
       - name: Check retained dependency provenance
         shell: pwsh
         run: pwsh -NoProfile -File scripts/dependency-provenance.ps1 -Check
