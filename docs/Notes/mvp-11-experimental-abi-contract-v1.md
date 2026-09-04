@@ -107,11 +107,16 @@ AR-0017 disposition and an Error Design Document update.
   operation explicitly requires retention.
 - Null with non-zero length is invalid. Null with zero length represents an
   empty slice, never absence.
-- Lengths are checked before pointer construction or arithmetic.
+- Lengths above `isize::MAX` are rejected before pointer construction or
+  arithmetic; smaller lengths are not evidence that the claimed region exists.
 - Non-null pointers must identify readable or writable ranges of the declared
   length for the duration of the call. Portable C cannot prove this; a dangling
   or forged non-null pointer is caller memory unsafety, not a typed Tosumu
   failure.
+- Immutable input regions may overlap each other. Copy-out destinations must
+  not alias ABI-owned source storage; no ABI operation exposes an address into
+  that private storage, so a conforming caller cannot derive such an alias from
+  this contract.
 - Success outputs are immutable ABI-owned byte handles. Callers release them
   only through the matching ABI close operation.
 - The initial experiment prefers bounded copy-out: query/copy reports the exact

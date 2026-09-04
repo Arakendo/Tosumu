@@ -4,7 +4,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Private test contract. No source or binary compatibility is promised. */
+/* Private test contract. No source or binary compatibility is promised.
+ * Every nonzero-length input pointer must name a readable region for the call;
+ * immutable input regions may overlap. A successful bytes_copy destination
+ * must be writable for its stated capacity and cannot alias private library
+ * storage. The ABI never exposes an address into that storage. Null is valid
+ * only with zero length. These region properties are caller preconditions: an
+ * address and count cannot prove them portably. */
 typedef struct tosumu_experimental_v1_outcome {
     uint32_t tag;
     uint32_t status;

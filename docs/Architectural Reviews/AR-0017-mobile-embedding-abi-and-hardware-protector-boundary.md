@@ -391,3 +391,31 @@ claim.
   evidence are retained.
 - Resulting ADR or documentation change: Slice 2 partial evidence only; no ABI,
   wrapper, platform, or safety-support claim.
+
+### Cycle 9 -- 2026-09-03
+
+- Status entering review: Incubating; handle/thread matrix retained, with
+  capacity, database/snapshot races, independent C hostile cases, and sanitizer
+  evidence still open.
+- New evidence: the production registry insertion path now has isolated tests
+  for its 4,096-entry ceiling, one-slot recovery, monotonic non-reuse, and
+  counter exhaustion without insertion. Sixteen database and 64 snapshot
+  close/use races add only the documented completed-or-stale outcomes. The full
+  feature-enabled FFI crate now passes 13 local tests. GitHub Actions run
+  `33822108887`, job `100866802176`, exercised cumulative commit
+  `2ce0daa108a8d60acd0e449d0465ba5dd6fb729f` successfully in 22 seconds. Its
+  independent C process covers a bounded hostile subset and runs both ordinary
+  and GCC AddressSanitizer/UndefinedBehaviorSanitizer variants with leak
+  detection and halt-on-error enabled; the exact symbol allowlist also passes.
+- Findings: registry capacity is a recoverable boundary result, while allocator-
+  level OOM remains a possible Rust process abort. Foreign region validity is
+  an irreducible caller precondition; lengths above `isize::MAX` are rejected,
+  immutable inputs may overlap, and the ABI exposes no private source address
+  from which a conforming copy-out alias can be formed. C-side sanitizer success
+  does not instrument or establish undefined-behavior freedom in Rust.
+- Disposition: remain Incubating. Credit the completed handle, input, registry,
+  thread, close/race, independent-C, C sanitizer, and symbol slices. Keep Slice
+  2 open for the multi-point panic/cleanup matrix and evaluation of an admitted
+  Rust-side UB tool.
+- Resulting ADR or documentation change: ownership contract and plan narrowed;
+  no stable ABI, memory-safety certification, wrapper, or mobile claim.

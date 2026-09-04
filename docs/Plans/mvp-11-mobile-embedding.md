@@ -67,14 +67,18 @@ structured errors, but all symbols remain explicitly experimental.
 ## Slice 2: Hostile ABI Corpus And Ownership Closure
 
 - [x] Exercise zero/random/forged/wrong-kind/stale/double-closed handles.
-- [ ] Exercise null/length mismatch, length overflow, zero-length versus absent,
-      oversized input, allocation failure, and output aliasing policy.
-- [ ] Exercise database/snapshot close ordering and concurrent close/use.
+- [x] Exercise null and unrepresentable lengths, zero-length versus absent,
+      oversized input, insufficient output capacity, and invalid indices.
+- [x] Exercise registry capacity/counter exhaustion and one-slot recovery in an
+      isolated registry using the production insertion path.
+- [x] State the irreducible foreign-region and output-aliasing preconditions;
+      allocator-level OOM remains a possible process abort, not a typed result.
+- [x] Exercise database/snapshot close ordering and concurrent close/use.
 - [x] Verify chosen thread rules for every handle kind.
 - [ ] Inject panics before and after internal state acquisition and verify
       containment, cleanup, and handle usability/poisoning.
-- [ ] Run leak, address, undefined-behavior, and symbol/export checks on each
-      admitted desktop harness target where tooling supports them.
+- [x] Run C-side leak/address/undefined-behavior and exact-symbol checks on the
+      admitted Linux harness; this does not instrument the Rust library.
 
 **Exit:** ownership and invalid-use behavior are executable, not comments.
 
@@ -195,11 +199,11 @@ No rung implies the next.
 
 ## Immediate Next Slice
 
-Close Slice 2's remaining allocation and concurrency questions. Exercise the
-registry-full/recovery transition without relying on process-global test order;
-state the irreducible caller-valid-region and aliasing preconditions; race
-database and snapshot use against finalizer-thread close; then carry a bounded
-hostile subset into the independent C process and admitted sanitizers.
+Retain the passing independent C hostile/sanitizer result, then expand panic
+injection across pre-dispatch, post-lookup, and post-core-state-acquisition
+points with explicit cleanup/poison expectations. Evaluate a Rust-side
+undefined-behavior tool separately before claiming it covers the uninstrumented
+Rust library; do not let C ASan/UBSan imply that stronger result.
 
 ## References
 

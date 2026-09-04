@@ -252,9 +252,27 @@ These are local Rust-side boundary observations for commits
 `10295dd8210bd63fa91c4a46a7064959603504f0`,
 `4969aac7cb2bd98963cd549645a58361eccb363c`, and
 `ca8badf3226f7eb902a43b2573339d4587faf4d7`; their pushed hosted workflows were
-not yet complete when this note was updated. Registry exhaustion/recovery,
-database and snapshot close/use races, allocator-abort scope, independent C
-hostile cases, and sanitizer evidence remain open.
+not yet complete when that observation was recorded. The cumulative checkpoint
+below supersedes those open registry, close/race, and C-harness evidence items;
+allocator-abort scope and Rust-side sanitizer evidence remain open.
+
+The subsequent cumulative checkpoint adds isolated production-path registry
+tests at the 4,096-handle ceiling and at `u64` counter exhaustion, plus 16
+database and 64 snapshot close/use races. The complete feature-enabled adapter
+suite passes 13 local tests. GitHub Actions run `33822108887`, job
+`100866802176`, then exercised commit
+`2ce0daa108a8d60acd0e449d0465ba5dd6fb729f` successfully from 00:32:25 through
+00:32:47 UTC on 2026-09-04.
+
+That independent job compiles the C caller with warnings denied, checks the
+exact dynamic-symbol allowlist, and runs both the ordinary executable and a GCC
+AddressSanitizer/UndefinedBehaviorSanitizer build with leak detection and
+halt-on-error enabled. The C corpus now includes empty versus absent, undersized
+copy non-mutation, stale handles of every kind, zero/forged/wrong-kind handles,
+malformed/null/unrepresentable inputs, and bounded pagination. This is C-side
+and process-level sanitizer evidence only: the Rust library was not compiled
+with a Rust sanitizer, so the result must not be strengthened into Rust UB
+freedom or general memory-safety certification.
 
 ## Disposition
 
