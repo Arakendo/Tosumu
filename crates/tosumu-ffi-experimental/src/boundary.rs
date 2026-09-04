@@ -81,6 +81,15 @@ fn lock_registry() -> MutexGuard<'static, Registry> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+#[cfg(test)]
+pub fn registered_handle_count(handles: &[u64]) -> usize {
+    let registry = lock_registry();
+    handles
+        .iter()
+        .filter(|handle| registry.entries.contains_key(handle))
+        .count()
+}
+
 fn insert(entry: Entry) -> Result<u64, u32> {
     let mut registry = lock_registry();
     if registry.entries.len() >= MAX_LIVE_HANDLES {
@@ -191,6 +200,11 @@ pub fn poison_database(handle: u64) {
     if let Ok(Entry::Database(database)) = lookup(handle) {
         database.poisoned.store(true, Ordering::Release);
     }
+}
+
+#[cfg(feature = "ffi-test-hooks")]
+pub fn validate_database(handle: u64) -> Result<(), CallFailure> {
+    database(handle).map(drop)
 }
 
 pub fn put(handle: u64, key: &[u8], value: &[u8]) -> Result<(), CallFailure> {

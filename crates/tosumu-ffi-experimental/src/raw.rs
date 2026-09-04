@@ -357,6 +357,7 @@ pub extern "C" fn tosumu_experimental_v1_test_inject_database_panic(
     database: u64,
 ) -> TosumuExperimentalV1Outcome {
     contained(Some(database), || {
+        boundary::validate_database(database)?;
         panic!("experimental C boundary panic injection")
     })
 }
@@ -676,3 +677,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod hostile_tests;
