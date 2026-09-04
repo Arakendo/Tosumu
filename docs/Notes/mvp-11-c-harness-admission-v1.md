@@ -274,10 +274,28 @@ and process-level sanitizer evidence only: the Rust library was not compiled
 with a Rust sanitizer, so the result must not be strengthened into Rust UB
 freedom or general memory-safety certification.
 
+The final Slice 2 checkpoint adds three feature-only panic injection points:
+before dispatch, after database lookup, and after a real core write acquisition
+has staged a mutation. The common boundary contains each unwind. Associated
+database panics poison later use but leave close available, and reopen observes
+the earlier committed value without the staged mutation. GitHub Actions run
+`33822799882`, independent C job `100868927910`, exercised cumulative commit
+`f08b9bf4d0d1aa6bc848640d5358f09bc08f09f1` successfully.
+
+The same run's Miri job `100868928071` used nightly 2026-09-03 and
+`-Zmiri-many-seeds=0..8` from 00:41:32 through 00:42:15 UTC on 2026-09-04. It
+interpreted one focused, filesystem-free test covering raw input-slice
+formation, exported byte copy-out, and an immutable-result close/read race.
+This is Rust-side undefined-behavior evidence for those executed operations and
+schedules only. It does not prove the ABI sound, validate arbitrary foreign
+addresses, cover allocator aborts or platform exceptions, instrument an actual
+C-to-Rust call, or qualify any mobile target.
+
 ## Disposition
 
-Admit the bounded private implementation above. Do not admit a stable ABI,
+Admit the bounded private implementation above and close the planned Slice 2
+ownership-pressure gate. Do not admit a stable ABI,
 published crate, generated binding, static library, callback, asynchronous
 operation, multi-call transaction, platform protector, mobile target, or
-cross-platform compatibility claim. Reopen AR-0017 after the first independent
-C run and hostile-handle results.
+cross-platform compatibility claim. Continue through AR-0017's Slice 3 atomic
+multi-mutation admission gate before adding such an operation.

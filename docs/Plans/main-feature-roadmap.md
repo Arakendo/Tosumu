@@ -7,7 +7,7 @@
 | Last updated | 2026-09-03 (cluster, assurance, and crypto-agility tracks opened) |
 | Owner | Tosumu maintainers |
 | Authority | Tracking plan; `docs/Specifications/Tosumu Software Design Document.md` remains normative |
-| Current milestone | MVP+11 hostile ABI corpus and ownership closure |
+| Current milestone | MVP+11 atomic multi-mutation admission |
 
 ## Purpose
 
@@ -295,6 +295,11 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
       sliced MVP+11 plan before stabilizing an ABI or adding binding tooling.
 - [x] Reconcile SDD section 19 and retain an experimental callback-free result,
       buffer, error, and handle-state contract without reserving ABI symbols.
+- [x] Complete the experimental C lifecycle plus bounded-scan harness and its
+      hostile handle/input/thread/close, multi-point panic, C sanitizer, exact
+      symbol, and focused Rust Miri pressure corpus.
+- [ ] Admit the atomic multi-mutation contract before exposing batch or
+      transaction symbols across the foreign boundary.
 - [ ] C ABI/FFI crate with opaque handles and explicit ownership rules.
 - [ ] Stable cross-language error and byte-buffer contracts.
 - [ ] Swift/iOS wrapper and Keychain/Secure Enclave protector integration.

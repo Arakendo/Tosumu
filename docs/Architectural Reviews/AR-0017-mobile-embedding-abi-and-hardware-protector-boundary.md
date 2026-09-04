@@ -419,3 +419,33 @@ claim.
   Rust-side UB tool.
 - Resulting ADR or documentation change: ownership contract and plan narrowed;
   no stable ABI, memory-safety certification, wrapper, or mobile claim.
+
+### Cycle 10 -- 2026-09-03
+
+- Status entering review: Incubating; Slice 2 retained ownership and C-side
+  sanitizer evidence, with multi-point panic cleanup and an applicable
+  Rust-side undefined-behavior experiment still open.
+- New evidence: feature-only injection now exercises panics before dispatch,
+  after database lookup, and after acquiring real core write state. The latter
+  stages a mutation before unwinding. Local feature-enabled adapter tests pass
+  14 cases and show the common boundary contains all three panics, poisons
+  later database use where association exists, permits close, and does not
+  publish the staged mutation after reopen. GitHub Actions run `33822799882`
+  exercised cumulative commit
+  `f08b9bf4d0d1aa6bc848640d5358f09bc08f09f1`. Independent C job
+  `100868927910` passed the cumulative hostile, sanitizer, symbol, and panic
+  corpus. Miri job `100868928071` passed from 00:41:32 through 00:42:15 UTC on
+  2026-09-04 using nightly 2026-09-03 and eight scheduler seeds.
+- Findings: the post-acquisition case reaches a real core write closure rather
+  than simulating adapter state, and conservation after reopen distinguishes a
+  contained unwind from accidental commit. The Miri corpus is deliberately
+  filesystem-free and covers raw input-slice formation, exported copy-out, and
+  an immutable-result close/read race. It is useful Rust-side evidence for
+  those executed paths only; it is not a soundness proof, exhaustive schedule
+  exploration, foreign-pointer validation, or mobile-platform qualification.
+- Disposition: remain Incubating. Credit Slice 2 as complete and move to the
+  Slice 3 atomic multi-mutation admission review. Preserve allocator aborts,
+  invalid foreign regions, platform exceptions, and unexecuted unsafe paths as
+  outside the contained-panic/Miri observations.
+- Resulting ADR or documentation change: MVP+11 plan advances to Slice 3; no
+  stable ABI, memory-safety certification, wrapper, or mobile claim.

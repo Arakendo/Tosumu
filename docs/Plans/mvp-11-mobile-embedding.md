@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; Slices 0-1 complete and Slice 2 ownership pressure current |
+| Status | Active; Slices 0-2 complete and Slice 3 atomic-mutation admission current |
 | Opened | 2026-09-03 |
 | Owner | Mobile adapters above `tosumu-core` |
 | Target | Callback-free C ABI, independent Swift/Kotlin callers, and named iOS/Android qualification profiles |
@@ -75,10 +75,13 @@ structured errors, but all symbols remain explicitly experimental.
       allocator-level OOM remains a possible process abort, not a typed result.
 - [x] Exercise database/snapshot close ordering and concurrent close/use.
 - [x] Verify chosen thread rules for every handle kind.
-- [ ] Inject panics before and after internal state acquisition and verify
+- [x] Inject panics before and after internal state acquisition and verify
       containment, cleanup, and handle usability/poisoning.
 - [x] Run C-side leak/address/undefined-behavior and exact-symbol checks on the
       admitted Linux harness; this does not instrument the Rust library.
+- [x] Interpret the focused unsafe slice/copy/close-race path with Miri across
+      eight scheduler seeds; this does not prove the full ABI sound or qualify
+      a foreign platform.
 
 **Exit:** ownership and invalid-use behavior are executable, not comments.
 
@@ -199,11 +202,10 @@ No rung implies the next.
 
 ## Immediate Next Slice
 
-Retain the passing independent C hostile/sanitizer result, then expand panic
-injection across pre-dispatch, post-lookup, and post-core-state-acquisition
-points with explicit cleanup/poison expectations. Evaluate a Rust-side
-undefined-behavior tool separately before claiming it covers the uninstrumented
-Rust library; do not let C ASan/UBSan imply that stronger result.
+Open the Slice 3 architecture review and compare a bounded adapter-owned copied
+command batch with a core-owned transaction capability. Settle staged reads,
+duplicate and conditional mutations, abort/commit, poison, memory limits, and
+generation-result semantics before adding another exported mutation symbol.
 
 ## References
 
