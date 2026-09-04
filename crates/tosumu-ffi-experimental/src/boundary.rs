@@ -59,21 +59,36 @@ pub enum Kind {
     ScanPage,
 }
 
-#[derive(Default)]
 struct Registry {
     next: u64,
     entries: HashMap<u64, Entry>,
 }
 
+impl Default for Registry {
+    fn default() -> Self {
+        Self {
+            next: 1,
+            entries: HashMap::new(),
+        }
+    }
+}
+
+impl Registry {
+    fn insert(&mut self, entry: Entry) -> Result<u64, u32> {
+        if self.entries.len() >= MAX_LIVE_HANDLES {
+            return Err(BOUNDARY_REGISTRY_FULL);
+        }
+        let handle = self.next;
+        self.next = self.next.checked_add(1).ok_or(BOUNDARY_REGISTRY_FULL)?;
+        self.entries.insert(handle, entry);
+        Ok(handle)
+    }
+}
+
 static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
 
 fn registry() -> &'static Mutex<Registry> {
-    REGISTRY.get_or_init(|| {
-        Mutex::new(Registry {
-            next: 1,
-            entries: HashMap::new(),
-        })
-    })
+    REGISTRY.get_or_init(|| Mutex::new(Registry::default()))
 }
 
 fn lock_registry() -> MutexGuard<'static, Registry> {
@@ -92,14 +107,7 @@ pub fn registered_handle_count(handles: &[u64]) -> usize {
 }
 
 fn insert(entry: Entry) -> Result<u64, u32> {
-    let mut registry = lock_registry();
-    if registry.entries.len() >= MAX_LIVE_HANDLES {
-        return Err(BOUNDARY_REGISTRY_FULL);
-    }
-    let handle = registry.next;
-    registry.next = registry.next.checked_add(1).ok_or(BOUNDARY_REGISTRY_FULL)?;
-    registry.entries.insert(handle, entry);
-    Ok(handle)
+    lock_registry().insert(entry)
 }
 
 fn lookup(handle: u64) -> Result<Entry, u32> {
@@ -475,4 +483,40 @@ pub fn error_detail_string(handle: u64, index: u64) -> Result<u64, CallFailure> 
 pub enum CallFailure {
     Boundary(u32),
     Core(TosumuError),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_bytes() -> Entry {
+        Entry::Bytes(Arc::new(Vec::new()))
+    }
+
+    #[test]
+    fn isolated_registry_recovers_one_slot_after_bounded_exhaustion() {
+        let mut registry = Registry::default();
+        for expected in 1..=MAX_LIVE_HANDLES as u64 {
+            assert_eq!(registry.insert(empty_bytes()).unwrap(), expected);
+        }
+        assert_eq!(registry.entries.len(), MAX_LIVE_HANDLES);
+        assert_eq!(registry.insert(empty_bytes()), Err(BOUNDARY_REGISTRY_FULL));
+
+        assert!(registry.entries.remove(&1).is_some());
+        let replacement = registry.insert(empty_bytes()).unwrap();
+        assert_eq!(replacement, MAX_LIVE_HANDLES as u64 + 1);
+        assert_eq!(registry.entries.len(), MAX_LIVE_HANDLES);
+        assert!(!registry.entries.contains_key(&1));
+        assert!(registry.entries.contains_key(&replacement));
+    }
+
+    #[test]
+    fn handle_counter_exhaustion_inserts_nothing() {
+        let mut registry = Registry {
+            next: u64::MAX,
+            entries: HashMap::new(),
+        };
+        assert_eq!(registry.insert(empty_bytes()), Err(BOUNDARY_REGISTRY_FULL));
+        assert!(registry.entries.is_empty());
+    }
 }
