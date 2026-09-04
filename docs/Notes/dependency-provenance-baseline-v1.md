@@ -43,18 +43,22 @@ host path, username, or local registry-cache path.
 
 ## Observed Closure
 
-The first baseline contains 226 packages and five resolution profiles:
+The current baseline contains 227 packages and nine resolution profiles:
 
 | Profile | Target filter | Packages | Normal-role packages | Build-role packages | Development-role packages |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Workspace, unfiltered | None | 226 | 146 | 7 | 159 |
-| Linux x86-64 | `x86_64-unknown-linux-gnu` | 174 | 120 | 7 | 111 |
-| Windows x86-64 | `x86_64-pc-windows-msvc` | 173 | 118 | 7 | 112 |
-| macOS x86-64 | `x86_64-apple-darwin` | 172 | 118 | 7 | 110 |
-| Browser WASM | `wasm32-unknown-unknown` | 167 | 113 | 7 | 117 |
+| Workspace, unfiltered | None | 227 | 146 | 7 | 159 |
+| Linux x86-64 | `x86_64-unknown-linux-gnu` | 175 | 120 | 7 | 111 |
+| Windows x86-64 | `x86_64-pc-windows-msvc` | 174 | 118 | 7 | 112 |
+| macOS x86-64 | `x86_64-apple-darwin` | 173 | 118 | 7 | 110 |
+| iOS device ARM64 | `aarch64-apple-ios` | 173 | 118 | 7 | 110 |
+| iOS simulator ARM64 | `aarch64-apple-ios-sim` | 173 | 118 | 7 | 110 |
+| Android device ARM64 | `aarch64-linux-android` | 175 | 120 | 7 | 111 |
+| Android emulator x86-64 | `x86_64-linux-android` | 175 | 120 | 7 | 111 |
+| Browser WASM | `wasm32-unknown-unknown` | 168 | 113 | 7 | 117 |
 
 Roles overlap. For example, a package may be reachable through both normal and
-development paths. `workspace` identifies the six workspace members and is not
+development paths. `workspace` identifies the seven workspace members and is not
 another dependency kind.
 
 All 220 non-workspace packages in this resolution have a retained Cargo
@@ -79,6 +83,10 @@ workspace as part of the core library's selected target closure:
 | Linux x86-64 | 41 | 7 | 1 |
 | Windows x86-64 | 39 | 5 | 1 |
 | macOS x86-64 | 41 | 7 | 1 |
+| iOS device ARM64 | 41 | 7 | 1 |
+| iOS simulator ARM64 | 41 | 7 | 1 |
+| Android device ARM64 | 42 | 7 | 1 |
+| Android emulator x86-64 | 42 | 7 | 1 |
 | Browser WASM | 35 | 5 | 1 |
 
 These profiles establish code reachable for the selected package, target, and
@@ -97,7 +105,7 @@ claims.
 
 ### Build-script source review
 
-All seven build-script candidates in the four core target profiles now have a
+All seven build-script candidates in the eight native core target profiles now have a
 human finding bound to the SHA-256 of their exact `build.rs`. The generated
 baseline rejects missing candidates, unexpected packages, duplicate reviews,
 or changed script hashes.

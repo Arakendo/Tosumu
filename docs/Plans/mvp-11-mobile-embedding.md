@@ -218,6 +218,7 @@ or mobile-support claims.
 - `docs/Notes/mvp-11-foreign-contract-and-target-inventory-v1.md`
 - `docs/Notes/mvp-11-experimental-abi-contract-v1.md`
 - `docs/Notes/mvp-11-c-harness-admission-v1.md`
+- `docs/Notes/mvp-11-mobile-target-build-admission-v1.md`
 - `docs/Specifications/Tosumu Error Design Document.md`
 - `docs/Specifications/Tosumu Inspect API Specification.md`
 - `docs/Specifications/Tosumu Software Design Document.md`

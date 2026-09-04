@@ -360,6 +360,10 @@ $profileDefinitions = @(
     [ordered]@{ name = "linux-x86_64"; target = "x86_64-unknown-linux-gnu" },
     [ordered]@{ name = "windows-x86_64"; target = "x86_64-pc-windows-msvc" },
     [ordered]@{ name = "macos-x86_64"; target = "x86_64-apple-darwin" },
+    [ordered]@{ name = "ios-device-arm64"; target = "aarch64-apple-ios" },
+    [ordered]@{ name = "ios-simulator-arm64"; target = "aarch64-apple-ios-sim" },
+    [ordered]@{ name = "android-device-arm64"; target = "aarch64-linux-android" },
+    [ordered]@{ name = "android-emulator-x86_64"; target = "x86_64-linux-android" },
     [ordered]@{ name = "wasm32-browser"; target = "wasm32-unknown-unknown" }
 )
 
