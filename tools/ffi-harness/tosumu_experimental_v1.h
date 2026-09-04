@@ -48,7 +48,14 @@ enum {
     TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_INDEX = 10,
     TOSUMU_EXPERIMENTAL_V1_BOUNDARY_WRONG_DETAIL_TYPE = 11,
     TOSUMU_EXPERIMENTAL_V1_BOUNDARY_LIMIT_OUT_OF_RANGE = 12,
-    TOSUMU_EXPERIMENTAL_V1_BOUNDARY_LENGTH_OUT_OF_RANGE = 13
+    TOSUMU_EXPERIMENTAL_V1_BOUNDARY_LENGTH_OUT_OF_RANGE = 13,
+    TOSUMU_EXPERIMENTAL_V1_BOUNDARY_BATCH_LIMIT_REACHED = 14,
+    TOSUMU_EXPERIMENTAL_V1_BOUNDARY_EMPTY_BATCH = 15
+};
+
+enum {
+    TOSUMU_EXPERIMENTAL_V1_MAX_BATCH_COMMANDS = 1024,
+    TOSUMU_EXPERIMENTAL_V1_MAX_BATCH_PAYLOAD_BYTES = 16 * 1024 * 1024
 };
 
 enum {
@@ -77,6 +84,11 @@ tosumu_experimental_v1_outcome tosumu_experimental_v1_database_close(uint64_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_database_connection_info(uint64_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_database_put(uint64_t, const uint8_t *, size_t, const uint8_t *, size_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_database_delete(uint64_t, const uint8_t *, size_t);
+tosumu_experimental_v1_outcome tosumu_experimental_v1_batch_create(void);
+tosumu_experimental_v1_outcome tosumu_experimental_v1_batch_append_put(uint64_t, const uint8_t *, size_t, const uint8_t *, size_t);
+tosumu_experimental_v1_outcome tosumu_experimental_v1_batch_append_delete(uint64_t, const uint8_t *, size_t);
+tosumu_experimental_v1_outcome tosumu_experimental_v1_database_execute_batch(uint64_t, uint64_t);
+tosumu_experimental_v1_outcome tosumu_experimental_v1_batch_close(uint64_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_database_get(uint64_t, const uint8_t *, size_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_snapshot_begin(uint64_t);
 tosumu_experimental_v1_outcome tosumu_experimental_v1_snapshot_generation(uint64_t);

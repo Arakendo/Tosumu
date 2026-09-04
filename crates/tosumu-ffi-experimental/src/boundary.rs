@@ -5,7 +5,9 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread::{self, ThreadId};
 
 use tosumu_core::error::{ErrorReport, ErrorStatus, ErrorValue, TosumuError};
-use tosumu_core::{KvConnectionInfo, KvReadTransaction, KvScanPage, SharedKvStore};
+use tosumu_core::{
+    KvConnectionInfo, KvReadTransaction, KvScanPage, SharedKvStore, MAX_KEY_SIZE, MAX_VALUE_SIZE,
+};
 
 pub const TAG_SUCCESS: u32 = 0;
 pub const TAG_ABSENT: u32 = 1;
@@ -25,8 +27,12 @@ pub const BOUNDARY_INVALID_INDEX: u32 = 10;
 pub const BOUNDARY_WRONG_DETAIL_TYPE: u32 = 11;
 pub const BOUNDARY_LIMIT_OUT_OF_RANGE: u32 = 12;
 pub const BOUNDARY_LENGTH_OUT_OF_RANGE: u32 = 13;
+pub const BOUNDARY_BATCH_LIMIT_REACHED: u32 = 14;
+pub const BOUNDARY_EMPTY_BATCH: u32 = 15;
 
 const MAX_LIVE_HANDLES: usize = 4096;
+pub const MAX_BATCH_COMMANDS: usize = 1024;
+pub const MAX_BATCH_PAYLOAD_BYTES: u64 = 16 * 1024 * 1024;
 
 pub struct DatabaseObject {
     store: SharedKvStore,
@@ -39,6 +45,22 @@ pub struct SnapshotObject {
     origin: ThreadId,
 }
 
+pub struct BatchObject {
+    state: Mutex<BatchState>,
+    origin: ThreadId,
+}
+
+#[derive(Default)]
+struct BatchState {
+    commands: Vec<BatchCommand>,
+    copied_payload_bytes: u64,
+}
+
+enum BatchCommand {
+    Put { key: Vec<u8>, value: Vec<u8> },
+    Delete { key: Vec<u8> },
+}
+
 #[derive(Clone)]
 enum Entry {
     Database(Arc<DatabaseObject>),
@@ -47,6 +69,7 @@ enum Entry {
     Error(Arc<ErrorReport>),
     Connection(Arc<KvConnectionInfo>),
     ScanPage(Arc<KvScanPage>),
+    Batch(Arc<BatchObject>),
 }
 
 #[derive(Clone, Copy)]
@@ -57,6 +80,7 @@ pub enum Kind {
     Error,
     Connection,
     ScanPage,
+    Batch,
 }
 
 struct Registry {
@@ -147,6 +171,7 @@ impl Entry {
                 | (Self::Error(_), Kind::Error)
                 | (Self::Connection(_), Kind::Connection)
                 | (Self::ScanPage(_), Kind::ScanPage)
+                | (Self::Batch(_), Kind::Batch)
         )
     }
 }
@@ -238,6 +263,146 @@ pub fn delete(handle: u64, key: &[u8]) -> Result<(), CallFailure> {
     database(handle)?
         .store
         .delete(key)
+        .map_err(CallFailure::Core)
+}
+
+pub fn batch_create() -> Result<u64, CallFailure> {
+    insert(Entry::Batch(Arc::new(BatchObject {
+        state: Mutex::new(BatchState::default()),
+        origin: thread::current().id(),
+    })))
+    .map_err(CallFailure::Boundary)
+}
+
+fn batch(handle: u64) -> Result<Arc<BatchObject>, CallFailure> {
+    let Entry::Batch(batch) = lookup(handle).map_err(CallFailure::Boundary)? else {
+        return Err(CallFailure::Boundary(BOUNDARY_WRONG_KIND));
+    };
+    if batch.origin != thread::current().id() {
+        return Err(CallFailure::Boundary(BOUNDARY_WRONG_THREAD));
+    }
+    Ok(batch)
+}
+
+fn admit_batch_payload(state: &BatchState, additional: u64) -> Result<u64, CallFailure> {
+    if state.commands.len() >= MAX_BATCH_COMMANDS {
+        return Err(CallFailure::Boundary(BOUNDARY_BATCH_LIMIT_REACHED));
+    }
+    let total = state
+        .copied_payload_bytes
+        .checked_add(additional)
+        .ok_or(CallFailure::Boundary(BOUNDARY_BATCH_LIMIT_REACHED))?;
+    if total > MAX_BATCH_PAYLOAD_BYTES {
+        return Err(CallFailure::Boundary(BOUNDARY_BATCH_LIMIT_REACHED));
+    }
+    Ok(total)
+}
+
+pub fn batch_append_put(handle: u64, key: &[u8], value: &[u8]) -> Result<(), CallFailure> {
+    let batch = batch(handle)?;
+    if key.is_empty() {
+        return Err(CallFailure::Core(TosumuError::InvalidArgument(
+            "key must not be empty",
+        )));
+    }
+    if key.len() > MAX_KEY_SIZE {
+        return Err(CallFailure::Core(TosumuError::InvalidArgument(
+            "key exceeds u16 maximum length",
+        )));
+    }
+    if value.len() > MAX_VALUE_SIZE {
+        return Err(CallFailure::Core(TosumuError::ValueTooLarge {
+            actual: value.len() as u64,
+            maximum: MAX_VALUE_SIZE as u64,
+        }));
+    }
+
+    let mut state = batch
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let additional = (key.len() as u64)
+        .checked_add(value.len() as u64)
+        .ok_or(CallFailure::Boundary(BOUNDARY_BATCH_LIMIT_REACHED))?;
+    let total = admit_batch_payload(&state, additional)?;
+    state.commands.push(BatchCommand::Put {
+        key: key.to_vec(),
+        value: value.to_vec(),
+    });
+    state.copied_payload_bytes = total;
+    Ok(())
+}
+
+pub fn batch_append_delete(handle: u64, key: &[u8]) -> Result<(), CallFailure> {
+    let batch = batch(handle)?;
+    if key.len() > MAX_KEY_SIZE {
+        return Err(CallFailure::Core(TosumuError::InvalidArgument(
+            "key exceeds u16 maximum length",
+        )));
+    }
+
+    let mut state = batch
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let total = admit_batch_payload(&state, key.len() as u64)?;
+    state
+        .commands
+        .push(BatchCommand::Delete { key: key.to_vec() });
+    state.copied_payload_bytes = total;
+    Ok(())
+}
+
+fn consume_batch(handle: u64) -> Result<Arc<BatchObject>, CallFailure> {
+    if handle == 0 {
+        return Err(CallFailure::Boundary(BOUNDARY_INVALID_HANDLE));
+    }
+    let mut registry = lock_registry();
+    let entry = registry
+        .entries
+        .get(&handle)
+        .ok_or(CallFailure::Boundary(BOUNDARY_INVALID_HANDLE))?;
+    let Entry::Batch(batch) = entry else {
+        return Err(CallFailure::Boundary(BOUNDARY_WRONG_KIND));
+    };
+    if batch.origin != thread::current().id() {
+        return Err(CallFailure::Boundary(BOUNDARY_WRONG_THREAD));
+    }
+    let Entry::Batch(batch) = registry
+        .entries
+        .remove(&handle)
+        .ok_or(CallFailure::Boundary(BOUNDARY_INVALID_HANDLE))?
+    else {
+        unreachable!("batch kind changed while the registry was locked")
+    };
+    Ok(batch)
+}
+
+pub fn batch_execute(database_handle: u64, batch_handle: u64) -> Result<(), CallFailure> {
+    let database = database(database_handle)?;
+    let batch = consume_batch(batch_handle)?;
+    let commands = {
+        let mut state = batch
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.commands.is_empty() {
+            return Err(CallFailure::Boundary(BOUNDARY_EMPTY_BATCH));
+        }
+        std::mem::take(&mut state.commands)
+    };
+
+    database
+        .store
+        .write(|transaction| {
+            for command in commands {
+                match command {
+                    BatchCommand::Put { key, value } => transaction.put(&key, &value)?,
+                    BatchCommand::Delete { key } => transaction.delete(&key)?,
+                }
+            }
+            Ok(())
+        })
         .map_err(CallFailure::Core)
 }
 

@@ -8,6 +8,7 @@ enum HandleKind {
     Error,
     Connection,
     ScanPage,
+    Batch,
 }
 
 #[derive(Clone, Copy)]
@@ -58,6 +59,25 @@ fn operations() -> Vec<Operation> {
             name: "database_get",
             kind: HandleKind::Database,
             call: |handle| unsafe { tosumu_experimental_v1_database_get(handle, b"k".as_ptr(), 1) },
+        },
+        Operation {
+            name: "batch_append_put",
+            kind: HandleKind::Batch,
+            call: |handle| unsafe {
+                tosumu_experimental_v1_batch_append_put(handle, b"k".as_ptr(), 1, b"v".as_ptr(), 1)
+            },
+        },
+        Operation {
+            name: "batch_append_delete",
+            kind: HandleKind::Batch,
+            call: |handle| unsafe {
+                tosumu_experimental_v1_batch_append_delete(handle, b"k".as_ptr(), 1)
+            },
+        },
+        Operation {
+            name: "batch_close",
+            kind: HandleKind::Batch,
+            call: |handle| tosumu_experimental_v1_batch_close(handle),
         },
         Operation {
             name: "snapshot_begin",
@@ -261,7 +281,8 @@ fn every_handle_operation_rejects_zero_forged_wrong_kind_and_stale_handles() {
     };
     let error =
         unsafe { tosumu_experimental_v1_database_open(missing_path.as_ptr(), missing_path.len()) };
-    for outcome in [snapshot, bytes, connection, page] {
+    let batch = tosumu_experimental_v1_batch_create();
+    for outcome in [snapshot, bytes, connection, page, batch] {
         assert_eq!(outcome.tag, boundary::TAG_SUCCESS);
     }
     assert_eq!(error.tag, boundary::TAG_ERROR);
@@ -290,6 +311,10 @@ fn every_handle_operation_rejects_zero_forged_wrong_kind_and_stale_handles() {
         Handle {
             kind: HandleKind::ScanPage,
             value: page.payload,
+        },
+        Handle {
+            kind: HandleKind::Batch,
+            value: batch.payload,
         },
     ];
     let raw_handles: Vec<_> = handles.iter().map(|handle| handle.value).collect();
@@ -330,6 +355,7 @@ fn every_handle_operation_rejects_zero_forged_wrong_kind_and_stale_handles() {
             HandleKind::Error => tosumu_experimental_v1_error_close(handle.value),
             HandleKind::Connection => tosumu_experimental_v1_connection_close(handle.value),
             HandleKind::ScanPage => tosumu_experimental_v1_scan_page_close(handle.value),
+            HandleKind::Batch => tosumu_experimental_v1_batch_close(handle.value),
         };
         assert_eq!(outcome.tag, boundary::TAG_SUCCESS);
     }
@@ -363,6 +389,8 @@ fn every_borrowed_input_rejects_null_and_unrepresentable_lengths() {
     assert_eq!(database.tag, boundary::TAG_SUCCESS);
     let snapshot = tosumu_experimental_v1_snapshot_begin(database.payload);
     assert_eq!(snapshot.tag, boundary::TAG_SUCCESS);
+    let batch = tosumu_experimental_v1_batch_create();
+    assert_eq!(batch.tag, boundary::TAG_SUCCESS);
 
     let operations = [
         PointerOperation {
@@ -502,6 +530,62 @@ fn every_borrowed_input_rejects_null_and_unrepresentable_lengths() {
             boundary::BOUNDARY_LENGTH_OUT_OF_RANGE,
         );
     }
+
+    for (name, outcome) in [
+        ("batch_append_put key", unsafe {
+            tosumu_experimental_v1_batch_append_put(
+                batch.payload,
+                std::ptr::null(),
+                1,
+                b"v".as_ptr(),
+                1,
+            )
+        }),
+        ("batch_append_put value", unsafe {
+            tosumu_experimental_v1_batch_append_put(
+                batch.payload,
+                b"k".as_ptr(),
+                1,
+                std::ptr::null(),
+                1,
+            )
+        }),
+        ("batch_append_delete key", unsafe {
+            tosumu_experimental_v1_batch_append_delete(batch.payload, std::ptr::null(), 1)
+        }),
+    ] {
+        assert_boundary(name, outcome, boundary::BOUNDARY_INVALID_POINTER);
+    }
+    for (name, outcome) in [
+        ("batch_append_put key", unsafe {
+            tosumu_experimental_v1_batch_append_put(
+                batch.payload,
+                b"k".as_ptr(),
+                usize::MAX,
+                b"v".as_ptr(),
+                1,
+            )
+        }),
+        ("batch_append_put value", unsafe {
+            tosumu_experimental_v1_batch_append_put(
+                batch.payload,
+                b"k".as_ptr(),
+                1,
+                b"v".as_ptr(),
+                usize::MAX,
+            )
+        }),
+        ("batch_append_delete key", unsafe {
+            tosumu_experimental_v1_batch_append_delete(batch.payload, b"k".as_ptr(), usize::MAX)
+        }),
+    ] {
+        assert_boundary(name, outcome, boundary::BOUNDARY_LENGTH_OUT_OF_RANGE);
+    }
+
+    assert_eq!(
+        tosumu_experimental_v1_batch_close(batch.payload).tag,
+        boundary::TAG_SUCCESS
+    );
 
     assert_eq!(
         tosumu_experimental_v1_snapshot_close(snapshot.payload).tag,
@@ -689,11 +773,13 @@ fn every_handle_kind_obeys_its_operation_and_finalizer_thread_rules() {
     };
     let error =
         unsafe { tosumu_experimental_v1_database_open(missing_path.as_ptr(), missing_path.len()) };
+    let batch = tosumu_experimental_v1_batch_create();
 
     let observations = std::thread::spawn(move || {
         [
             tosumu_experimental_v1_database_connection_info(database.payload),
             tosumu_experimental_v1_snapshot_generation(snapshot.payload),
+            unsafe { tosumu_experimental_v1_batch_append_delete(batch.payload, b"k".as_ptr(), 1) },
             tosumu_experimental_v1_bytes_length(bytes.payload),
             tosumu_experimental_v1_error_status(error.payload),
             tosumu_experimental_v1_connection_field(connection.payload, 1),
@@ -702,13 +788,13 @@ fn every_handle_kind_obeys_its_operation_and_finalizer_thread_rules() {
     })
     .join()
     .unwrap();
-    for (name, outcome) in ["database", "snapshot"]
+    for (name, outcome) in ["database", "snapshot", "batch"]
         .into_iter()
-        .zip(observations[..2].iter().copied())
+        .zip(observations[..3].iter().copied())
     {
         assert_boundary(name, outcome, boundary::BOUNDARY_WRONG_THREAD);
     }
-    for outcome in &observations[2..] {
+    for outcome in &observations[3..] {
         assert_eq!(outcome.tag, boundary::TAG_SUCCESS);
     }
 
@@ -737,6 +823,10 @@ fn every_handle_kind_obeys_its_operation_and_finalizer_thread_rules() {
             kind: HandleKind::ScanPage,
             value: page.payload,
         },
+        Handle {
+            kind: HandleKind::Batch,
+            value: batch.payload,
+        },
     ];
     let raw_handles: Vec<_> = handles.iter().map(|handle| handle.value).collect();
     let closes = std::thread::spawn(move || {
@@ -747,6 +837,7 @@ fn every_handle_kind_obeys_its_operation_and_finalizer_thread_rules() {
             HandleKind::Error => tosumu_experimental_v1_error_close(handle.value),
             HandleKind::Connection => tosumu_experimental_v1_connection_close(handle.value),
             HandleKind::ScanPage => tosumu_experimental_v1_scan_page_close(handle.value),
+            HandleKind::Batch => tosumu_experimental_v1_batch_close(handle.value),
         })
     })
     .join()
@@ -890,7 +981,7 @@ fn database_and_snapshot_close_races_preserve_completed_or_stale_outcomes() {
         let generation = tosumu_experimental_v1_snapshot_generation(snapshot.payload);
         assert_eq!(closer.join().unwrap().tag, boundary::TAG_SUCCESS);
         match generation.tag {
-            boundary::TAG_SUCCESS => assert!(generation.payload > 0),
+            boundary::TAG_SUCCESS => assert_eq!(generation.status, 0),
             boundary::TAG_BOUNDARY_FAILURE => {
                 assert_eq!(generation.status, boundary::BOUNDARY_INVALID_HANDLE);
             }

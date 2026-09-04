@@ -161,6 +161,56 @@ pub unsafe extern "C" fn tosumu_experimental_v1_database_delete(
 }
 
 #[no_mangle]
+pub extern "C" fn tosumu_experimental_v1_batch_create() -> TosumuExperimentalV1Outcome {
+    contained(None, || {
+        boundary::batch_create().map(TosumuExperimentalV1Outcome::success)
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn tosumu_experimental_v1_batch_append_put(
+    batch: u64,
+    key: *const u8,
+    key_length: usize,
+    value: *const u8,
+    value_length: usize,
+) -> TosumuExperimentalV1Outcome {
+    contained(None, || {
+        let key = unsafe { input(key, key_length) }?;
+        let value = unsafe { input(value, value_length) }?;
+        boundary::batch_append_put(batch, key, value)
+            .map(|()| TosumuExperimentalV1Outcome::success(0))
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn tosumu_experimental_v1_batch_append_delete(
+    batch: u64,
+    key: *const u8,
+    key_length: usize,
+) -> TosumuExperimentalV1Outcome {
+    contained(None, || {
+        let key = unsafe { input(key, key_length) }?;
+        boundary::batch_append_delete(batch, key).map(|()| TosumuExperimentalV1Outcome::success(0))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn tosumu_experimental_v1_database_execute_batch(
+    database: u64,
+    batch: u64,
+) -> TosumuExperimentalV1Outcome {
+    contained(Some(database), || {
+        boundary::batch_execute(database, batch).map(|()| TosumuExperimentalV1Outcome::success(0))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn tosumu_experimental_v1_batch_close(batch: u64) -> TosumuExperimentalV1Outcome {
+    close(batch, Kind::Batch)
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn tosumu_experimental_v1_database_get(
     database: u64,
     key: *const u8,
@@ -768,3 +818,6 @@ mod hostile_tests;
 
 #[cfg(test)]
 mod interpreter_tests;
+
+#[cfg(test)]
+mod batch_tests;
