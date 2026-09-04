@@ -642,3 +642,174 @@ fn empty_absent_capacity_and_index_outcomes_remain_distinct() {
         assert_eq!(outcome.tag, boundary::TAG_SUCCESS);
     }
 }
+
+#[test]
+fn every_handle_kind_obeys_its_operation_and_finalizer_thread_rules() {
+    let directory = tempfile::tempdir().unwrap();
+    let database_path = directory.path().join("thread-rules.tsm");
+    let database_path = database_path.to_str().unwrap().as_bytes();
+    let missing_path = directory.path().join("missing.tsm");
+    let missing_path = missing_path.to_str().unwrap().as_bytes();
+    let database = unsafe {
+        tosumu_experimental_v1_database_create(database_path.as_ptr(), database_path.len())
+    };
+    assert_eq!(
+        unsafe {
+            tosumu_experimental_v1_database_put(
+                database.payload,
+                b"k".as_ptr(),
+                1,
+                b"v".as_ptr(),
+                1,
+            )
+        }
+        .tag,
+        boundary::TAG_SUCCESS
+    );
+    let snapshot = tosumu_experimental_v1_snapshot_begin(database.payload);
+    let bytes = unsafe { tosumu_experimental_v1_snapshot_get(snapshot.payload, b"k".as_ptr(), 1) };
+    let connection = tosumu_experimental_v1_database_connection_info(database.payload);
+    let page = unsafe {
+        tosumu_experimental_v1_snapshot_scan_page(
+            snapshot.payload,
+            b"a".as_ptr(),
+            1,
+            b"z".as_ptr(),
+            1,
+            1,
+            16,
+        )
+    };
+    let error =
+        unsafe { tosumu_experimental_v1_database_open(missing_path.as_ptr(), missing_path.len()) };
+
+    let observations = std::thread::spawn(move || {
+        [
+            tosumu_experimental_v1_database_connection_info(database.payload),
+            tosumu_experimental_v1_snapshot_generation(snapshot.payload),
+            tosumu_experimental_v1_bytes_length(bytes.payload),
+            tosumu_experimental_v1_error_status(error.payload),
+            tosumu_experimental_v1_connection_field(connection.payload, 1),
+            tosumu_experimental_v1_scan_page_pair_count(page.payload),
+        ]
+    })
+    .join()
+    .unwrap();
+    for (name, outcome) in ["database", "snapshot"]
+        .into_iter()
+        .zip(observations[..2].iter().copied())
+    {
+        assert_boundary(name, outcome, boundary::BOUNDARY_WRONG_THREAD);
+    }
+    for outcome in &observations[2..] {
+        assert_eq!(outcome.tag, boundary::TAG_SUCCESS);
+    }
+
+    let handles = [
+        Handle {
+            kind: HandleKind::Database,
+            value: database.payload,
+        },
+        Handle {
+            kind: HandleKind::Snapshot,
+            value: snapshot.payload,
+        },
+        Handle {
+            kind: HandleKind::Bytes,
+            value: bytes.payload,
+        },
+        Handle {
+            kind: HandleKind::Error,
+            value: error.payload,
+        },
+        Handle {
+            kind: HandleKind::Connection,
+            value: connection.payload,
+        },
+        Handle {
+            kind: HandleKind::ScanPage,
+            value: page.payload,
+        },
+    ];
+    let raw_handles: Vec<_> = handles.iter().map(|handle| handle.value).collect();
+    let closes = std::thread::spawn(move || {
+        handles.map(|handle| match handle.kind {
+            HandleKind::Database => tosumu_experimental_v1_database_close(handle.value),
+            HandleKind::Snapshot => tosumu_experimental_v1_snapshot_close(handle.value),
+            HandleKind::Bytes => tosumu_experimental_v1_bytes_close(handle.value),
+            HandleKind::Error => tosumu_experimental_v1_error_close(handle.value),
+            HandleKind::Connection => tosumu_experimental_v1_connection_close(handle.value),
+            HandleKind::ScanPage => tosumu_experimental_v1_scan_page_close(handle.value),
+        })
+    })
+    .join()
+    .unwrap();
+    for outcome in closes {
+        assert_eq!(outcome.tag, boundary::TAG_SUCCESS);
+    }
+    assert_eq!(boundary::registered_handle_count(&raw_handles), 0);
+}
+
+#[test]
+fn concurrent_close_and_use_linearize_at_registry_lookup() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("close-use-race.tsm");
+    let path = path.to_str().unwrap().as_bytes();
+    let database = unsafe { tosumu_experimental_v1_database_create(path.as_ptr(), path.len()) };
+    assert_eq!(
+        unsafe {
+            tosumu_experimental_v1_database_put(
+                database.payload,
+                b"k".as_ptr(),
+                1,
+                b"v".as_ptr(),
+                1,
+            )
+        }
+        .tag,
+        boundary::TAG_SUCCESS
+    );
+    let snapshot = tosumu_experimental_v1_snapshot_begin(database.payload);
+
+    for _ in 0..64 {
+        let bytes =
+            unsafe { tosumu_experimental_v1_snapshot_get(snapshot.payload, b"k".as_ptr(), 1) };
+        assert_eq!(bytes.tag, boundary::TAG_SUCCESS);
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+        let reader_barrier = std::sync::Arc::clone(&barrier);
+        let reader = std::thread::spawn(move || {
+            reader_barrier.wait();
+            tosumu_experimental_v1_bytes_length(bytes.payload)
+        });
+        let closer_barrier = std::sync::Arc::clone(&barrier);
+        let closer = std::thread::spawn(move || {
+            closer_barrier.wait();
+            tosumu_experimental_v1_bytes_close(bytes.payload)
+        });
+        barrier.wait();
+        let read = reader.join().unwrap();
+        let closed = closer.join().unwrap();
+        assert_eq!(closed.tag, boundary::TAG_SUCCESS);
+        match read.tag {
+            boundary::TAG_SUCCESS => assert_eq!(read.payload, 1),
+            boundary::TAG_BOUNDARY_FAILURE => {
+                assert_eq!(read.status, boundary::BOUNDARY_INVALID_HANDLE);
+            }
+            _ => panic!("close/use race returned an unexpected outcome"),
+        }
+        assert_boundary(
+            "post-race stale bytes",
+            tosumu_experimental_v1_bytes_length(bytes.payload),
+            boundary::BOUNDARY_INVALID_HANDLE,
+        );
+    }
+
+    assert_eq!(
+        tosumu_experimental_v1_snapshot_close(snapshot.payload).tag,
+        boundary::TAG_SUCCESS
+    );
+    assert_eq!(
+        tosumu_experimental_v1_database_close(database.payload).tag,
+        boundary::TAG_SUCCESS
+    );
+}
