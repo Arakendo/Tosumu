@@ -813,3 +813,90 @@ fn concurrent_close_and_use_linearize_at_registry_lookup() {
         boundary::TAG_SUCCESS
     );
 }
+
+#[test]
+fn database_and_snapshot_close_races_preserve_completed_or_stale_outcomes() {
+    let directory = tempfile::tempdir().unwrap();
+
+    for index in 0..16 {
+        let path = directory.path().join(format!("database-race-{index}.tsm"));
+        let path = path.to_str().unwrap().as_bytes();
+        let database = unsafe { tosumu_experimental_v1_database_create(path.as_ptr(), path.len()) };
+        assert_eq!(
+            unsafe {
+                tosumu_experimental_v1_database_put(
+                    database.payload,
+                    b"k".as_ptr(),
+                    1,
+                    b"v".as_ptr(),
+                    1,
+                )
+            }
+            .tag,
+            boundary::TAG_SUCCESS
+        );
+
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let closer_barrier = std::sync::Arc::clone(&barrier);
+        let closer = std::thread::spawn(move || {
+            closer_barrier.wait();
+            tosumu_experimental_v1_database_close(database.payload)
+        });
+        barrier.wait();
+        let read =
+            unsafe { tosumu_experimental_v1_database_get(database.payload, b"k".as_ptr(), 1) };
+        assert_eq!(closer.join().unwrap().tag, boundary::TAG_SUCCESS);
+        match read.tag {
+            boundary::TAG_SUCCESS => {
+                assert_eq!(tosumu_experimental_v1_bytes_length(read.payload).payload, 1);
+                assert_eq!(
+                    tosumu_experimental_v1_bytes_close(read.payload).tag,
+                    boundary::TAG_SUCCESS
+                );
+            }
+            boundary::TAG_BOUNDARY_FAILURE => {
+                assert_eq!(read.status, boundary::BOUNDARY_INVALID_HANDLE);
+            }
+            _ => panic!("database close/use race returned an unexpected outcome"),
+        }
+        assert_boundary(
+            "post-race stale database",
+            unsafe { tosumu_experimental_v1_database_get(database.payload, b"k".as_ptr(), 1) },
+            boundary::BOUNDARY_INVALID_HANDLE,
+        );
+    }
+
+    let path = directory.path().join("snapshot-races.tsm");
+    let path = path.to_str().unwrap().as_bytes();
+    let database = unsafe { tosumu_experimental_v1_database_create(path.as_ptr(), path.len()) };
+    assert_eq!(database.tag, boundary::TAG_SUCCESS);
+    for _ in 0..64 {
+        let snapshot = tosumu_experimental_v1_snapshot_begin(database.payload);
+        assert_eq!(snapshot.tag, boundary::TAG_SUCCESS);
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let closer_barrier = std::sync::Arc::clone(&barrier);
+        let closer = std::thread::spawn(move || {
+            closer_barrier.wait();
+            tosumu_experimental_v1_snapshot_close(snapshot.payload)
+        });
+        barrier.wait();
+        let generation = tosumu_experimental_v1_snapshot_generation(snapshot.payload);
+        assert_eq!(closer.join().unwrap().tag, boundary::TAG_SUCCESS);
+        match generation.tag {
+            boundary::TAG_SUCCESS => assert!(generation.payload > 0),
+            boundary::TAG_BOUNDARY_FAILURE => {
+                assert_eq!(generation.status, boundary::BOUNDARY_INVALID_HANDLE);
+            }
+            _ => panic!("snapshot close/use race returned an unexpected outcome"),
+        }
+        assert_boundary(
+            "post-race stale snapshot",
+            tosumu_experimental_v1_snapshot_generation(snapshot.payload),
+            boundary::BOUNDARY_INVALID_HANDLE,
+        );
+    }
+    assert_eq!(
+        tosumu_experimental_v1_database_close(database.payload).tag,
+        boundary::TAG_SUCCESS
+    );
+}
