@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use crate::btree::BTree;
 use crate::error::{Result, TosumuError};
+use crate::scan::KvScanPage;
 use crate::shared_owner::{
     ConditionalPutResult as CoreConditionalPutResult, ReadTransaction as CoreReadTransaction,
     SharedBTreeOwner,
@@ -326,6 +327,26 @@ impl KvReadTransaction {
     /// Read an inclusive ordered key range from the captured generation.
     pub fn scan(&self, start: &[u8], end: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         self.inner.scan_by_key(start, end)
+    }
+
+    /// Read one bounded page from an inclusive ordered key range.
+    ///
+    /// Pair and logical payload limits are enforced during traversal. If the
+    /// range is not exhausted, pass the returned `next_start_inclusive` key as
+    /// the next call's `start` on this same transaction. A byte-blocked entry's
+    /// declared logical size is reported without materializing an excluded
+    /// overflow value.
+    ///
+    /// Returns `InvalidArgument` when either limit is zero or `start > end`.
+    pub fn scan_page(
+        &self,
+        start: &[u8],
+        end: &[u8],
+        maximum_pairs: usize,
+        maximum_payload_bytes: u64,
+    ) -> Result<KvScanPage> {
+        self.inner
+            .scan_page(start, end, maximum_pairs, maximum_payload_bytes)
     }
 }
 

@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use crate::btree::BTree;
 use crate::error::{Result, TosumuError};
 use crate::pager::SnapshotDiagnostics;
+use crate::scan::KvScanPage;
 use crate::snapshot_registry::SnapshotPin;
 
 thread_local! {
@@ -230,6 +231,22 @@ impl ReadTransaction {
 
     pub(crate) fn scan_by_key(&self, start: &[u8], end: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         self.lock()?.scan_at_snapshot(&self.pin, start, end)
+    }
+
+    pub(crate) fn scan_page(
+        &self,
+        start: &[u8],
+        end: &[u8],
+        maximum_pairs: usize,
+        maximum_payload_bytes: u64,
+    ) -> Result<KvScanPage> {
+        self.lock()?.scan_page_at_snapshot(
+            &self.pin,
+            start,
+            end,
+            maximum_pairs,
+            maximum_payload_bytes,
+        )
     }
 
     fn lock(&self) -> Result<MutexGuard<'_, BTree>> {

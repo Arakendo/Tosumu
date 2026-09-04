@@ -20,6 +20,7 @@ pub mod wal;
 
 // ADR-0006 exposes logical shared ownership while the pager, B+ tree,
 // registration, and retained-version machinery remain internal.
+mod scan;
 mod shared_owner;
 mod shared_store;
 #[allow(dead_code)]
@@ -37,6 +38,7 @@ pub const NAME: &str = "tosumu";
 
 pub use error::{ErrorDetail, ErrorReport, ErrorStatus, ErrorValue, TosumuError};
 pub use provider::{KvStore, KvTransaction, MAX_KEY_SIZE, MAX_VALUE_SIZE};
+pub use scan::KvScanPage;
 pub use shared_store::{
     KvConditionalResult, KvConnectionInfo, KvReadTransaction, KvVersion, KvVersionedValue,
     KvWriteTransaction, SharedKvStore,

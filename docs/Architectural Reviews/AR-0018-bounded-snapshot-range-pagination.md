@@ -94,10 +94,18 @@ continuation key, but it must not read, authenticate, or allocate the excluded
 overflow value. The leaf page and continuation key have independent fixed
 bounds; neither is charged to the admitted logical payload.
 
-The exact Rust type names, field visibility, maximum accepted limits, and error
-vocabulary remain provisional. A prototype must prove that continuation at leaf
-boundaries does not require an unbounded lookahead and that declared overflow
-length can be validated without weakening corruption checks.
+The admitted Rust experiment uses one public owned `KvScanPage` result with
+public `pairs`, `next_start_inclusive`, and `blocked_entry_payload_bytes`
+fields. `KvReadTransaction::scan_page` accepts `maximum_pairs: usize` and
+`maximum_payload_bytes: u64` directly. A separate limits type, mutable cursor,
+and accessor-only result add no demonstrated value yet. The C adapter must use
+fixed-width ABI inputs and checked conversion; its representation does not
+change the Rust contract.
+
+The method returns the existing `InvalidArgument` identity when either limit is
+zero or `start_inclusive > end_inclusive`. Large admitted limits do not cause
+proportional preallocation. There is no separate implementation maximum beyond
+the representable argument and existing key/value format bounds.
 
 ## Alternatives Considered
 
@@ -143,11 +151,12 @@ shape and avoids synthesizing a successor for arbitrary bytes.
 
 ## Disposition
 
-Incubating. Admit a private core prototype and focused tests for the stateless
-inclusive-continuation candidate. Do not add the public `KvReadTransaction`
-method or C range symbols until the traversal proves its bounds and the result
-vocabulary is reviewed. Amend ADR-0006 only after the independent Rust and C
-callers establish the contract.
+Incubating. The private traversal and public result vocabulary have cleared
+their gates, and `KvReadTransaction::scan_page` is admitted as a public Rust
+experiment with an external integration caller. Do not add C range symbols
+until that adapter preserves fixed-width limit conversion, owned-result
+lifetime, multi-page continuation, and blocked-entry meaning. Amend ADR-0006
+only after the independent Rust and C callers establish the contract.
 
 ## Reopening Triggers
 
@@ -215,6 +224,48 @@ callers establish the contract.
   before exposing the operation to C.
 - Resulting ADR or documentation change: no public API or ADR amendment yet;
   the next gate changes from traversal feasibility to public-contract evidence.
+
+### Cycle 4 -- 2026-09-03
+
+- Status entering review: Incubating; private traversal feasibility established
+  and public result vocabulary unresolved.
+- New evidence: Tosumu's accepted provider boundary already uses owned result
+  structs with directly readable fields, `usize` for host collection counts,
+  and `u64` for byte-size observations. The prototype allocates incrementally
+  and does not reserve from either supplied limit.
+- Findings: one `KvScanPage` type and one `KvReadTransaction::scan_page` method
+  are sufficient for an independent Rust caller. A limits object, cursor
+  capability, builder, or adapter-shaped integer vocabulary would add contract
+  surface without evidence. Fixed-width conversion belongs at the C boundary.
+- Disposition: remain Incubating, but admit this public Rust experiment. Require
+  an external integration caller to establish usability and conservation before
+  adding C symbols. This admission does not yet amend ADR-0006.
+- Resulting ADR or documentation change: candidate Rust names, field visibility,
+  argument types, validation, and allocation behavior are fixed for the next
+  experiment.
+
+### Cycle 5 -- 2026-09-03
+
+- Status entering review: Incubating; public Rust experiment admitted but not
+  implemented or independently consumed.
+- New evidence: `KvScanPage` and `KvReadTransaction::scan_page` now project the
+  private bounded traversal without exposing pager or tree state. A separate
+  integration-test crate surface consumes only public exports, concatenates
+  more than two pages to the accepted complete scan while a writer advances,
+  observes the captured value, handles and retries a 20,000-byte blocked
+  overflow entry, and receives the existing typed invalid-argument outcome for
+  zero limits and inverted bounds. `cargo test --workspace --all-targets`
+  passed, including existing Criterion benchmark targets, recovery properties,
+  maximum-value provider coverage, SQL, inspection, and experimental FFI
+  consumers; tests already marked ignored remained explicitly unrun.
+- Findings: the public owned-result vocabulary is sufficient for a real Rust
+  caller and conserves generation pinning and existing errors. Neither the
+  limits nor the continuation require a new owned capability or preallocation.
+- Disposition: remain Incubating. Admit a private C adapter experiment with
+  checked fixed-width conversions and owned result handles. Require the C
+  harness to consume multiple pages and a blocked entry before ADR amendment.
+- Resulting ADR or documentation change: public Rust experiment and independent
+  integration evidence established; no C symbols or ADR amendment yet.
 
 ## References
 

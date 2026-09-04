@@ -6,20 +6,13 @@ use crate::format::{
     PAGE_TYPE_INTERNAL, PAGE_TYPE_LEAF, PAGE_TYPE_OVERFLOW,
 };
 use crate::pager::{Pager, SnapshotDiagnostics};
+use crate::scan::KvScanPage;
 use crate::snapshot_registry::SnapshotPin;
 
 use super::{
     internal_find_child, leaf_get, leaf_read_all_refs, BTree, LeafValue, HDR_LEFTMOST,
     HDR_PAGE_TYPE,
 };
-
-#[cfg_attr(not(test), allow(dead_code))]
-#[derive(Debug)]
-pub(crate) struct BoundedScanPage {
-    pub(crate) pairs: Vec<(Vec<u8>, Vec<u8>)>,
-    pub(crate) next_start_inclusive: Option<Vec<u8>>,
-    pub(crate) blocked_entry_payload_bytes: Option<u64>,
-}
 
 trait ReadSource {
     fn root_page(&self) -> u64;
@@ -115,7 +108,6 @@ impl BTree {
         scan_from(&source, start, end)
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn scan_page_at_snapshot(
         &self,
         pin: &SnapshotPin,
@@ -123,7 +115,7 @@ impl BTree {
         end: &[u8],
         maximum_pairs: usize,
         maximum_payload_bytes: u64,
-    ) -> Result<BoundedScanPage> {
+    ) -> Result<KvScanPage> {
         let source = SnapshotReadSource::new(&self.pager, pin)?;
         scan_page_from(&source, start, end, maximum_pairs, maximum_payload_bytes)
     }
@@ -153,7 +145,7 @@ pub(super) fn scan_page(
     end: &[u8],
     maximum_pairs: usize,
     maximum_payload_bytes: u64,
-) -> Result<BoundedScanPage> {
+) -> Result<KvScanPage> {
     scan_page_from(
         &CurrentReadSource { pager },
         start,
@@ -223,7 +215,7 @@ fn scan_page_from<R: ReadSource>(
     end: &[u8],
     maximum_pairs: usize,
     maximum_payload_bytes: u64,
-) -> Result<BoundedScanPage> {
+) -> Result<KvScanPage> {
     if maximum_pairs == 0 || maximum_payload_bytes == 0 || start > end {
         return Err(TosumuError::InvalidArgument(
             "bounded scan requires positive limits and start <= end",
@@ -241,7 +233,7 @@ fn scan_page_from<R: ReadSource>(
         })?;
         for (key, value) in leaf_pairs {
             if key.as_slice() > end {
-                return Ok(BoundedScanPage {
+                return Ok(KvScanPage {
                     pairs,
                     next_start_inclusive: None,
                     blocked_entry_payload_bytes: None,
@@ -261,14 +253,14 @@ fn scan_page_from<R: ReadSource>(
                 TosumuError::InvalidArgument("bounded scan entry payload length overflow"),
             )?;
             if pairs.len() >= maximum_pairs {
-                return Ok(BoundedScanPage {
+                return Ok(KvScanPage {
                     pairs,
                     next_start_inclusive: Some(key),
                     blocked_entry_payload_bytes: None,
                 });
             }
             if entry_payload > maximum_payload_bytes - payload_bytes {
-                return Ok(BoundedScanPage {
+                return Ok(KvScanPage {
                     pairs,
                     next_start_inclusive: Some(key),
                     blocked_entry_payload_bytes: Some(entry_payload),
@@ -285,7 +277,7 @@ fn scan_page_from<R: ReadSource>(
             pairs.push((key, value));
         }
         if next == 0 {
-            return Ok(BoundedScanPage {
+            return Ok(KvScanPage {
                 pairs,
                 next_start_inclusive: None,
                 blocked_entry_payload_bytes: None,

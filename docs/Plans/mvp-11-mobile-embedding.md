@@ -195,11 +195,11 @@ No rung implies the next.
 
 ## Immediate Next Slice
 
-Review and admit AR-0018's smallest public Rust result vocabulary now that the
-private prototype has passed malformed-length, corruption, and exact leaf-
-boundary falsifications. Implement it with an external core integration test;
-only then let the independent C caller consume multiple pages and a blocked-
-entry result. Amend ADR-0006 only after both callers conserve the contract.
+Project AR-0018's passing public Rust page through the private experimental C
+boundary. Use checked fixed-width limit conversion and owned result handles;
+make the independent C process consume multiple pages and retry one blocked
+entry without callbacks or physical cursor state. Then review whether the two
+independent callers justify amending ADR-0006.
 
 ## References
 
