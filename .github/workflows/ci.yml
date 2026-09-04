@@ -75,11 +75,10 @@ jobs:
               "target/$target/exports.txt"
           done
       - name: Load and invoke from an iOS simulator process
+        timeout-minutes: 5
         run: |
           runtime="com.apple.CoreSimulator.SimRuntime.iOS-18-5"
           device_type="com.apple.CoreSimulator.SimDeviceType.iPhone-16"
-          xcrun simctl list runtimes
-          xcrun simctl list devicetypes
           xcrun simctl list runtimes -j \
             | jq -e --arg runtime "$runtime" \
               '.runtimes[] | select(.identifier == $runtime and .isAvailable == true)' \
@@ -89,9 +88,7 @@ jobs:
               '.devicetypes[] | select(.identifier == $device_type)' \
               >/dev/null
 
-          app="target/aarch64-apple-ios-sim/release/TosumuLoader.app"
-          mkdir -p "$app"
-          cp tools/ffi-harness/ios-loader-Info.plist "$app/Info.plist"
+          loader="target/aarch64-apple-ios-sim/release/tosumu-loader"
           xcrun --sdk iphonesimulator clang \
             -std=c11 -Wall -Wextra -Werror \
             -arch arm64 -mios-simulator-version-min=13.0 \
@@ -99,8 +96,8 @@ jobs:
             -Itools/ffi-harness \
             target/aarch64-apple-ios-sim/release/libtosumu_ffi_experimental.a \
             -framework Security \
-            -o "$app/TosumuLoader"
-          codesign --force --sign - "$app"
+            -o "$loader"
+          codesign --force --sign - "$loader"
 
           simulator="$(xcrun simctl create TosumuLoader "$device_type" "$runtime")"
           cleanup() {
@@ -110,20 +107,8 @@ jobs:
           trap cleanup EXIT
           xcrun simctl boot "$simulator"
           xcrun simctl bootstatus "$simulator" -b
-          xcrun simctl install "$simulator" "$app"
-          container="$(xcrun simctl get_app_container \
-            "$simulator" org.tosumu.experimental.loader data)"
-          xcrun simctl launch "$simulator" org.tosumu.experimental.loader
-          for attempt in {1..30}; do
-            if test -f "$container/Documents/tosumu-loader-ok"; then
-              grep -Fx "tosumu-experimental-v1=1" \
-                "$container/Documents/tosumu-loader-ok"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "iOS simulator loader did not produce its ABI marker" >&2
-          exit 1
+          xcrun simctl spawn "$simulator" "$PWD/$loader" - \
+            | grep -Fx "tosumu-experimental-v1=1"
 
   mobile-android-artifacts:
     name: experimental Android 64-bit artifacts

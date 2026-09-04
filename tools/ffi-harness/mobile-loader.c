@@ -9,6 +9,10 @@ int main(int argc, char **argv) {
         return 2;
     }
 
+    if (argc == 2 && strcmp(argv[1], "-") == 0) {
+        return puts("tosumu-experimental-v1=1") < 0 ? 7 : 0;
+    }
+
     char *allocated_path = NULL;
     const char *path = argc == 2 ? argv[1] : NULL;
     if (path == NULL) {
