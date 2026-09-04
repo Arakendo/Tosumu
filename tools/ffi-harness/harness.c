@@ -277,6 +277,9 @@ int main(int argc, char **argv) {
 
     assert(tosumu_experimental_v1_database_open(NULL, 1).status ==
            TOSUMU_EXPERIMENTAL_V1_BOUNDARY_INVALID_POINTER);
+    assert(tosumu_experimental_v1_database_open(
+               (const uint8_t *)"x", SIZE_MAX)
+               .status == TOSUMU_EXPERIMENTAL_V1_BOUNDARY_LENGTH_OUT_OF_RANGE);
 
     puts("independent C ABI harness: ok");
     return 0;

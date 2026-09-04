@@ -73,6 +73,11 @@ unsafe fn input<'a>(pointer: *const u8, length: usize) -> Result<&'a [u8], CallF
     if length == 0 {
         return Ok(&[]);
     }
+    if length > isize::MAX as usize {
+        return Err(CallFailure::Boundary(
+            boundary::BOUNDARY_LENGTH_OUT_OF_RANGE,
+        ));
+    }
     if pointer.is_null() {
         return Err(CallFailure::Boundary(boundary::BOUNDARY_INVALID_POINTER));
     }

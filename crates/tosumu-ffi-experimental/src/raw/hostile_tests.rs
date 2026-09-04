@@ -340,3 +340,305 @@ fn every_handle_operation_rejects_zero_forged_wrong_kind_and_stale_handles() {
         );
     }
 }
+
+struct PointerOperation {
+    name: &'static str,
+    null_call: fn(u64, u64) -> TosumuExperimentalV1Outcome,
+    oversized_call: fn(u64, u64) -> TosumuExperimentalV1Outcome,
+}
+
+#[test]
+fn every_borrowed_input_rejects_null_and_unrepresentable_lengths() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("hostile-inputs.tsm");
+    let path = path.to_str().unwrap().as_bytes();
+    let database = unsafe { tosumu_experimental_v1_database_create(path.as_ptr(), path.len()) };
+    assert_eq!(database.tag, boundary::TAG_SUCCESS);
+    let snapshot = tosumu_experimental_v1_snapshot_begin(database.payload);
+    assert_eq!(snapshot.tag, boundary::TAG_SUCCESS);
+
+    let operations = [
+        PointerOperation {
+            name: "database_create path",
+            null_call: |_, _| unsafe {
+                tosumu_experimental_v1_database_create(std::ptr::null(), 1)
+            },
+            oversized_call: |_, _| unsafe {
+                tosumu_experimental_v1_database_create(b"x".as_ptr(), usize::MAX)
+            },
+        },
+        PointerOperation {
+            name: "database_open path",
+            null_call: |_, _| unsafe { tosumu_experimental_v1_database_open(std::ptr::null(), 1) },
+            oversized_call: |_, _| unsafe {
+                tosumu_experimental_v1_database_open(b"x".as_ptr(), usize::MAX)
+            },
+        },
+        PointerOperation {
+            name: "database_put key",
+            null_call: |database, _| unsafe {
+                tosumu_experimental_v1_database_put(database, std::ptr::null(), 1, b"v".as_ptr(), 1)
+            },
+            oversized_call: |database, _| unsafe {
+                tosumu_experimental_v1_database_put(
+                    database,
+                    b"k".as_ptr(),
+                    usize::MAX,
+                    b"v".as_ptr(),
+                    1,
+                )
+            },
+        },
+        PointerOperation {
+            name: "database_put value",
+            null_call: |database, _| unsafe {
+                tosumu_experimental_v1_database_put(database, b"k".as_ptr(), 1, std::ptr::null(), 1)
+            },
+            oversized_call: |database, _| unsafe {
+                tosumu_experimental_v1_database_put(
+                    database,
+                    b"k".as_ptr(),
+                    1,
+                    b"v".as_ptr(),
+                    usize::MAX,
+                )
+            },
+        },
+        PointerOperation {
+            name: "database_delete key",
+            null_call: |database, _| unsafe {
+                tosumu_experimental_v1_database_delete(database, std::ptr::null(), 1)
+            },
+            oversized_call: |database, _| unsafe {
+                tosumu_experimental_v1_database_delete(database, b"k".as_ptr(), usize::MAX)
+            },
+        },
+        PointerOperation {
+            name: "database_get key",
+            null_call: |database, _| unsafe {
+                tosumu_experimental_v1_database_get(database, std::ptr::null(), 1)
+            },
+            oversized_call: |database, _| unsafe {
+                tosumu_experimental_v1_database_get(database, b"k".as_ptr(), usize::MAX)
+            },
+        },
+        PointerOperation {
+            name: "snapshot_get key",
+            null_call: |_, snapshot| unsafe {
+                tosumu_experimental_v1_snapshot_get(snapshot, std::ptr::null(), 1)
+            },
+            oversized_call: |_, snapshot| unsafe {
+                tosumu_experimental_v1_snapshot_get(snapshot, b"k".as_ptr(), usize::MAX)
+            },
+        },
+        PointerOperation {
+            name: "snapshot_scan_page start",
+            null_call: |_, snapshot| unsafe {
+                tosumu_experimental_v1_snapshot_scan_page(
+                    snapshot,
+                    std::ptr::null(),
+                    1,
+                    b"z".as_ptr(),
+                    1,
+                    1,
+                    1,
+                )
+            },
+            oversized_call: |_, snapshot| unsafe {
+                tosumu_experimental_v1_snapshot_scan_page(
+                    snapshot,
+                    b"a".as_ptr(),
+                    usize::MAX,
+                    b"z".as_ptr(),
+                    1,
+                    1,
+                    1,
+                )
+            },
+        },
+        PointerOperation {
+            name: "snapshot_scan_page end",
+            null_call: |_, snapshot| unsafe {
+                tosumu_experimental_v1_snapshot_scan_page(
+                    snapshot,
+                    b"a".as_ptr(),
+                    1,
+                    std::ptr::null(),
+                    1,
+                    1,
+                    1,
+                )
+            },
+            oversized_call: |_, snapshot| unsafe {
+                tosumu_experimental_v1_snapshot_scan_page(
+                    snapshot,
+                    b"a".as_ptr(),
+                    1,
+                    b"z".as_ptr(),
+                    usize::MAX,
+                    1,
+                    1,
+                )
+            },
+        },
+    ];
+
+    for operation in operations {
+        assert_boundary(
+            operation.name,
+            (operation.null_call)(database.payload, snapshot.payload),
+            boundary::BOUNDARY_INVALID_POINTER,
+        );
+        assert_boundary(
+            operation.name,
+            (operation.oversized_call)(database.payload, snapshot.payload),
+            boundary::BOUNDARY_LENGTH_OUT_OF_RANGE,
+        );
+    }
+
+    assert_eq!(
+        tosumu_experimental_v1_snapshot_close(snapshot.payload).tag,
+        boundary::TAG_SUCCESS
+    );
+    assert_eq!(
+        tosumu_experimental_v1_database_close(database.payload).tag,
+        boundary::TAG_SUCCESS
+    );
+}
+
+#[test]
+fn empty_absent_capacity_and_index_outcomes_remain_distinct() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("bounded-inputs.tsm");
+    let path = path.to_str().unwrap().as_bytes();
+    let database = unsafe { tosumu_experimental_v1_database_create(path.as_ptr(), path.len()) };
+    assert_eq!(database.tag, boundary::TAG_SUCCESS);
+
+    let empty_put = unsafe {
+        tosumu_experimental_v1_database_put(
+            database.payload,
+            b"empty".as_ptr(),
+            5,
+            std::ptr::null(),
+            0,
+        )
+    };
+    assert_eq!(empty_put.tag, boundary::TAG_SUCCESS);
+    let empty =
+        unsafe { tosumu_experimental_v1_database_get(database.payload, b"empty".as_ptr(), 5) };
+    assert_eq!(empty.tag, boundary::TAG_SUCCESS);
+    assert_eq!(
+        tosumu_experimental_v1_bytes_length(empty.payload).payload,
+        0
+    );
+    let empty_copy =
+        unsafe { tosumu_experimental_v1_bytes_copy(empty.payload, std::ptr::null_mut(), 0) };
+    assert_eq!(empty_copy.tag, boundary::TAG_SUCCESS);
+    assert_eq!(empty_copy.payload, 0);
+
+    let absent =
+        unsafe { tosumu_experimental_v1_database_get(database.payload, b"missing".as_ptr(), 7) };
+    assert_eq!(absent.tag, boundary::TAG_ABSENT);
+
+    let empty_key =
+        unsafe { tosumu_experimental_v1_database_get(database.payload, std::ptr::null(), 0) };
+    assert_eq!(empty_key.tag, boundary::TAG_ABSENT);
+
+    assert_eq!(
+        unsafe { tosumu_experimental_v1_database_create([0xff].as_ptr(), 1) }.status,
+        boundary::BOUNDARY_INVALID_UTF8
+    );
+    assert_eq!(
+        unsafe { tosumu_experimental_v1_database_create(b"a\0b".as_ptr(), 3) }.status,
+        boundary::BOUNDARY_INVALID_PATH
+    );
+    assert_eq!(
+        unsafe { tosumu_experimental_v1_database_create(std::ptr::null(), 0) }.status,
+        boundary::BOUNDARY_INVALID_PATH
+    );
+
+    assert_eq!(
+        unsafe {
+            tosumu_experimental_v1_database_put(
+                database.payload,
+                b"data".as_ptr(),
+                4,
+                b"four".as_ptr(),
+                4,
+            )
+        }
+        .tag,
+        boundary::TAG_SUCCESS
+    );
+    let data =
+        unsafe { tosumu_experimental_v1_database_get(database.payload, b"data".as_ptr(), 4) };
+    let mut too_small = [0xa5; 2];
+    let required = unsafe {
+        tosumu_experimental_v1_bytes_copy(data.payload, too_small.as_mut_ptr(), too_small.len())
+    };
+    assert_eq!(required.tag, boundary::TAG_SUCCESS);
+    assert_eq!(required.payload, 4);
+    assert_eq!(too_small, [0xa5; 2]);
+    assert_boundary(
+        "null output destination",
+        unsafe { tosumu_experimental_v1_bytes_copy(data.payload, std::ptr::null_mut(), 4) },
+        boundary::BOUNDARY_INVALID_POINTER,
+    );
+
+    let oversized_key = vec![0; tosumu_core::MAX_KEY_SIZE + 1];
+    let oversized = unsafe {
+        tosumu_experimental_v1_database_put(
+            database.payload,
+            oversized_key.as_ptr(),
+            oversized_key.len(),
+            b"v".as_ptr(),
+            1,
+        )
+    };
+    assert_eq!(oversized.tag, boundary::TAG_ERROR);
+    assert_eq!(
+        tosumu_experimental_v1_error_status(oversized.payload).payload,
+        1
+    );
+
+    let snapshot = tosumu_experimental_v1_snapshot_begin(database.payload);
+    let connection = tosumu_experimental_v1_database_connection_info(database.payload);
+    let page = unsafe {
+        tosumu_experimental_v1_snapshot_scan_page(
+            snapshot.payload,
+            b"data".as_ptr(),
+            4,
+            b"data".as_ptr(),
+            4,
+            1,
+            16,
+        )
+    };
+    assert_boundary(
+        "connection invalid field",
+        tosumu_experimental_v1_connection_field(connection.payload, u32::MAX),
+        boundary::BOUNDARY_INVALID_INDEX,
+    );
+    assert_boundary(
+        "page invalid pair index",
+        tosumu_experimental_v1_scan_page_pair_key(page.payload, u64::MAX),
+        boundary::BOUNDARY_INVALID_INDEX,
+    );
+    assert_boundary(
+        "error invalid detail index",
+        tosumu_experimental_v1_error_detail_key(oversized.payload, u64::MAX),
+        boundary::BOUNDARY_INVALID_INDEX,
+    );
+
+    for outcome in [
+        tosumu_experimental_v1_scan_page_close(page.payload),
+        tosumu_experimental_v1_connection_close(connection.payload),
+        tosumu_experimental_v1_snapshot_close(snapshot.payload),
+        tosumu_experimental_v1_bytes_close(data.payload),
+        tosumu_experimental_v1_bytes_close(empty.payload),
+        tosumu_experimental_v1_error_close(oversized.payload),
+        tosumu_experimental_v1_database_close(database.payload),
+    ] {
+        assert_eq!(outcome.tag, boundary::TAG_SUCCESS);
+    }
+}
