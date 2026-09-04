@@ -216,6 +216,17 @@ pub fn validate_database(handle: u64) -> Result<(), CallFailure> {
     database(handle).map(drop)
 }
 
+#[cfg(feature = "ffi-test-hooks")]
+pub fn inject_database_panic_after_write_acquisition(handle: u64) -> Result<(), CallFailure> {
+    database(handle)?
+        .store
+        .write(|transaction| {
+            transaction.put(b"ffi-panic-staged", b"must-not-publish")?;
+            panic!("experimental C boundary post-acquisition panic injection")
+        })
+        .map_err(CallFailure::Core)
+}
+
 pub fn put(handle: u64, key: &[u8], value: &[u8]) -> Result<(), CallFailure> {
     database(handle)?
         .store

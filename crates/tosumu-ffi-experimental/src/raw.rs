@@ -358,12 +358,32 @@ pub extern "C" fn tosumu_experimental_v1_connection_close(
 
 #[cfg(feature = "ffi-test-hooks")]
 #[no_mangle]
+pub extern "C" fn tosumu_experimental_v1_test_inject_unassociated_panic(
+) -> TosumuExperimentalV1Outcome {
+    contained(None, || {
+        panic!("experimental C boundary unassociated panic injection")
+    })
+}
+
+#[cfg(feature = "ffi-test-hooks")]
+#[no_mangle]
 pub extern "C" fn tosumu_experimental_v1_test_inject_database_panic(
     database: u64,
 ) -> TosumuExperimentalV1Outcome {
     contained(Some(database), || {
         boundary::validate_database(database)?;
         panic!("experimental C boundary panic injection")
+    })
+}
+
+#[cfg(feature = "ffi-test-hooks")]
+#[no_mangle]
+pub extern "C" fn tosumu_experimental_v1_test_inject_database_panic_after_write_acquisition(
+    database: u64,
+) -> TosumuExperimentalV1Outcome {
+    contained(Some(database), || {
+        boundary::inject_database_panic_after_write_acquisition(database)
+            .map(|()| TosumuExperimentalV1Outcome::success(0))
     })
 }
 
@@ -666,6 +686,10 @@ mod tests {
     #[cfg(feature = "ffi-test-hooks")]
     #[test]
     fn contained_panic_poisoning_preserves_close() {
+        let unassociated = tosumu_experimental_v1_test_inject_unassociated_panic();
+        assert_eq!(unassociated.tag, boundary::TAG_BOUNDARY_FAILURE);
+        assert_eq!(unassociated.status, boundary::BOUNDARY_PANIC);
+
         let directory = tempfile::tempdir().unwrap();
         let path = path_bytes(&directory.path().join("panic.tsm"));
         let database = unsafe { tosumu_experimental_v1_database_create(path.as_ptr(), path.len()) };
@@ -678,6 +702,62 @@ mod tests {
         assert_eq!(get.status, boundary::BOUNDARY_POISONED);
         assert_eq!(
             tosumu_experimental_v1_database_close(database.payload).tag,
+            boundary::TAG_SUCCESS
+        );
+    }
+
+    #[cfg(feature = "ffi-test-hooks")]
+    #[test]
+    fn post_acquisition_panic_publishes_nothing_and_reopens() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = path_bytes(&directory.path().join("post-acquisition-panic.tsm"));
+        let database = unsafe { tosumu_experimental_v1_database_create(path.as_ptr(), path.len()) };
+        let stable = unsafe {
+            tosumu_experimental_v1_database_put(
+                database.payload,
+                b"stable".as_ptr(),
+                6,
+                b"value".as_ptr(),
+                5,
+            )
+        };
+        assert_eq!(stable.tag, boundary::TAG_SUCCESS);
+
+        let panic_result =
+            tosumu_experimental_v1_test_inject_database_panic_after_write_acquisition(
+                database.payload,
+            );
+        assert_eq!(panic_result.tag, boundary::TAG_BOUNDARY_FAILURE);
+        assert_eq!(panic_result.status, boundary::BOUNDARY_PANIC);
+        assert_eq!(
+            unsafe { tosumu_experimental_v1_database_get(database.payload, b"stable".as_ptr(), 6) }
+                .status,
+            boundary::BOUNDARY_POISONED
+        );
+        assert_eq!(
+            tosumu_experimental_v1_database_close(database.payload).tag,
+            boundary::TAG_SUCCESS
+        );
+
+        let reopened = unsafe { tosumu_experimental_v1_database_open(path.as_ptr(), path.len()) };
+        assert_eq!(reopened.tag, boundary::TAG_SUCCESS);
+        let stable =
+            unsafe { tosumu_experimental_v1_database_get(reopened.payload, b"stable".as_ptr(), 6) };
+        assert_eq!(stable.tag, boundary::TAG_SUCCESS);
+        assert_eq!(unsafe { read_bytes(stable.payload) }, b"value");
+        assert_eq!(
+            unsafe {
+                tosumu_experimental_v1_database_get(
+                    reopened.payload,
+                    b"ffi-panic-staged".as_ptr(),
+                    16,
+                )
+            }
+            .tag,
+            boundary::TAG_ABSENT
+        );
+        assert_eq!(
+            tosumu_experimental_v1_database_close(reopened.payload).tag,
             boundary::TAG_SUCCESS
         );
     }

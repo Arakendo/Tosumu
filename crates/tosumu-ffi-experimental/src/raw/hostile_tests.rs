@@ -205,6 +205,13 @@ fn operations() -> Vec<Operation> {
             kind: HandleKind::Database,
             call: |handle| tosumu_experimental_v1_test_inject_database_panic(handle),
         });
+        operations.push(Operation {
+            name: "test_inject_database_panic_after_write_acquisition",
+            kind: HandleKind::Database,
+            call: |handle| {
+                tosumu_experimental_v1_test_inject_database_panic_after_write_acquisition(handle)
+            },
+        });
         operations
     }
     #[cfg(not(feature = "ffi-test-hooks"))]

@@ -48,6 +48,8 @@ int main(int argc, char **argv) {
     assert(argc == 3);
     assert(sizeof(tosumu_experimental_v1_outcome) == 16);
     assert(tosumu_experimental_v1_abi_version() == 1);
+    require_boundary(tosumu_experimental_v1_test_inject_unassociated_panic(),
+                     TOSUMU_EXPERIMENTAL_V1_BOUNDARY_PANIC);
 
     const uint8_t key[] = {0x00, 'k', 0xff};
     const uint8_t first[] = {'f', 'i', 'r', 's', 't'};
@@ -292,6 +294,36 @@ int main(int argc, char **argv) {
     assert(poisoned.tag == TOSUMU_EXPERIMENTAL_V1_BOUNDARY_FAILURE);
     assert(poisoned.status == TOSUMU_EXPERIMENTAL_V1_BOUNDARY_POISONED);
     require_success(tosumu_experimental_v1_database_close(reopened.payload));
+
+    tosumu_experimental_v1_outcome acquisition =
+        tosumu_experimental_v1_database_open(
+            (const uint8_t *)argv[1], strlen(argv[1]));
+    require_success(acquisition);
+    require_boundary(
+        tosumu_experimental_v1_test_inject_database_panic_after_write_acquisition(
+            acquisition.payload),
+        TOSUMU_EXPERIMENTAL_V1_BOUNDARY_PANIC);
+    require_boundary(
+        tosumu_experimental_v1_database_get(
+            acquisition.payload, key, sizeof(key)),
+        TOSUMU_EXPERIMENTAL_V1_BOUNDARY_POISONED);
+    require_success(tosumu_experimental_v1_database_close(acquisition.payload));
+
+    tosumu_experimental_v1_outcome recovered =
+        tosumu_experimental_v1_database_open(
+            (const uint8_t *)argv[1], strlen(argv[1]));
+    require_success(recovered);
+    assert(tosumu_experimental_v1_database_get(
+               recovered.payload,
+               (const uint8_t *)"ffi-panic-staged",
+               16)
+               .tag == TOSUMU_EXPERIMENTAL_V1_ABSENT);
+    tosumu_experimental_v1_outcome recovered_value =
+        tosumu_experimental_v1_database_get(
+            recovered.payload, key, sizeof(key));
+    require_success(recovered_value);
+    require_bytes(recovered_value.payload, second, sizeof(second));
+    require_success(tosumu_experimental_v1_database_close(recovered.payload));
 
     tosumu_experimental_v1_outcome missing = tosumu_experimental_v1_database_open(
         (const uint8_t *)argv[2], strlen(argv[2]));
