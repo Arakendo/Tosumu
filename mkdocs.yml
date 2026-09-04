@@ -46,6 +46,12 @@ nav:
   - Safety and Limits: safety-and-limits.md
   - Roadmap: roadmap.md
   - Development: development.md
+  - CI/CD Laboratory Requirements:
+      - CI-CD Requirements/README.md
+      - Shared Security And Evidence: CI-CD Requirements/shared-security-and-evidence-requirements.md
+      - Mac M4 Runner: CI-CD Requirements/mac-m4-runner-requirements.md
+      - Proxmox Linux Runner: CI-CD Requirements/proxmox-linux-runner-requirements.md
+      - Admission Worksheet: CI-CD Requirements/admission-worksheet.md
   - Tosumu Command Language: Tosumu Command Language.md
   - Specifications:
       - Specifications/README.md
