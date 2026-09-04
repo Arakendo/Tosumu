@@ -4,10 +4,10 @@
 | --- | --- |
 | Status | Active |
 | Opened | 2026-08-03 |
-| Last updated | 2026-09-03 (cluster, assurance, and crypto-agility tracks opened) |
+| Last updated | 2026-09-03 (MVP+11 target-build admission current) |
 | Owner | Tosumu maintainers |
 | Authority | Tracking plan; `docs/Specifications/Tosumu Software Design Document.md` remains normative |
-| Current milestone | MVP+11 atomic multi-mutation admission |
+| Current milestone | MVP+11 mobile target-build admission |
 
 ## Purpose
 
@@ -298,7 +298,7 @@ post-MVP+10 SQL plan; audit moves to a separate future diagnostics/audit plan.
 - [x] Complete the experimental C lifecycle plus bounded-scan harness and its
       hostile handle/input/thread/close, multi-point panic, C sanitizer, exact
       symbol, and focused Rust Miri pressure corpus.
-- [ ] Admit the atomic multi-mutation contract before exposing batch or
+- [x] Admit the atomic multi-mutation contract before exposing batch or
       transaction symbols across the foreign boundary.
 - [ ] C ABI/FFI crate with opaque handles and explicit ownership rules.
 - [ ] Stable cross-language error and byte-buffer contracts.

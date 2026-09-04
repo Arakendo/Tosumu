@@ -14,8 +14,10 @@ This page is the public roadmap summary. It is intentionally shorter than the re
 - retain the completed MVP+11 hostile ownership, multi-point panic, Linux C
   sanitizer, exact-symbol, and focused Miri evidence without treating it as a
   stable ABI, general memory-safety proof, or mobile-support result
-- admit foreign atomic multi-mutation semantics before choosing a copied
-  command batch or core-owned transaction capability
+- retain AR-0019's bounded copied command-batch evidence without calling it an
+  interactive transaction or adding conditional/generation semantics
+- admit exact iOS/Android target, toolchain, dependency-closure, artifact, and
+  loader profiles before adding packaging dependencies or mobile claims
 - advance [AR-0015](Architectural%20Reviews/AR-0015-native-replication-scope-authority-and-failure-model.md):
   define concrete failure domains, RPO/RTO hypotheses, authority epochs, and
   fencing requirements before native replication work

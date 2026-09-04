@@ -449,3 +449,25 @@ claim.
   outside the contained-panic/Miri observations.
 - Resulting ADR or documentation change: MVP+11 plan advances to Slice 3; no
   stable ABI, memory-safety certification, wrapper, or mobile claim.
+
+### Cycle 11 -- 2026-09-03
+
+- Status entering review: Incubating; Slice 3 required an atomic foreign-write
+  shape without extending a borrowed core transaction across calls.
+- New evidence: AR-0019 selected and exercised an adapter-owned, bounded,
+  copied, one-shot command batch. Twenty local feature-enabled Rust tests and
+  GitHub Actions run `33823985160`, independent C job `100872586029`, cover
+  commit, abort, duplicate ordering, copied-input independence, empty and stale
+  use, command/payload ceilings, close/execute races, returned-error rollback,
+  panic rollback/poison, and reopen conservation on cumulative commit
+  `6b4af380d5a82af0b659bcaf1ec2b0db250a88b4`.
+- Findings: the foreign caller needs a submitted command group, not ownership
+  of core writer state. Naming the object a batch preserves the exclusions: no
+  staged read, conditional command, savepoint, returned generation, retryable
+  consumed object, or writer authority across calls. No core or format change
+  was required.
+- Disposition: remain Incubating. Credit Slice 3 and advance to exact mobile
+  target/dependency/artifact admission. Keep all batch and ABI symbols private
+  and experimental.
+- Resulting ADR or documentation change: AR-0019 and MVP+11 plan updated; no
+  stable ABI, wrapper, target, or mobile claim.

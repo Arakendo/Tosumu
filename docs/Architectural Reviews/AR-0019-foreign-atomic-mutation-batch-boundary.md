@@ -182,13 +182,13 @@ generation result, stable ABI symbol, or compatibility promise in this cycle.
 
 ## Required Follow-Up
 
-- [ ] Retain concrete command-count and copied-payload limits and show rejection
+- [x] Retain concrete command-count and copied-payload limits and show rejection
       leaves the builder usable and the database untouched.
-- [ ] Implement the private batch state machine without changing
+- [x] Implement the private batch state machine without changing
       `tosumu-core` or durable bytes.
-- [ ] Add Rust hostile cases for wrong-kind/stale/thread/close/execute races,
+- [x] Add Rust hostile cases for wrong-kind/stale/thread/close/execute races,
       append allocation accounting, duplicate keys, empty batches, and panic.
-- [ ] Extend the independent C caller with commit, explicit abort, rollback,
+- [x] Extend the independent C caller with commit, explicit abort, rollback,
       reopen conservation, and limit cases.
 - [ ] Decide from wrapper or service evidence whether conditional commands or
       exact generation results justify reopening ADR-0006/0007.
@@ -217,3 +217,34 @@ memory or preparation cost requires snapshot-based parallel write planning.
   prototype and no core or compatibility change.
 - Resulting ADR or documentation change: AR-0019 opened; MVP+11 Slice 3 remains
   active pending the prototype and independent C evidence.
+
+### Cycle 2 -- 2026-09-03
+
+- Status entering review: Incubating; a bounded copied batch was authorized,
+  with its state machine, resource limits, hostile behavior, and independent C
+  conservation unobserved.
+- New evidence: the adapter now owns a seventh handle kind containing only
+  copied `put`/`delete` commands. It admits at most 1,024 commands and 16 MiB of
+  logical copied key/value payload, executes in append order, consumes on every
+  execute attempt that reaches the batch, and returns no generation. Twenty
+  feature-enabled Rust tests cover ordered duplicate keys, delete, explicit
+  abort, empty and single-use batches, failed-append recovery, both limits,
+  wrong handles/threads, and 32 close/execute races. Feature-only commands force
+  an ordinary error and a panic after earlier real commands stage data.
+  GitHub Actions run `33823985160`, independent C job `100872586029`, exercised
+  cumulative commit `6b4af380d5a82af0b659bcaf1ec2b0db250a88b4`
+  successfully from 00:59:28 through 00:59:52 UTC on 2026-09-04 under the
+  ordinary, AddressSanitizer, and UndefinedBehaviorSanitizer harness variants.
+  Focused Miri job `100872585989` also remained successful.
+- Findings: copied foreign inputs remain independent of caller mutation. A
+  returned error rolls back earlier staged commands and leaves the database
+  usable; a panic rolls back, poisons the database handle, and requires close
+  plus reopen; neither staged key appears after reopen. No core public type,
+  durable byte, conditional-write meaning, or generation-result contract was
+  added. The existing generation-zero snapshot race assertion was also
+  corrected: generation zero is valid before the first commit.
+- Disposition: remain Incubating for conditional and generation-result
+  questions, but credit the unconditional private batch prototype and MVP+11
+  Slice 3 exit. Move to mobile target-build admission.
+- Resulting ADR or documentation change: plan and experimental ABI notes align
+  with the one-shot batch; no stable ABI or core ADR change.

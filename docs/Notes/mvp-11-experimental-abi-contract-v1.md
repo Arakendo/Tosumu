@@ -2,9 +2,9 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed experiment schema; no exported symbols or compatibility promise |
+| Status | Private experimental schema; symbols exist with no compatibility promise |
 | Observed | 2026-09-03 |
-| Owner | AR-0017 / MVP+11 Slice 1 |
+| Owner | AR-0017 / MVP+11 Slices 1-3 |
 | Depends on | Foreign contract inventory, `SharedKvStore`, `ErrorReport`, ADR-0001, AR-0017 |
 
 ## Purpose
@@ -17,7 +17,7 @@ corpus and independent caller justify stabilization.
 
 ## Boundary Shape
 
-The experiment has five subjects:
+The experiment has six subjects:
 
 | Subject | Capability | Explicit exclusion |
 | --- | --- | --- |
@@ -26,6 +26,7 @@ The experiment has five subjects:
 | Immutable byte-result handle | length, bounded copy/view, close | No allocator mixing or mutation |
 | Structured error handle | code, status, message, typed details, close | No global/thread-local last error and no Rust source object |
 | Call result | success/absence/not-applied/error plus exactly the payload allowed by that outcome | No null-as-error convention |
+| Mutation batch handle | bounded copied `put`/`delete` commands, one consuming execute, explicit close/abort | No staged reads, conditions, savepoints, generation result, or live core transaction |
 
 Every non-zero handle is opaque. Its bit pattern has no contractual address,
 kind, slot, or generation meaning and callers must not interpret it. Zero is
@@ -44,6 +45,12 @@ database_delete(database, key) -> success | error
 database_get(database, key) -> bytes | absent | error
 database_snapshot(database) -> snapshot | error
 database_connection_info(database) -> observation | error
+
+batch_create() -> batch | error
+batch_append_put(batch, key, value) -> success | error
+batch_append_delete(batch, key) -> success | error
+database_execute_batch(database, batch) -> success | error
+batch_close(batch) -> success | error
 
 snapshot_generation(snapshot) -> u64 | error
 snapshot_get(snapshot, key) -> bytes | absent | error
@@ -220,12 +227,19 @@ asynchronous platform authorization are absent from v1. If later evidence
 requires them, AR-0017 must define thread, reentrancy, lifetime, shutdown, and
 late-completion behavior first.
 
-## Multi-Mutation Exclusion
+## Multi-Mutation Batch
 
 No `transaction_begin` operation exists in this schema. The current Rust write
-transaction is a closure-scoped borrow and cannot remain live across calls.
-MVP+11 Slice 3 must admit either a named copied mutation batch or an owned core
-transaction contract before adding atomic multi-call behavior.
+transaction remains a closure-scoped borrow and never survives a call.
+AR-0019 admits a private adapter-owned batch that copies at most 1,024 commands
+and 16 MiB of logical key/value payload, applies unconditional `put`/`delete`
+commands in append order, and is consumed before core execution. Close is an
+explicit abort before execution. Empty execution is rejected and consumed.
+
+The batch is deliberately not called a transaction: it has no staged reads,
+conditions, savepoints, returned commit generation, or resubmission. Exact
+generation and conditional results require a new core contract; a racy later
+connection observation cannot fabricate them.
 
 ## Required Falsification Before Implementation Graduation
 
@@ -238,6 +252,10 @@ transaction contract before adding atomic multi-call behavior.
 - error and byte objects remain valid after database close;
 - thread-affinity rejection is deterministic; and
 - allocation/registry exhaustion is explicit and leak-free.
+- copied batch input is independent of caller mutation after append;
+- batch limit rejection preserves the builder and never reaches the database;
+- returned error and panic after staged commands publish none of them; and
+- execute/close races produce exactly one consuming winner.
 
 ## Disposition
 

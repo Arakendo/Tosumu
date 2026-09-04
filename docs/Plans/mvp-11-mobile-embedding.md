@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; Slices 0-2 complete and Slice 3 atomic-mutation admission current |
+| Status | Active; Slices 0-3 complete and Slice 4 target-build admission current |
 | Opened | 2026-09-03 |
 | Owner | Mobile adapters above `tosumu-core` |
 | Target | Callback-free C ABI, independent Swift/Kotlin callers, and named iOS/Android qualification profiles |
@@ -87,15 +87,16 @@ structured errors, but all symbols remain explicitly experimental.
 
 ## Slice 3: Atomic Multi-Mutation Admission
 
-- [ ] Compare an adapter-owned copied mutation batch with a core-owned
+- [x] Compare an adapter-owned copied mutation batch with a core-owned
       transaction capability.
-- [ ] Specify staged-read, duplicate-key, conditional-write, abort, commit,
+- [x] Specify staged-read, duplicate-key, conditional-write, abort, commit,
       poison, memory-bound, and generation-result semantics.
-- [ ] Require an independent Rust caller if core gains a new owned transaction
+- [x] Require an independent Rust caller if core gains a new owned transaction
       contract; require a C caller for either option.
-- [ ] Accept the narrower command-batch name if it cannot provide interactive
+- [x] Accept the narrower command-batch name if it cannot provide interactive
       transaction semantics.
-- [ ] Update or add an ADR before changing the core public contract.
+- [x] Update or add an ADR before changing the core public contract; the
+      admitted prototype required no core change.
 
 **Exit:** foreign callers can perform named atomic behavior without retaining a
 borrow across calls or using callbacks.
@@ -202,10 +203,11 @@ No rung implies the next.
 
 ## Immediate Next Slice
 
-Open the Slice 3 architecture review and compare a bounded adapter-owned copied
-command batch with a core-owned transaction capability. Settle staged reads,
-duplicate and conditional mutations, abort/commit, poison, memory limits, and
-generation-result semantics before adding another exported mutation symbol.
+Inventory exact iOS and Android Rust targets, minimum OS levels, SDK/NDK and
+linker inputs, target-specific dependency/build-script closures, artifact
+shapes, loader checks, and panic strategy. Admit named compile/load profiles
+before adding packaging dependencies or making simulator, device, filesystem,
+or mobile-support claims.
 
 ## References
 

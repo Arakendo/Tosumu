@@ -291,11 +291,37 @@ schedules only. It does not prove the ABI sound, validate arbitrary foreign
 addresses, cover allocator aborts or platform exceptions, instrument an actual
 C-to-Rust call, or qualify any mobile target.
 
+### Initial Slice 3 observations
+
+AR-0019 admits only an adapter-owned command batch, not a foreign transaction.
+The seventh handle kind owns copied unconditional `put`/`delete` commands and
+is limited to 1,024 commands and 16 MiB of logical copied key/value payload.
+Append is creating-thread-only, close is finalizer-thread-safe, and execute
+removes the handle before entering one existing `SharedKvStore::write`
+callback. Repeated keys execute in order. Abort, empty execution, every
+post-admission error, and panic leave no reusable batch handle.
+
+The feature-enabled Rust adapter suite passes 20 tests, including 32
+execute/close races. Feature-only fault commands inject an ordinary core error
+or panic after a preceding real command has staged a mutation. The ordinary
+error rolls back and leaves the database usable. The panic rolls back, poisons
+the database handle, and requires close plus reopen. Neither staged mutation is
+visible after reopen.
+
+GitHub Actions run `33823985160`, independent C job `100872586029`, exercised
+commit, abort, caller-buffer mutation after append, duplicate ordering, delete,
+one-shot consumption, count and payload limits, hostile input, ordinary-error
+rollback, panic rollback, and reopen conservation for cumulative commit
+`6b4af380d5a82af0b659bcaf1ec2b0db250a88b4`. The job passed from 00:59:28
+through 00:59:52 UTC on 2026-09-04 in its ordinary, AddressSanitizer, and
+UndefinedBehaviorSanitizer variants. This remains Linux C process evidence for
+an experimental adapter; it is not a stable ABI or mobile-target result.
+
 ## Disposition
 
 Admit the bounded private implementation above and close the planned Slice 2
-ownership-pressure gate. Do not admit a stable ABI,
+and unconditional Slice 3 pressure gates. Do not admit a stable ABI,
 published crate, generated binding, static library, callback, asynchronous
 operation, multi-call transaction, platform protector, mobile target, or
-cross-platform compatibility claim. Continue through AR-0017's Slice 3 atomic
-multi-mutation admission gate before adding such an operation.
+cross-platform compatibility claim. Continue through AR-0017's named mobile
+target-build admission gate before adding packaging or support claims.
